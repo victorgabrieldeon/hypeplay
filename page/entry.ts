@@ -19,7 +19,7 @@ async function start() {
     response_type: "code",
     state: "",
     prompt: "none",
-    scope: ["identify", "guilds.members.read"],
+    scope: ["identify"],
   });
   const res = await fetch("token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
   const body = (await res.json().catch(() => ({}))) as { pass?: string; error?: string };

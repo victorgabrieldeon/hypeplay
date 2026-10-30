@@ -13,9 +13,6 @@ const PORT = Number(process.env.PORT ?? 3003);
 // The Discord app the Activity belongs to (Developer Portal → OAuth2).
 const DISCORD_CLIENT_ID = env("DISCORD_CLIENT_ID");
 const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
-// The guilds whose members may play: the access boundary, so there's no default.
-const DISCORD_GUILDS = env("DISCORD_GUILDS").split(",").map((g) => g.trim()).filter(Boolean);
-if (!DISCORD_GUILDS.length) throw new Error("missing env: DISCORD_GUILDS");
 
 const pageDir = join(import.meta.dir, "..", "page");
 const built = await Bun.build({
@@ -31,7 +28,7 @@ const bt3 = createBt3({
   entryJs: await built.outputs[0]!.text(),
   // The client secret signs the passes too: resetting it in the portal also ends every open session.
   passes: createPasses(DISCORD_CLIENT_SECRET),
-  discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET, guilds: DISCORD_GUILDS }),
+  discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET }),
 });
 
 Bun.serve<NetData>({
@@ -40,4 +37,4 @@ Bun.serve<NetData>({
   websocket: bt3.websocket,
 });
 
-console.log(`bt3 on http://localhost:${PORT} (guilds ${DISCORD_GUILDS.join(", ")})`);
+console.log(`bt3 on http://localhost:${PORT}`);

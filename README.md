@@ -6,8 +6,8 @@ compilado no próprio servidor a partir da ISO do dono. Desenho original (da ép
 HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-design.md).
 
 > **Só para servidor privado.** O jogo é compilado a partir do jogo de verdade: use só com amigos que têm,
-> cada um, a própria cópia do jogo. Só joga quem é membro de um dos servidores do Discord em
-> `DISCORD_GUILDS`, o que protege de quem está fora deles, não de quem está dentro.
+> cada um, a própria cópia do jogo. Qualquer pessoa que abrir a atividade no Discord joga: o que segura o
+> acesso é o app não ser divulgado (deixe o *Public Bot* desligado e adicione o app só aos seus servidores).
 
 ## Como usar
 
@@ -32,7 +32,7 @@ Um app só para o jogo (não o do HypeMeet), em https://discord.com/developers/a
    aparece nas plataformas marcadas.
 3. **Activities → URL Mappings**: `/` → `bt3.exemplo.com` (o destino vai **sem** `https://`).
 4. **Installation**: **Guild Install**, com o *Discord Provided Link* e só o escopo `applications.commands`.
-   Adicione o app aos servidores de `DISCORD_GUILDS`.
+   Adicione o app aos seus servidores.
 
 ## Deploy (Dokploy)
 
@@ -47,16 +47,14 @@ Um app só para o jogo (não o do HypeMeet), em https://discord.com/developers/a
 | --- | --- |
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
-| `DISCORD_GUILDS` | IDs dos servidores do Discord cujos membros podem jogar, separados por vírgula (botão direito no servidor → *Copiar ID*, com o modo desenvolvedor ligado) |
 
-Sem qualquer uma delas o servidor não sobe.
+Sem qualquer uma das duas o servidor não sobe.
 
 ## Acesso
 
-A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopos `identify` e
-`guilds.members.read`) e o troca em `POST /token`. O servidor troca o código pelo token do Discord, confere
-se a pessoa é membro de um servidor de `DISCORD_GUILDS` (nunca o servidor que a página diz, sempre o
-Discord) e devolve um passe assinado aqui mesmo (HMAC, 12 h). A entrada então abre o jogo num iframe em
+A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopo `identify`) e o
+troca em `POST /token`. O servidor troca o código pelo usuário do Discord e devolve um passe assinado aqui
+mesmo (HMAC, 12 h): sem passar pelo Discord, não há passe. A entrada então abre o jogo num iframe em
 `p/<passe>/`: tudo do jogo mora sob esse caminho, porque o iframe não manda cabeçalhos e, no Discord, não tem
 cookie. Sem passe válido, tudo ali responde 403. A entrada e o ícone são públicos; só o Discord pode
 emoldurar as páginas.
@@ -74,7 +72,7 @@ lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
 ```sh
 bun install
 bun test
-DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… DISCORD_GUILDS=… bun run start   # porta 3003; guarda tudo em data/bt3/
+DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… bun run start   # porta 3003; guarda tudo em data/bt3/
 ```
 
 O Discord só abre a atividade por HTTPS: exponha a porta 3003 num túnel (ex. `cloudflared tunnel --url

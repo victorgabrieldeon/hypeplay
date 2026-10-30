@@ -133,15 +133,12 @@ export function createBt3({ dir, pageDir, entryJs, passes, discord, now = () => 
     if (req.method !== "POST") return text("Método não permitido", 405);
     const code = ((await req.json().catch(() => null)) as { code?: unknown } | null)?.code;
     if (typeof code !== "string" || !code || code.length > 200) return json({ error: "Pedido inválido" }, 400);
-    let user;
     try {
-      user = await discord.signIn(code);
+      return json({ pass: passes.issue(await discord.signIn(code)) });
     } catch (err) {
       console.error("discord sign-in failed:", err);
       return json({ error: "Não deu para entrar pelo Discord. Feche e abra a atividade de novo." }, 502);
     }
-    if (!user) return json({ error: "Este jogo é só para os membros de um servidor do Discord liberado." }, 403);
-    return json({ pass: passes.issue(user) });
   }
 
   async function handle(req: Request, server?: Server<NetData>): Promise<Response | undefined> {

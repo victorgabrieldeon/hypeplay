@@ -1,4 +1,4 @@
-# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILDS (README).
+# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET (README).
 # Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
 services:
   app:
@@ -7,7 +7,6 @@ services:
     environment:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
-      DISCORD_GUILDS: ${DISCORD_GUILDS}
     volumes:
       - bt3-data:/app/data
 

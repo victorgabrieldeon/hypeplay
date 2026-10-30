@@ -14,8 +14,8 @@ const passes: Passes = {
 };
 const discord = {
   signIn: async (code: string) => {
-    if (code === "down") throw new Error("discord down");
-    return code === "ana" ? { id: "42", name: "Ana" } : null;
+    if (code !== "ana") throw new Error("discord refused the code");
+    return { id: "42", name: "Ana" };
   },
 };
 let dir: string;
@@ -60,13 +60,12 @@ test("the rest needs a valid pass", async () => {
   expect((await get("/elsewhere")).status).toBe(404);
 });
 
-test("token: a Discord code for a pass, only for members of an allowed guild", async () => {
+test("token: a Discord code for a pass", async () => {
   const post = (body: unknown) => get("/token", { method: "POST", body: JSON.stringify(body) });
   const ok = await post({ code: "ana" });
   expect(ok.status).toBe(200);
   expect(await ok.json()).toEqual({ pass });
-  expect((await post({ code: "eve" })).status).toBe(403);
-  expect((await post({ code: "down" })).status).toBe(502);
+  expect((await post({ code: "forged" })).status).toBe(502);
   for (const bad of [{}, { code: 1 }, { code: "" }, { code: "x".repeat(201) }]) expect((await post(bad)).status).toBe(400);
   expect((await get("/token")).status).toBe(405);
 });

@@ -4,6 +4,7 @@ node_modules
 data
 builder
 ps2-builder
+emulator/data
 .superpowers
 **/*.test.ts
 server/testing

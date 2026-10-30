@@ -16,6 +16,10 @@ O port testado de hoje:
 compilado no próprio servidor a partir da ISO do dono. Desenho original (da época em que era plugin do
 HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-design.md).
 
+E uma prateleira de **homebrew**: cerca de 1600 jogos livres de Game Boy, Game Boy Color, GBA e NES do
+[Homebrew Hub](https://hh.gbdev.io), prontos para jogar no [EmulatorJS](https://emulatorjs.org), sem ninguém
+enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma).
+
 > **Só para servidor privado.** O jogo é compilado a partir do jogo de verdade: use só com amigos que têm,
 > cada um, a própria cópia do jogo. Qualquer pessoa que abrir a atividade no Discord joga: o que segura o
 > acesso é o app não ser divulgado (deixe o *Public Bot* desligado e adicione o app só aos seus servidores).
@@ -35,6 +39,9 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   ele (F1 abre as configurações do jogo).
 - **Isolamento:** o jogo roda sempre em origem opaca (sandbox no cabeçalho CSP), sem `localStorage`. Por isso
   saves e configurações do jogo não ficam guardados entre sessões.
+- **Homebrew:** a prateleira "Homebrew" da biblioteca, com busca (nome, autor, tag) e filtro por plataforma. Clicar
+  numa capa abre o jogo no emulador; "Voltar" volta para a biblioteca. Teclado ou controle (o controle de PS2 mapeado em "Controle" vale aqui também); os controles do
+  EmulatorJS ficam na barra de baixo. Saves e save states duram só a sessão (a mesma origem opaca).
 
 ## Jogos de PS2
 
@@ -51,7 +58,7 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   qualquer computador.
 - **Controle:** sempre um controle de PS2. Se o navegador não reconhecer (adaptador USB genérico), "Controle" na
   biblioteca mapeia os botões uma vez; o mapa fica no servidor e vale em todos os jogos, BT3 incluso.
-- **Intro:** ao abrir qualquer jogo toca `intro.mp4` do volume (`/app/data/intro.mp4`), se existir; clique ou
+- **Intro:** ao abrir um jogo de PS2 (o BT3 incluso; homebrew não) toca `intro.mp4` do volume (`/app/data/intro.mp4`), se existir; clique ou
   tecla pula. Não vai para o git: é material da Sony.
 - **Online:** dentro do jogo, "Abrir sala"; na biblioteca os amigos veem "Fulano está jogando — Entrar como
   jogador 2". O host transmite o jogo por WebRTC e o controle do convidado vira o jogador 2 (vale para jogos que
@@ -116,10 +123,16 @@ controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/int
 **Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Recompilar" na
 biblioteca, ou pare o `ps2-builder` e apague `ps2-work/<serial>/` e `ps2/<serial>/build/`.
 
+O homebrew fica em `/app/data/homebrew/`: `catalog.json` (a lista, buscada na API do Homebrew Hub ao subir
+quando tem mais de um dia, e depois a cada dia) e, por jogo, o ROM e a capa, baixados do GitHub dos bancos
+do Homebrew Hub na primeira vez que alguém pede. Apagar a pasta só faz baixar de novo. O EmulatorJS e os
+cores vão na imagem (`emulator/fetch.ts`, versão fixa e conferida pelo hash do npm).
+
 ## Local
 
 ```sh
 bun install
+bun emulator/fetch.ts   # EmulatorJS e os cores em emulator/data/ (uma vez)
 bun test
 DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… bun run start   # porta 3003; guarda tudo em data/bt3/
 ```
@@ -143,14 +156,17 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 
 ## Por dentro
 
-- `server/`: o catálogo (`games.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
+- `server/`: o catálogo (`games.ts`), a prateleira de homebrew (`homebrew.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), salas do online em memória (`rooms.ts`, port do `room.js` do fork). Para os jogos de PS2: a
   biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
   mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
   Range e isolamento (`http.ts`).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
-  home (`index.html` e `home/`: biblioteca, envio, progresso, controle, intro) e os scripts empacotados ao subir:
-  `pad.js` (o controle mapeado dentro dos jogos, de `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).
+  home (`index.html` e `home/`: biblioteca, homebrew, envio, progresso, controle, intro), o emulador do homebrew
+  (`play.html`) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos e do emulador, de
+  `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).
+- `emulator/fetch.ts`: baixa o EmulatorJS e os cores (gambatte, mgba, fceumm) dos tarballs do npm. Não são
+  dependências do `package.json` porque o pacote puxa as ferramentas de build e, opcional, todos os cores (300 MB).
 - `builder/`: a imagem e o laço do compilador do BT3. O `patch.ts` troca os caminhos absolutos do jogo por
   relativos e falha alto se o fork mudar.
 - `ps2-builder/`: a imagem e o laço do compilador dos jogos de PS2 (o `port.sh` do ps2-web-recomp num commit fixo).

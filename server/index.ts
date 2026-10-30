@@ -52,6 +52,9 @@ const app = createApp({
   scripts: { "iso.js": await bundle("iso.ts"), "pad.js": await bundle("pad.ts") },
 });
 
+// Homebrew Hub's list: the saved one now, a fresh one in the background when it's a day old.
+await app.homebrew.start();
+
 Bun.serve<NetData>({
   port: PORT,
   fetch: (req, server) => app.handle(req, server),

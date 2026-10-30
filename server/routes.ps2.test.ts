@@ -265,6 +265,13 @@ test("the page's scripts and fonts", async () => {
   expect((await get("fonts/../package.json")).status).toBe(404);
 });
 
+test("the homebrew player gets pad.js too, and keeps the home's sandbox", async () => {
+  const play = await ana("play/");
+  expect(play.status).toBe(200);
+  expect(await play.text()).toContain('<script src="../pad.js"></script></head>');
+  expect(play.headers.get("content-security-policy")).toStartWith("sandbox ");
+});
+
 test("the home's own scripts, from a fixed list, with the home's headers", async () => {
   const app = await ana("home/app.js");
   expect(app.status).toBe(200);

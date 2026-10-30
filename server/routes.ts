@@ -15,6 +15,10 @@
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, rebuild, cover, save
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
+ *             homebrew                     the homebrew shelf (homebrew.ts): Homebrew Hub's games
+ *             homebrew/<slug>/rom, cover   a homebrew game's ROM and cover, fetched the first time
+ *             play/                        the emulator's page (page/play.html), for a homebrew game
+ *             emulator/<file>              EmulatorJS and its cores (emulator/data/)
  *
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
@@ -32,6 +36,7 @@ import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
 import type { Pass, Passes } from "./pass";
 import type { People } from "./people";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
+import { createHomebrew, type HomebrewShelf } from "./homebrew";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { CARD_BYTES, type Saves } from "./saves";
 import { createDiscStore, MAX_PIECE, type DiscStore, type Status } from "./upload";
@@ -44,6 +49,9 @@ const TYPES: Record<string, string> = {
   css: "text/css; charset=utf-8",
   wasm: "application/wasm",
   png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
   svg: "image/svg+xml",
   json: "application/json",
   webmanifest: "application/manifest+json",
@@ -55,7 +63,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** The home's own scripts (page/home/), plain ES modules. */
-const HOME_FILES = new Set(["app.js", "library.js", "drawer.js", "wizard.js", "controller.js", "intro.js"]);
+const HOME_FILES = new Set(["app.js", "library.js", "drawer.js", "wizard.js", "controller.js", "intro.js", "homebrew.js"]);
 /** The PS2 games' page (ps2-builder publishes ps2web.html; it's served as the folder's index) and files. */
 const PS2_FILES = new Set(["ps2web.js", "ps2web.wasm", "ps2web.data"]);
 /** The home's two typefaces, from their packages (OFL), served from here: nothing is fetched elsewhere. */
@@ -71,6 +79,9 @@ export const HEADERS = {
   "Access-Control-Allow-Headers": "content-type",
   "Cache-Control": "no-cache",
 };
+
+/** Homebrew files and the emulator: a new version keeps the address, so a day, not forever like the disc pieces. */
+const DAY = { "Cache-Control": "private, max-age=86400" };
 
 const ENTRY_HEADERS = { "Content-Security-Policy": FRAME_ANCESTORS, "Cache-Control": "no-cache" };
 
@@ -90,6 +101,10 @@ export interface AppOptions {
   passes: Passes;
   discord: Pick<Discord, "signIn">;
   games?: Game[];
+  /** <dir>/homebrew/ by default; index.ts starts its refreshes. */
+  homebrew?: HomebrewShelf;
+  /** emulator/data/, filled by emulator/fetch.ts. */
+  emulatorDir?: string;
   now?: () => number;
   /** The PS2 library (library.ts) and what's kept per person; without them, the PS2 routes answer 404. */
   library?: Library;
@@ -131,7 +146,24 @@ export interface CatalogEntry {
 
 const PS2_DISC = "Um disco de PS2 que você tem. Jogos fora do BT3 são experimentais.";
 
-export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAMES, now = () => Date.now(), library, saves, people, ps2Rooms, publicUrl = "", turn, scripts = {} }: AppOptions) {
+export function createApp({
+  dir,
+  pageDir,
+  entryJs,
+  passes,
+  discord,
+  games = GAMES,
+  homebrew = createHomebrew({ dir: join(dir, "homebrew") }),
+  emulatorDir = join(import.meta.dir, "..", "emulator", "data"),
+  now = () => Date.now(),
+  library,
+  saves,
+  people,
+  ps2Rooms,
+  publicUrl = "",
+  turn,
+  scripts = {},
+}: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
   );
@@ -391,6 +423,19 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     return text("Não encontrado", 404);
   }
 
+  async function homebrewFile(slug: string, which: "rom" | "cover") {
+    let path: string | null;
+    try {
+      path = await homebrew.file(slug, which);
+    } catch (err) {
+      console.error("homebrew download failed:", err);
+      return text("Não deu para baixar o jogo do Homebrew Hub. Tente de novo daqui a pouco.", 502);
+    }
+    if (!path) return text("Não encontrado", 404);
+    const name = which === "rom" ? "rom.bin" : homebrew.get(slug)!.cover!;
+    return file(path, typeOf(name), DAY);
+  }
+
   async function token(req: Request): Promise<Response> {
     if (req.method !== "POST") return text("Método não permitido", 405);
     const code = ((await req.json().catch(() => null)) as { code?: unknown } | null)?.code;
@@ -452,6 +497,14 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
     if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "") : text("Não encontrado", 404);
+    if (path === "/homebrew") return json({ games: homebrew.list() });
+    const hb = /^\/homebrew\/([\w.-]+)\/(rom|cover)$/.exec(path);
+    if (hb) return homebrewFile(hb[1]!, hb[2] as "rom" | "cover");
+    // (pad.js: a mapped PS2 controller plays the homebrew games too)
+    if (path === "/play/") return page(join(pageDir, "play.html"), "../pad.js", HEADERS);
+    // (the URL parser already folded any "..": the pattern is the second lock)
+    const emu = /^\/emulator\/((?:[\w-][\w.-]*\/)*[\w-][\w.-]*)$/.exec(path);
+    if (emu) return file(join(emulatorDir, emu[1]!), undefined, DAY);
     const g = /^\/([\w-]+)(\/.*)?$/.exec(path);
     const on = g && shelf.get(g[1]!);
     if (!on) return text("Não encontrado", 404);
@@ -488,7 +541,7 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     },
   };
 
-  return { handle, websocket, shelf };
+  return { handle, websocket, shelf, homebrew };
 }
 
 export type App = ReturnType<typeof createApp>;

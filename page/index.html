@@ -6,7 +6,7 @@
 <title>CordPlay</title>
 <!--
   CordPlay's home (server/routes.ts serves it at /p/<pass>/, framed by page/entry.html): the library, each game's
-  drawer, adding a game, the controller screen and the intro. home/app.js reads `games` every 2 s. Runs as an opaque
+  drawer, adding a game, the controller screen, the intro and the homebrew shelf (home/homebrew.js). home/app.js reads `games` every 2 s. Runs as an opaque
   origin: every address here is relative, and nothing is kept in this browser. Tokens: DESIGN.md.
 -->
 <style>
@@ -127,6 +127,21 @@
   .add:hover { background: rgb(118 85 255 / 0.12); border-color: var(--accent); color: var(--ink); }
   .add svg { width: 64px; height: 64px; }
   .add b { color: var(--ink); font-weight: 600; }
+
+  /* homebrew shelf: screenshots, not cases */
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-bottom: var(--s4); }
+  .filters .field { flex: 1; min-width: 200px; width: auto; }
+  .filters .chip { border: 0; cursor: pointer; padding: 7px 12px; transition: background var(--fast) var(--ease); }
+  .filters .chip:hover { background: rgb(255 255 255 / 0.14); }
+  .filters .chip[aria-pressed=true] { background: var(--primary); color: #fff; }
+  .grid.hb { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .grid.hb .cover { aspect-ratio: 10 / 9; background: #000; }
+  .grid.hb .cover img { object-fit: contain; image-rendering: pixelated; }
+  .grid.hb .cover .ph { display: grid; place-items: center; height: 100%; font: var(--t-xl); color: var(--faint); }
+  .grid.hb .cover .tag { position: absolute; left: var(--s2); top: var(--s2); }
+  .card .by { color: var(--soft); font: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .more { margin: var(--s4) auto 0; display: flex; }
+  .note { color: var(--soft); font: var(--t-sm); }
 
   /* drawer */
   .scrim { position: fixed; inset: 0; background: rgb(5 4 10 / 0.6); z-index: 20; opacity: 0; pointer-events: none; transition: opacity var(--base) var(--ease); }
@@ -250,6 +265,7 @@
     </div>
     <nav aria-label="Seções">
       <button type="button" class="on" data-nav="library"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>
+      <button type="button" data-nav="homebrew"><svg class="i"><use href="#i-play"/></svg><span class="t">Homebrew</span><span class="count num" id="n-hb"></span></button>
       <button type="button" data-add><svg class="i"><use href="#i-plus"/></svg><span class="t">Adicionar jogo</span></button>
       <button type="button" data-controller><svg class="i"><use href="#i-pad"/></svg><span class="t">Controle</span></button>
     </nav>
@@ -268,6 +284,17 @@
     <section aria-labelledby="games-title">
       <div class="section-head"><h2 id="games-title">Seus jogos</h2><span>Enviados uma vez, para todo mundo</span></div>
       <div class="grid" id="grid"></div>
+    </section>
+    <section id="homebrew" aria-labelledby="hb-title">
+      <div class="section-head"><h2 id="hb-title">Homebrew</h2><span id="hb-count">Jogos livres do Homebrew Hub, prontos para jogar</span></div>
+      <div class="filters">
+        <input class="field" id="hb-q" type="search" placeholder="Buscar por nome, autor ou tag" aria-label="Buscar homebrew">
+        <div class="chips" id="hb-plat" role="group" aria-label="Plataforma">
+          <button type="button" class="chip" data-plat="" aria-pressed="true">Todos</button><button type="button" class="chip" data-plat="GB" aria-pressed="false">Game Boy</button><button type="button" class="chip" data-plat="GBC" aria-pressed="false">Game Boy Color</button><button type="button" class="chip" data-plat="GBA" aria-pressed="false">GBA</button><button type="button" class="chip" data-plat="NES" aria-pressed="false">NES</button>
+        </div>
+      </div>
+      <div class="grid hb" id="hb-grid"><div class="busy"><div class="spin"></div><p>Carregando a lista do Homebrew Hub…</p></div></div>
+      <button type="button" class="btn second more" id="hb-more" hidden>Mostrar mais</button>
     </section>
   </main>
 </div>

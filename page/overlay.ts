@@ -49,6 +49,16 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
 #cp-ov .cp-online button { height: 36px; border: 0; border-radius: 9px; background: #7655ff; color: #fff; font-weight: 700; cursor: pointer;
   box-shadow: 0 8px 20px -8px rgb(118 85 255 / 0.6); }
 #cp-ov .cp-online button:disabled { background: #242040; box-shadow: none; cursor: default; }
+.cp-code { font: 700 13px/18px ui-monospace, monospace; letter-spacing: 0.14em; color: #c9bdff; padding: 1px 6px; border-radius: 6px; background: #242040; }
+#cp-top { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
+  width: max-content; max-width: min(520px, calc(100% - 120px)); padding: 12px 10px 12px 16px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
+  backdrop-filter: blur(10px); box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(160 140 255 / 0.3);
+  font: 500 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #d9d8ea; animation: cp-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+#cp-top p { margin: 0; }
+#cp-top b { color: #f3f2fb; }
+#cp-top button { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: #a3a1bd; cursor: pointer; }
+#cp-top button:hover { color: #f3f2fb; background: #242040; }
+#cp-top svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 #cp-ov .cp-btn:focus-visible, #cp-ov input:focus-visible, #cp-ov .cp-seg button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
 #cp-ov svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #cp-ov .cp-panel { position: absolute; top: 44px; right: 0; width: 288px; padding: 14px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
@@ -79,7 +89,8 @@ html[data-cp-filter=crt] canvas, html[data-cp-filter=crt] video { filter: contra
 
 const ICON_ON = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
 const ICON_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>';
-const ICON_BACK = '<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>';
+const ICON_CLOSE = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const ICON_BACK ='<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>';
 const ICON_TUNE ='<svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>';
 
 let saveTimer = 0;
@@ -162,8 +173,33 @@ function build() {
   document.addEventListener("pointerdown", (e) => { if (!ov.contains(e.target as Node)) toggle(false); }, true);
   apply();
   if (pending) showOnline(...pending);
-  else if (document.querySelector('meta[name="hypeplay-online"]')?.getAttribute("content") === "menu")
-    showOnline("No <b>menu principal</b> do jogo, escolha <b>Dragon Net Battle</b>: crie uma sala ou entre com o código de um amigo.");
+  else if (document.querySelector('meta[name="hypeplay-online"]')?.getAttribute("content") === "menu") portOnline();
+}
+
+/**
+ * BT3's port plays online in its own Dragon Net Battle (main menu). Opened from the library to join a friend's room
+ * (?join=CODE) or to open one (?online=host), a note at the top shows the way there until it's closed.
+ */
+function portOnline() {
+  const q = new URLSearchParams(location.search);
+  const code = (q.get("join") ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
+  const host = q.get("online") === "host";
+  const way = code
+    ? `No <b>menu principal</b> do jogo, escolha <b>Dragon Net Battle</b> → <b>Join a Match</b> e digite <span class="cp-code">${code}</span>.`
+    : `No <b>menu principal</b> do jogo, escolha <b>Dragon Net Battle</b>: <b>Host a Match</b> cria uma sala (o código aparece na biblioteca para os amigos), <b>Join a Match</b> entra com o código de um amigo.`;
+  showOnline(way);
+  if (!code && !host) return;
+  // (gone from the address: the game reloads itself into the match and back, and the note is for now only)
+  q.delete("join");
+  q.delete("online");
+  history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
+  const note = document.createElement("div");
+  note.id = "cp-top";
+  note.setAttribute("role", "status");
+  note.innerHTML = `<p>${code ? `<b>Sala <span class="cp-code">${code}</span></b><br>` : "<b>Jogar online</b><br>"}${way}</p>
+    <button type="button" aria-label="Fechar">${ICON_CLOSE}</button>`;
+  note.querySelector("button")!.addEventListener("click", () => note.remove());
+  document.body.append(note);
 }
 
 // The page's controls (this button, ps2play.ts's bar) show while the pointer moves and hide a few seconds after.

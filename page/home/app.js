@@ -121,9 +121,18 @@ export async function send(key, file) {
   }
 }
 
+/**
+ * Where a game opens: a PS2 game's player 2 watches the host's stream (watch/); `join` is a friend's room, `online`
+ * opens one (for BT3's port, both point the way to its own Dragon Net Battle); else the game itself.
+ */
+export function gameUrl(g, join, online) {
+  if (join && g.kind === 'recomp') return `${g.key}/watch/?room=${encodeURIComponent(join)}`;
+  return `${g.key}/game/${join ? `?join=${encodeURIComponent(join)}` : online ? '?online=host' : ''}`;
+}
+
 /** Opens a game: the intro (intro.js, when it's there) first. Replaced by intro.js's own when loaded. */
 export const hooks = {
-  play: (g, join) => { location.href = `${g.key}/game/${join ? '?join=' + encodeURIComponent(join) : ''}`; },
+  play: (g, join, online) => { location.href = gameUrl(g, join, online); },
   add: () => {},
   controller: () => {},
 };
@@ -188,7 +197,7 @@ document.addEventListener('click', async (e) => {
     return document.getElementById(d.nav)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
   if (d.open) return openDrawer(d.open);
-  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join); return; }
+  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d); return; }
   if (d.pick) return pickFile(d.pick, 'disc');
   if (d.cover) return pickFile(d.cover, 'cover');
   if ('bios' in d) return pickFile(state.open, 'bios');

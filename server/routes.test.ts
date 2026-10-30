@@ -3,13 +3,21 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Passes } from "./pass";
-import { createBt3, GAME_FILES, MANIFEST, PIECE } from "./routes";
+import { createBt3, GAME_FILES, PIECE } from "./routes";
 
 const PAGE_DIR = join(import.meta.dir, "..", "page");
-const HYPEMEET = "https://meet.example.com";
-// What HypeMeet vouches for (pass.ts asks it): just this one.
+// The one valid pass, issued to whoever signs in with code "ana" (Discord is faked: discord.test.ts covers it).
 const pass = "Ana-body.Ana_mac";
-const passes: Passes = { verify: async (p) => (p === pass ? { id: "Ana#1", name: "Ana", exp: Infinity } : null) };
+const passes: Passes = {
+  issue: () => pass,
+  verify: async (p) => (p === pass ? { id: "42", name: "Ana", exp: Infinity } : null),
+};
+const discord = {
+  signIn: async (code: string) => {
+    if (code === "down") throw new Error("discord down");
+    return code === "ana" ? { id: "42", name: "Ana" } : null;
+  },
+};
 let dir: string;
 let bt3: ReturnType<typeof createBt3>;
 // A small stand-in for the disc image: two whole pieces and a shorter last one.
@@ -23,19 +31,28 @@ beforeAll(async () => {
   for (const f of [...GAME_FILES, "bt3_node.js", "telemetry.log"]) await writeFile(join(dir, "build", f), `file ${f}`);
   await mkdir(join(dir, "work"));
   await writeFile(join(dir, "work", "secret.txt"), "intermediate");
-  bt3 = createBt3({ dir, pageDir: PAGE_DIR, hypemeetOrigin: HYPEMEET, passes });
+  bt3 = createBt3({ dir, pageDir: PAGE_DIR, entryJs: "/* entry */", passes, discord });
 });
 afterAll(() => rm(dir, { recursive: true, force: true }));
 
 const get = (path: string, init?: RequestInit) => bt3.handle(new Request(`http://localhost${path}`, init)) as Promise<Response>;
 const p = (rest: string) => `/p/${pass}/${rest}`;
 
-test("manifest and icon are public; the rest needs a valid pass", async () => {
-  const manifest = await get("/hypemeet-plugin.json");
-  expect(await manifest.json()).toEqual(MANIFEST);
-  expect(MANIFEST.pass).toBe(true);
+const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.com https://*.discordsays.com";
+
+test("the entry page, its script and the icon are public, framed only by Discord, not sandboxed (the SDK needs an origin)", async () => {
+  const entry = await get("/");
+  expect(await entry.text()).toContain('src="entry.js"');
+  expect(entry.headers.get("content-security-policy")).toBe(FRAME_ANCESTORS);
+  const js = await get("/entry.js");
+  expect(await js.text()).toBe("/* entry */");
+  expect(js.headers.get("content-type")).toStartWith("text/javascript");
+  expect(js.headers.get("content-security-policy")).toBe(FRAME_ANCESTORS);
   expect((await get("/icon.svg")).headers.get("content-type")).toBe("image/svg+xml");
-  expect((await get("/")).status).toBe(403);
+  expect((await get("/hypemeet-plugin.json")).status).toBe(404);
+});
+
+test("the rest needs a valid pass", async () => {
   const forged = `${pass.split(".")[0]}.AAAA`;
   for (const path of [`/p/${forged}/`, `/p/${forged}/status`, `/p/${forged}/game/disc/00000.bin`, "/p/nopass/status"])
     expect((await get(path)).status).toBe(403);
@@ -43,11 +60,15 @@ test("manifest and icon are public; the rest needs a valid pass", async () => {
   expect((await get("/elsewhere")).status).toBe(404);
 });
 
-test("the room opens it with ?pass=: on to p/<pass>/, relative (in Discord it lives under /plugins/bt3/)", async () => {
-  const res = await get(`/?pass=${pass}`);
-  expect(res.status).toBe(302);
-  expect(res.headers.get("location")).toBe(`p/${pass}/`);
-  expect((await get("/?pass=a%0d%0ab")).status).toBe(403);
+test("token: a Discord code for a pass, only for members of an allowed guild", async () => {
+  const post = (body: unknown) => get("/token", { method: "POST", body: JSON.stringify(body) });
+  const ok = await post({ code: "ana" });
+  expect(ok.status).toBe(200);
+  expect(await ok.json()).toEqual({ pass });
+  expect((await post({ code: "eve" })).status).toBe(403);
+  expect((await post({ code: "down" })).status).toBe(502);
+  for (const bad of [{}, { code: 1 }, { code: "" }, { code: "x".repeat(201) }]) expect((await post(bad)).status).toBe(400);
+  expect((await get("/token")).status).toBe(405);
 });
 
 test("the page, with the sandbox and CORS headers; the trailing slash is added", async () => {
@@ -57,7 +78,7 @@ test("the page, with the sandbox and CORS headers; the trailing slash is added",
   const csp = res.headers.get("content-security-policy")!;
   expect(csp).toStartWith("sandbox allow-scripts allow-forms allow-popups allow-downloads;");
   expect(csp).not.toContain("allow-same-origin");
-  expect(csp).toContain(`frame-ancestors ${HYPEMEET} https://discord.com https://*.discord.com https://*.discordsays.com`);
+  expect(csp).toEndWith(FRAME_ANCESTORS);
   expect(res.headers.get("access-control-allow-origin")).toBe("*");
   expect(res.headers.get("cache-control")).toBe("no-cache");
   const bare = await get(`/p/${pass}`);

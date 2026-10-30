@@ -1,17 +1,37 @@
 import { join } from "node:path";
+import { createDiscord } from "./discord";
 import { createPasses } from "./pass";
-import { BT3_ID, createBt3, type NetData } from "./routes";
+import { createBt3, type NetData } from "./routes";
+
+const env = (name: string) => {
+  const value = process.env[name];
+  if (!value) throw new Error(`missing env: ${name}`);
+  return value;
+};
 
 const PORT = Number(process.env.PORT ?? 3003);
-// The HypeMeet site whose rooms open the plugin: the only one allowed to frame it, and the one that vouches for passes.
-const HYPEMEET_URL = process.env.HYPEMEET_URL;
-if (!HYPEMEET_URL) throw new Error("missing env: HYPEMEET_URL");
+// The Discord app the Activity belongs to (Developer Portal → OAuth2).
+const DISCORD_CLIENT_ID = env("DISCORD_CLIENT_ID");
+const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
+// The guilds whose members may play: the access boundary, so there's no default.
+const DISCORD_GUILDS = env("DISCORD_GUILDS").split(",").map((g) => g.trim()).filter(Boolean);
+if (!DISCORD_GUILDS.length) throw new Error("missing env: DISCORD_GUILDS");
+
+const pageDir = join(import.meta.dir, "..", "page");
+const built = await Bun.build({
+  entrypoints: [join(pageDir, "entry.ts")],
+  minify: true,
+  define: { "process.env.DISCORD_CLIENT_ID": JSON.stringify(DISCORD_CLIENT_ID) },
+});
+if (!built.success) throw new AggregateError(built.logs, "page/entry.ts didn't build");
 
 const bt3 = createBt3({
   dir: process.env.BT3_DIR ?? join(import.meta.dir, "..", "data", "bt3"),
-  pageDir: join(import.meta.dir, "..", "page"),
-  hypemeetOrigin: new URL(HYPEMEET_URL).origin,
-  passes: createPasses(HYPEMEET_URL, BT3_ID),
+  pageDir,
+  entryJs: await built.outputs[0]!.text(),
+  // The client secret signs the passes too: resetting it in the portal also ends every open session.
+  passes: createPasses(DISCORD_CLIENT_SECRET),
+  discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET, guilds: DISCORD_GUILDS }),
 });
 
 Bun.serve<NetData>({
@@ -20,4 +40,4 @@ Bun.serve<NetData>({
   websocket: bt3.websocket,
 });
 
-console.log(`bt3 on http://localhost:${PORT} (rooms of ${HYPEMEET_URL})`);
+console.log(`bt3 on http://localhost:${PORT} (guilds ${DISCORD_GUILDS.join(", ")})`);

@@ -1,0 +1,35 @@
+// The entry page's script (page/entry.html), bundled with the Discord SDK at startup (server/index.ts), which also
+// fills in DISCORD_CLIENT_ID.
+import { DiscordSDK } from "@discord/embedded-app-sdk";
+
+const msg = document.getElementById("msg")!;
+const game = document.getElementById("game") as HTMLIFrameElement;
+
+async function start() {
+  let sdk: DiscordSDK;
+  try {
+    sdk = new DiscordSDK(process.env.DISCORD_CLIENT_ID!);
+  } catch {
+    throw new Error("Abra o Budokai Tenkaichi 3 pelo 🚀 de um canal de voz do Discord.");
+  }
+  await sdk.ready();
+  // Asks for consent the first time only; after that it's silent.
+  const { code } = await sdk.commands.authorize({
+    client_id: sdk.clientId,
+    response_type: "code",
+    state: "",
+    prompt: "none",
+    scope: ["identify", "guilds.members.read"],
+  });
+  const res = await fetch("token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+  const body = (await res.json().catch(() => ({}))) as { pass?: string; error?: string };
+  if (!res.ok || !body.pass) throw new Error(body.error ?? `Erro ${res.status}`);
+  game.src = `p/${body.pass}/`;
+  game.hidden = false;
+  msg.hidden = true;
+}
+
+start().catch((err: unknown) => {
+  msg.className = "error";
+  msg.textContent = err instanceof Error ? err.message : "Não deu para entrar pelo Discord.";
+});

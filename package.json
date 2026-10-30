@@ -11,5 +11,8 @@
   "devDependencies": {
     "@types/bun": "^1.4.2",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@discord/embedded-app-sdk": "^2.5.0"
   }
 }

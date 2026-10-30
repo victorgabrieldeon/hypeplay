@@ -1,5 +1,5 @@
 /**
- * The disc image's upload and the plugin's state, from the files in the data folder (/app/data/bt3/):
+ * The disc image's upload and the game's state, from the files in the data folder (/app/data/bt3/):
  *
  *   upload/disc.iso.part, upload/state.json   an upload under way ({ size, received, by, at })
  *   disc.iso                                  the whole image: the builder (builder/) takes it from here

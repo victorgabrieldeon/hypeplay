@@ -1,33 +1,23 @@
 /**
- * The Budokai Tenkaichi 3 plugin's server (docs/2026-10-29-plugin-bt3-design.md).
+ * The Budokai Tenkaichi 3 Discord Activity's server (docs/2026-10-29-plugin-bt3-design.md).
  *
- *   /hypemeet-plugin.json, /icon.svg  public: nothing of the game
- *   /?pass=<pass>                     where the room opens it: on to p/<pass>/
- *   /p/<pass>/                        the plugin's page (page/index.html)
+ *   /, entry.js, /icon.svg            public: the entry page signs in with Discord (page/entry.html, entry.ts)
+ *   /token                            POST { code }: the Discord code for a pass (discord.ts, pass.ts)
+ *   /p/<pass>/                        the game's page (page/index.html), framed by the entry page
  *             status, upload, retry   its state, the disc image's upload, "Tentar de novo"
  *             game/<file>             the compiled game, from a fixed list
  *             game/disc/...           the disc image in 1 MiB pieces, read straight from it
  *             game/net/ws, net/queue  online rooms (rooms.ts)
  *
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
- * fetch cross-origin, hence the CORS headers. Redirects are relative: in Discord it all lives under /plugins/bt3/.
+ * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
  */
 import type { Server, WebSocketHandler } from "bun";
 import { join } from "node:path";
+import type { Discord } from "./discord";
 import type { Passes } from "./pass";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { createDiscStore, MAX_PIECE } from "./upload";
-
-export const BT3_ID = "bt3";
-
-export const MANIFEST = {
-  id: BT3_ID,
-  name: "Budokai Tenkaichi 3",
-  description: "Luta 1x1 online ou local. Cada um precisa ter o jogo.",
-  icon: "/icon.svg",
-  entry: "/",
-  pass: true,
-};
 
 /** The compiled game's files: nothing else from build/ is ever served. */
 export const GAME_FILES = new Set([
@@ -58,42 +48,42 @@ const TYPES: Record<string, string> = {
   bin: "application/octet-stream",
 };
 
-/** Only HypeMeet's rooms and its Discord Activity may frame it. */
-export const headersFor = (hypemeetOrigin: string) => ({
-  "Content-Security-Policy":
-    "sandbox allow-scripts allow-forms allow-popups allow-downloads; " +
-    `frame-ancestors ${hypemeetOrigin} https://discord.com https://*.discord.com https://*.discordsays.com`,
+/** Only Discord may frame it: the Activity, and in it the entry page (on *.discordsays.com). */
+const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.com https://*.discordsays.com";
+
+export const HEADERS = {
+  "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups allow-downloads; ${FRAME_ANCESTORS}`,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
   "Access-Control-Allow-Headers": "content-type",
   "Cache-Control": "no-cache",
-});
+};
+
+const ENTRY_HEADERS = { "Content-Security-Policy": FRAME_ANCESTORS, "Cache-Control": "no-cache" };
 
 export type NetData = { kind: "room"; params: RoomParams } | { kind: "queue"; params: QueueParams };
 
 const typeOf = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? TYPES.bin!;
-const PASS = /^[\w.-]+$/;
 /** The last segment with a slash after it, relative: page addresses need the trailing slash. */
 const slashed = (pathname: string) => `${pathname.slice(pathname.lastIndexOf("/") + 1)}/`;
 
 export interface Bt3Options {
   /** The data folder (/app/data/bt3/). */
   dir: string;
-  /** page/: the plugin's page and icon. */
+  /** page/: the entry page, the game's page and the icon. */
   pageDir: string;
-  /** The HypeMeet site whose rooms open it. */
-  hypemeetOrigin: string;
+  /** page/entry.ts, bundled with the Discord SDK (index.ts). */
+  entryJs: string;
   passes: Passes;
+  discord: Pick<Discord, "signIn">;
   now?: () => number;
 }
 
-export function createBt3({ dir, pageDir, hypemeetOrigin, passes, now = () => Date.now() }: Bt3Options) {
+export function createBt3({ dir, pageDir, entryJs, passes, discord, now = () => Date.now() }: Bt3Options) {
   const disc = createDiscStore(dir, { now });
   const rooms = new NetRooms(now);
-  const base = headersFor(hypemeetOrigin);
-
   function respond(body: ConstructorParameters<typeof Response>[0], status = 200, headers: Record<string, string> = {}) {
-    return new Response(body, { status, headers: { ...base, ...headers } });
+    return new Response(body, { status, headers: { ...HEADERS, ...headers } });
   }
   const text = (body: string, status: number) => respond(body, status, { "Content-Type": "text/plain; charset=utf-8" });
   const json = (body: unknown, status = 200) => respond(JSON.stringify(body), status, { "Content-Type": TYPES.json! });
@@ -139,20 +129,32 @@ export function createBt3({ dir, pageDir, hypemeetOrigin, passes, now = () => Da
     return text("Não encontrado", 404);
   }
 
-  async function handle(req: Request, server?: Server<NetData>): Promise<Response | undefined> {
-    const { pathname, searchParams } = new URL(req.url);
-    if (req.method === "OPTIONS") return respond(null, 204);
-    if (pathname === "/hypemeet-plugin.json") return json(MANIFEST);
-    if (pathname === "/icon.svg") return file(join(pageDir, "icon.svg"));
-    if (pathname === "/") {
-      const given = searchParams.get("pass");
-      if (given && PASS.test(given)) return respond(null, 302, { Location: `p/${given}/` });
-      return text("Abra o Budokai Tenkaichi 3 pelo painel de Plugins de uma sala do HypeMeet.", 403);
+  async function token(req: Request): Promise<Response> {
+    if (req.method !== "POST") return text("Método não permitido", 405);
+    const code = ((await req.json().catch(() => null)) as { code?: unknown } | null)?.code;
+    if (typeof code !== "string" || !code || code.length > 200) return json({ error: "Pedido inválido" }, 400);
+    let user;
+    try {
+      user = await discord.signIn(code);
+    } catch (err) {
+      console.error("discord sign-in failed:", err);
+      return json({ error: "Não deu para entrar pelo Discord. Feche e abra a atividade de novo." }, 502);
     }
+    if (!user) return json({ error: "Este jogo é só para os membros de um servidor do Discord liberado." }, 403);
+    return json({ pass: passes.issue(user) });
+  }
+
+  async function handle(req: Request, server?: Server<NetData>): Promise<Response | undefined> {
+    const { pathname } = new URL(req.url);
+    if (req.method === "OPTIONS") return respond(null, 204);
+    if (pathname === "/icon.svg") return file(join(pageDir, "icon.svg"));
+    if (pathname === "/") return new Response(Bun.file(join(pageDir, "entry.html")), { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.html! } });
+    if (pathname === "/entry.js") return new Response(entryJs, { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.js! } });
+    if (pathname === "/token") return token(req);
     const m = /^\/p\/([\w.-]+)(\/.*)?$/.exec(pathname);
     if (!m) return text("Não encontrado", 404);
     const pass = await passes.verify(m[1]!);
-    if (!pass) return text("Acesso vencido: feche e abra o plugin de novo.", 403);
+    if (!pass) return text("Acesso vencido: feche e abra a atividade de novo.", 403);
     const path = m[2];
     if (path === undefined || path === "/game") return respond(null, 301, { Location: slashed(pathname) });
     const rest = path.slice(1);

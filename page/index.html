@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Budokai Tenkaichi 3</title>
 <!--
-  The Budokai Tenkaichi 3 plugin's page (server/routes.ts serves it at /p/<pass>/). Reads `status`
+  The Budokai Tenkaichi 3 game's page (server/routes.ts serves it at /p/<pass>/, framed by page/entry.html). Reads `status`
   every 2 s: the disc image's upload, the builder's progress, and once the game is built, it goes to game/.
   Runs as an opaque origin: every address here is relative, and nothing is kept in this browser.
 -->
@@ -77,7 +77,7 @@ function pick(label) {
 function render() {
   if (expired) {
     view.className = '';
-    view.innerHTML = '<p class="error">O acesso venceu. Feche o plugin e abra de novo.</p>';
+    view.innerHTML = '<p class="error">O acesso venceu. Feche a atividade e abra de novo.</p>';
     return;
   }
   const s = last;

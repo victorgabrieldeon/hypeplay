@@ -1,15 +1,17 @@
-# Production stack (Dokploy). Env: HYPEMEET_URL, the HypeMeet site whose rooms open the plugin (https://meet.example.com).
-# Domain (HTTPS via Traefik): app → port 3003. Then put that address in HypeMeet's PLUGINS.
+# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILDS (README).
+# Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
 services:
   app:
     build: .
     restart: unless-stopped
     environment:
-      HYPEMEET_URL: ${HYPEMEET_URL}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      DISCORD_GUILDS: ${DISCORD_GUILDS}
     volumes:
       - bt3-data:/app/data
 
-  # Compiles the game from the disc image sent through the plugin (builder/).
+  # Compiles the game from the disc image sent through the Activity (builder/).
   # Idle, it only looks at the volume every 5 s; a build is once per disc image, held to 2 CPUs so calls don't suffer.
   builder:
     build: builder

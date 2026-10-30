@@ -1,35 +1,19 @@
 // "Controle": the connected pads, and mapping one the browser doesn't know (a USB PS2 adapter, say) once, a button at
-// a time over a drawing of a PS2 pad. The map is kept on the server (GET/PUT pad) and pad.js applies it in every game.
+// a time over a drawing of the pad in hand (PS2, PS5 or Xbox: pads.js), named the way that pad names it. The map is
+// kept on the server (GET/PUT pad) and pad.js applies it in every game.
 import { hooks, state } from './app.js';
 import { esc, icon } from './library.js';
+import { DRAWINGS, FAMILIES, NAMES } from './pads.js';
 
 const layer = document.getElementById('layer');
-const { STANDARD, remap, validMapping } = globalThis.CordPad;
+const { STANDARD, padFamily, remap, validMapping } = globalThis.CordPad;
 
-const LABELS = { cross: '✕', circle: '○', square: '□', triangle: '△', l1: 'L1', r1: 'R1', l2: 'L2', r2: 'R2', select: 'Select', start: 'Start',
-  l3: 'L3 (aperte o analógico esquerdo)', r3: 'R3 (aperte o analógico direito)', up: 'direcional para cima', down: 'direcional para baixo',
-  left: 'direcional para a esquerda', right: 'direcional para a direita' };
+const PRESS = { l3: ' (aperte o analógico esquerdo)', r3: ' (aperte o analógico direito)' };
 /** After the 16 buttons, the sticks: one direction each tells the axis and its sign. */
 const STICKS = [['lx', 'Mova o analógico esquerdo para a direita'], ['ly', 'Mova o analógico esquerdo para baixo'],
   ['rx', 'Mova o analógico direito para a direita'], ['ry', 'Mova o analógico direito para baixo']];
 
-/** An original drawing of a PS2-style pad; each control has an id the screen lights up. */
-const PAD = `<svg class="ps2" viewBox="0 0 520 300" aria-hidden="true">
-  <rect id="k-l2" class="k" x="70" y="8" width="90" height="26" rx="10"/><rect id="k-r2" class="k" x="360" y="8" width="90" height="26" rx="10"/>
-  <rect id="k-l1" class="k" x="70" y="38" width="90" height="22" rx="8"/><rect id="k-r1" class="k" x="360" y="38" width="90" height="22" rx="8"/>
-  <path class="body" d="M120 66h280c60 0 100 40 108 110l10 70c4 34-34 52-62 30l-58-48H122l-58 48c-28 22-66 4-62-30l10-70C20 106 60 66 120 66z"/>
-  <rect id="k-up" class="k" x="104" y="96" width="28" height="32" rx="5"/><rect id="k-down" class="k" x="104" y="152" width="28" height="32" rx="5"/>
-  <rect id="k-left" class="k" x="72" y="126" width="32" height="28" rx="5"/><rect id="k-right" class="k" x="132" y="126" width="32" height="28" rx="5"/>
-  <circle id="k-triangle" class="k" cx="400" cy="104" r="18"/><circle id="k-square" class="k" cx="364" cy="140" r="18"/>
-  <circle id="k-circle" class="k" cx="436" cy="140" r="18"/><circle id="k-cross" class="k" cx="400" cy="176" r="18"/>
-  <text x="400" y="109">△</text><text x="364" y="145">□</text><text x="436" y="145">○</text><text x="400" y="181">✕</text>
-  <rect id="k-select" class="k" x="210" y="128" width="34" height="14" rx="7"/><rect id="k-start" class="k" x="276" y="128" width="34" height="14" rx="7"/>
-  <circle id="k-l3" class="k" cx="190" cy="214" r="34"/><circle id="k-r3" class="k" cx="330" cy="214" r="34"/>
-  <circle id="k-lx" class="k" cx="190" cy="214" r="12" style="opacity:.0"/><circle id="k-ry" class="k" cx="330" cy="214" r="12" style="opacity:.0"/>
-  <circle id="dot-l" cx="190" cy="214" r="10" fill="#a08cff"/><circle id="dot-r" cx="330" cy="214" r="10" fill="#a08cff"/>
-</svg>`;
-
-let s = null; // { view: 'list' | 'map' | 'test' | 'blocked', pad, maps, map, step, rest, waitRelease, skipped }
+let s = null; // { view: 'list' | 'map' | 'test' | 'blocked', pad, maps, map, step, rest, waitRelease, unsaved, family }
 let timer = 0;
 /** Reads the pads this often: steady even when the browser slows animation frames down. */
 const EVERY_MS = 30;
@@ -38,6 +22,11 @@ function pads() {
   try { return [...navigator.getGamepads()].filter(Boolean); } catch (e) { return null; }
 }
 const short = (id) => id.replace(/\s*\(.*$/, '').slice(0, 40) || 'Controle';
+
+/** The drawing shown: the one picked on the switch, else the one the pad's name suggests. */
+const familyOf = (id) => s.family ?? padFamily(id ?? '');
+const switcher = (f) => `<div class="family" role="group" aria-label="Modelo do controle">${FAMILIES
+  .map(([k, title]) => `<button type="button" data-c="family" data-f="${k}" aria-pressed="${k === f}">${title}</button>`).join('')}</div>`;
 
 function close() {
   clearInterval(timer);
@@ -61,13 +50,16 @@ function list() {
   const rows = ps.map((p) => {
     const mapped = s.maps[p.id];
     const tag = mapped ? '<span class="state ok">Mapeado</span>' : p.mapping === 'standard' ? '<span class="state ok">Reconhecido</span>' : '<span class="state warn">Não reconhecido</span>';
-    return `<div class="pad-row"><div><b>${esc(short(p.id))}</b>${tag}</div><div class="row-actions">
+    const kind = FAMILIES.find(([k]) => k === padFamily(p.id))[1];
+    return `<div class="pad-row"><div><b>${esc(short(p.id))}</b><span class="chip">${kind}</span>${tag}</div><div class="row-actions">
       <button class="btn${mapped || p.mapping === 'standard' ? ' second' : ''} small" data-c="map" data-i="${p.index}">Mapear</button>
       ${mapped ? `<button class="btn quiet small" data-c="test" data-i="${p.index}">Testar</button><button class="btn quiet small" data-c="forget" data-i="${p.index}">Esquecer</button>` : ''}
     </div></div>`;
   }).join('');
-  frame(`<p>Sempre um controle de PS2. Se o navegador não reconhecer o seu (um adaptador USB, por exemplo), mapeie os botões uma vez: vale em todos os jogos, em qualquer computador.</p>
-    <div class="pads">${rows || `<div class="waiting">${PAD}<div class="busy"><div class="spin"></div><p>Conecte o controle e aperte qualquer botão…</p></div></div>`}</div>
+  const f = s.family ?? 'ps2';
+  frame(`<p>Vale controle de PS2 (num adaptador USB), de PS5 e de Xbox: nos jogos, os botões viram os do PS2. Se o navegador não
+    reconhecer o seu, mapeie os botões uma vez: vale em todos os jogos, em qualquer computador.</p>
+    <div class="pads">${rows || `<div class="waiting">${switcher(f)}${DRAWINGS[f]}<div class="busy"><div class="spin"></div><p>Conecte o controle e aperte qualquer botão…</p></div></div>`}</div>
     <footer><button class="btn second" data-c="close">Fechar</button></footer>`);
 }
 
@@ -80,12 +72,21 @@ function startMap(index) {
   drawMap();
 }
 
-function stepName() {
-  return s.step < 16 ? `Aperte ${LABELS[STANDARD[s.step]]}` : STICKS[s.step - 16][1];
+function stepName(f) {
+  if (s.step >= 16) return STICKS[s.step - 16][1];
+  const b = STANDARD[s.step];
+  return `Aperte ${NAMES[f][b]}${PRESS[b] ?? ''}`;
+}
+
+/** On another pad than the PS2's, which PS2 button this one becomes in the games. */
+function becomes(f) {
+  const b = STANDARD[s.step];
+  return s.step < 16 && NAMES[f][b] !== NAMES.ps2[b] ? `No jogo vira ${NAMES.ps2[b]} do PS2 · ` : '';
 }
 
 function drawMap() {
-  frame(`<p class="ask" aria-live="polite">${esc(stepName())}<small>Passo ${s.step + 1} de 20</small></p>${PAD}
+  const f = familyOf(s.pad);
+  frame(`<p class="ask" aria-live="polite">${esc(stepName(f))}<small>${esc(becomes(f))}Passo ${s.step + 1} de 20</small></p>${switcher(f)}${DRAWINGS[f]}
     <footer><button class="btn quiet" data-c="list">Cancelar</button><button class="btn second" data-c="skip">Pular</button></footer>`);
   const want = s.step < 16 ? STANDARD[s.step] : s.step < 18 ? 'lx' : 'ry';
   layer.querySelector(`#k-${want}`)?.classList.add('want');
@@ -138,7 +139,8 @@ function next() {
 
 function test(id, unsaved) {
   Object.assign(s, { view: 'test', pad: id, unsaved: !!unsaved });
-  frame(`<p class="ask">Teste: aperte os botões e mexa os analógicos<small>${unsaved ? 'Se estiver tudo certo, salve.' : esc(short(id))}</small></p>${PAD}
+  const f = familyOf(id);
+  frame(`<p class="ask">Teste: aperte os botões e mexa os analógicos<small>${unsaved ? 'Se estiver tudo certo, salve.' : esc(short(id))}</small></p>${switcher(f)}${DRAWINGS[f]}
     <footer><button class="btn quiet" data-c="list">Voltar</button>${unsaved ? '<button class="btn" data-c="save">Salvar</button>' : ''}</footer>`);
 }
 
@@ -159,6 +161,10 @@ layer.addEventListener('click', async (e) => {
   if (a === 'map') return startMap(index);
   if (a === 'test') return test(pads().find((p) => p.index === index).id);
   if (a === 'skip') return next();
+  if (a === 'family') {
+    s.family = el.dataset.f;
+    return s.view === 'map' ? drawMap() : s.view === 'test' ? test(s.pad, s.unsaved) : list();
+  }
   if (a === 'save') return save();
   if (a === 'forget') { delete s.maps[pads().find((p) => p.index === index).id]; await save(); }
   if (a === 'browser') parent.postMessage({ t: 'cordplay:open', path: location.pathname }, '*');
@@ -167,7 +173,7 @@ document.addEventListener('keydown', (e) => { if (s && e.key === 'Escape') { e.s
 window.addEventListener('gamepadconnected', () => { if (s?.view === 'list') list(); });
 
 hooks.controller = async () => {
-  s = { view: 'list', maps: {} };
+  s = { view: 'list', maps: {}, family: null };
   try { const r = await fetch('pad', { cache: 'no-store' }); if (r.ok) s.maps = await r.json(); } catch (e) {}
   list();
   clearInterval(timer);

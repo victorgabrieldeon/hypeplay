@@ -111,11 +111,19 @@ Escala de 4: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32, `--
 
 ## Imagens e ícones
 
+- **Logo** (`page/icon.svg`): um "C" que é ao mesmo tempo um fio dando a volta e a borda de um disco (com uma trilha
+  fina por dentro), em volta de um botão play; branco sobre o quadrado roxo (degradê `#9579ff` → `#6a4af5` →
+  `#4222c4`, brilho no canto de cima e contorno branco a 16%). Lê bem de 16 px a 1024 px.
+- **Nome:** "Cord" em `--ink` e "Play" em `--accent`, Unbounded 700 (na entrada, antes do passe, a fonte do sistema).
+
 - **Ícones:** traço de 2 px, 24×24, cantos redondos (mesmo estilo dos de hoje, em `<symbol>` no SVG da página).
   Nada de emoji como ícone.
 - **Capas:** a enviada (WebP 600×900) ou a gerada pelo servidor: um disco iridescente saindo pela borda, na cor do
   jogo (matiz de 200 a 340, do azul ao magenta, tirado do serial), com trilhas, reflexo e furo; uma lombada escura
   com o serial em mono e "PS2"; o nome embaixo com um traço da mesma cor. Nunca logos ou artes de terceiros.
   O endereço da capa muda junto com ela (versão do desenho, nome, cada capa enviada), porque fica um ano em cache.
-- **Ilustrações:** "Adicionar jogo" (duas caixas em contorno e um +) e o controle de PS2 (no mapeamento e flutuando
-  enquanto espera um controle), em SVG próprio, com as cores dos tokens.
+- **Ilustrações:** "Adicionar jogo" (duas caixas em contorno e um +) e os controles da tela de mapeamento
+  (`page/home/pads.js`): PS2, PS4/PS5 (analógicos lado a lado, touchpad) e Xbox (analógicos desencontrados), em SVG
+  próprio, sem logos, com as cores dos tokens. Começa no desenho que o nome do controle sugere, e uma chave troca.
+  Os símbolos △ ○ ✕ □ são desenhados (não texto); só as letras A B X Y do Xbox levam as cores dele (`#3ddc84`,
+  `#ff5d6c`, `#5aa9ff`, `#f5c524`).

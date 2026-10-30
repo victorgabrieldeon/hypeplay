@@ -120,3 +120,15 @@ export function validMapping(m: unknown): m is Mapping {
   const { buttons, axes } = m as Record<string, unknown>;
   return Array.isArray(buttons) && buttons.length === 16 && buttons.every(validSource) && Array.isArray(axes) && axes.length === 4 && axes.every(validAxis);
 }
+
+/**
+ * Which drawing the controller screen shows a pad on, from the name the browser gives it: Xbox pads, the PS4/PS5
+ * family (DualShock 4, DualSense: sticks side by side, a touchpad), and the PS2's own layout for everything else
+ * (USB adapters, PS3 pads, unknown ones). Only the drawing and the buttons' names change; the map is the same.
+ */
+export type PadFamily = "ps2" | "ps5" | "xbox";
+export function padFamily(id: string): PadFamily {
+  if (/x-?box|xinput|045e/i.test(id)) return "xbox";
+  if (/dualsense|dualshock ?4|054c\W*(?:product: )?(?:05c4|09cc|0ce6|0df2)|^wireless controller/i.test(id)) return "ps5";
+  return "ps2";
+}

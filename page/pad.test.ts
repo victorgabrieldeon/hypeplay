@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { install, remap, STANDARD, type Mapping, type PadLike } from "./padmap";
+import { install, padFamily, remap, STANDARD, type Mapping, type PadLike } from "./padmap";
 
 const button = (pressed: boolean, value = pressed ? 1 : 0) => ({ pressed, touched: pressed, value });
 
@@ -80,4 +80,17 @@ test("install keeps nulls and vibration", () => {
   expect(pad!.vibrationActuator).toBe(raw.vibrationActuator);
   expect(pad!.id).toBe(raw.id);
   expect(pad!.index).toBe(raw.index);
+});
+
+test("which drawing the controller screen starts on, from the pad's name (Chrome's and Firefox's)", () => {
+  expect(padFamily("Xbox 360 Controller (XInput STANDARD GAMEPAD)")).toBe("xbox");
+  expect(padFamily("Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)")).toBe("xbox");
+  expect(padFamily("045e-028e-Microsoft X-Box 360 pad")).toBe("xbox");
+  expect(padFamily("DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)")).toBe("ps5");
+  expect(padFamily("Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)")).toBe("ps5");
+  expect(padFamily("054c-05c4-Wireless Controller")).toBe("ps5");
+  // a PS3 pad has the PS2's layout; so do USB adapters and anything unknown
+  expect(padFamily("PLAYSTATION(R)3 Controller (STANDARD GAMEPAD Vendor: 054c Product: 0268)")).toBe("ps2");
+  expect(padFamily("USB Joystick (Vendor: 0810 Product: 0001)")).toBe("ps2");
+  expect(padFamily("")).toBe("ps2");
 });

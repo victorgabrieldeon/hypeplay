@@ -55,6 +55,7 @@
   .brand { display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s2); }
   .brand img { width: 38px; height: 38px; filter: drop-shadow(0 6px 14px var(--glow)); }
   .brand b { font: 700 16px/1 var(--display); letter-spacing: -0.01em; display: flex; align-items: center; gap: 6px; }
+  .brand .hi { color: var(--accent); margin-left: -6px; }
   .brand small { display: block; color: var(--soft); font: var(--t-sm); font-size: 12px; margin-top: 4px; }
   .beta { font: 800 9px/1 var(--body); letter-spacing: 0.08em; padding: 3px 5px; border-radius: 4px; background: rgb(118 85 255 / 0.25); color: var(--accent); }
   nav { display: flex; flex-direction: column; gap: 2px; }
@@ -305,14 +306,27 @@
   .pad-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3); border-radius: var(--r-sm);
     background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
   .pad-row b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
-  .ps2 { width: 100%; max-width: 520px; margin: 0 auto; display: block; filter: drop-shadow(0 20px 30px rgb(0 0 0 / 0.5)); }
-  .ps2 .k { fill: var(--surface-top); stroke: rgb(255 255 255 / 0.12); stroke-width: 2; transition: fill var(--fast) var(--ease); }
-  .ps2 .k.want { fill: var(--primary); animation: pulse 1.2s var(--ease) infinite; transform-box: fill-box; transform-origin: center; }
-  .ps2 .k.lit { fill: var(--accent); }
-  .ps2 .body { fill: var(--surface); stroke: rgb(255 255 255 / 0.1); stroke-width: 2; }
-  .ps2 text { fill: var(--soft); font: 700 14px var(--body); text-anchor: middle; pointer-events: none; }
+  .pad-row .chip { margin: 0 var(--s2); }
+  /* the pad drawings (home/pads.js): PS2, PS5, Xbox */
+  .padart { width: 100%; max-width: 520px; margin: 0 auto; display: block; filter: drop-shadow(0 20px 30px rgb(0 0 0 / 0.5)); animation: fade var(--base) var(--ease); }
+  .padart .k { fill: var(--surface-top); stroke: rgb(255 255 255 / 0.12); stroke-width: 2; transition: fill var(--fast) var(--ease); }
+  .padart .k.want { fill: var(--primary); animation: pulse 1.2s var(--ease) infinite; transform-box: fill-box; transform-origin: center; }
+  .padart .k.lit { fill: var(--accent); }
+  .padart .body { fill: var(--surface); stroke: rgb(255 255 255 / 0.1); stroke-width: 2; }
+  .padart .plate { fill: var(--surface-hi); stroke: rgb(255 255 255 / 0.08); stroke-width: 2; }
+  .padart text { fill: var(--ink); font: 700 15px var(--body); text-anchor: middle; pointer-events: none; }
+  .padart text.sm { font: 800 11px var(--body); letter-spacing: 0.06em; }
+  .padart text.out { fill: var(--soft); font-size: 10px; }
+  .padart .mark { fill: none; stroke: var(--ink); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+  /* Xbox's own face colors */
+  .padart .c-a { fill: #3ddc84; } .padart .c-b { fill: #ff5d6c; } .padart .c-x { fill: #5aa9ff; } .padart .c-y { fill: #f5c524; }
+  .family { display: inline-flex; align-self: center; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .family button { border: 0; border-radius: 7px; padding: 8px 16px; background: none; color: var(--soft); font: 700 13px/1 var(--body); cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+  .family button:hover { color: var(--ink); }
+  .family button[aria-pressed=true] { background: var(--primary); color: #fff; box-shadow: 0 6px 16px -6px var(--glow); }
   .waiting { display: flex; flex-direction: column; align-items: center; gap: var(--s4); padding: var(--s3) 0 var(--s2); }
-  .waiting .ps2 { max-width: 360px; opacity: 0.6; animation: float 6s ease-in-out infinite; }
+  .waiting .padart { max-width: 360px; opacity: 0.7; animation: fade var(--base) var(--ease), float 6s ease-in-out infinite; }
   .ask { text-align: center; font: 600 18px/1.4 var(--display); letter-spacing: -0.01em; }
   .ask small { display: block; font: var(--t-sm); color: var(--soft); margin-top: 4px; }
 
@@ -372,7 +386,7 @@
   <aside class="side">
     <div class="brand">
       <img src="../../icon.svg" alt="">
-      <div><b>CordPlay <span class="beta">BETA</span></b><small>Jogue junto no Discord</small></div>
+      <div><b>Cord<span class="hi">Play</span> <span class="beta">BETA</span></b><small>Jogue junto no Discord</small></div>
     </div>
     <nav aria-label="Seções">
       <button type="button" class="on" data-nav="library"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>

@@ -1,5 +1,9 @@
 # Biblioteca de PS2: qualquer ISO vira um jogo da central — design
 
+> **Atualização (2026-10-30):** o motor dos jogos de PS2 passou a ser o TabStationToo (PCSX2 em WebAssembly), sem
+> compilação por jogo: ver [`2026-10-30-motor-tabstationtoo-design.md`](2026-10-30-motor-tabstationtoo-design.md). O
+> que aqui fala do ps2-web-recomp, do `ps2-builder` e da compilação vale só como histórico.
+
 Data: 2026-10-30. Branch: `feat/biblioteca-ps2`. Visual: [`DESIGN.md`](../../../DESIGN.md).
 
 ## Objetivo

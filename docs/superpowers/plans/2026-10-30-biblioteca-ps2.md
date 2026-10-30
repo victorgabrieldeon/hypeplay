@@ -484,6 +484,43 @@ Lista de controles (`navigator.getGamepads()`; "Reconhecido" quando `mapping ===
 
 ---
 
+### Fase 2: troca do motor para o TabStationToo
+
+Spec: [`2026-10-30-motor-tabstationtoo-design.md`](../specs/2026-10-30-motor-tabstationtoo-design.md). As tarefas
+abaixo vêm antes da Task 17 (verificação final), que passa a cobrir o motor novo.
+
+### Task 18: Motor fixado por hash
+
+**Files:** Create `emulator/ps2-fetch.ts`, `emulator/ps2-files.json`, `emulator/ps2-fetch.test.ts`; Modify `Dockerfile`, `.gitignore`, `.dockerignore`
+- `fetchPs2({ base, dir, files, fetch }) → Promise<void>`: baixa cada `{ path, sha256 }` para `dir`, falha com `"<path>: sha256 <esperado> ≠ <obtido>"`; `--update` regrava o JSON. Lista levantada pela aba de rede com o jogo rodando + `COPYING.GPLv3` do commit `5a9a7b4…`.
+- [ ] Testes (servidor falso: hash certo grava, errado falha e não deixa arquivo) → falham → implementar → passam → `RUN bun emulator/ps2-fetch.ts` no Dockerfile → commit.
+
+### Task 19: BIOS no servidor
+
+**Files:** Create `server/bios.ts`, `server/bios.test.ts`; Modify `server/routes.ts`, `server/library.ts` (estado `needs-bios`), `server/upload.ts` (`Status` ganha `{ state: "needs-bios" }`)
+- `validBios(b: Uint8Array): boolean` (4 MiB; `RESET ` nos primeiros 64 KiB com `ROMDIR` 16 bytes depois); `createBios(dir)` → `info()`, `put(pass, bytes, replace)`, `path`.
+- Rotas `GET/PUT bios`, `GET bios.bin` (Range, isolado). Jogo de PS2 com ISO conferida: `ready` se há BIOS, senão `needs-bios`.
+- [ ] Testes → falham → implementar → passam → commit.
+
+### Task 20: Página do jogo no nosso design
+
+**Files:** Create `server/ps2page.ts`, `server/ps2page.test.ts`, `server/fixtures/tabstation-index.html`, `page/ps2play.css`, `page/ps2play.ts` (bundle `ps2play.js`); Modify `server/routes.ts` (game/ serve o motor da lista fixa + a página com patch)
+- `patchTabStation(html): string` fail-loud: injeta `ps2play.css` e `ps2play.js` (antes do `app.js`), `pad.js`, `overlay.js`, rodapé GPL. `ps2play.js`: boot direto por `history.replaceState`, barra mínima, avisos no nosso estilo, saves (`../save`).
+- [ ] Testes do patch contra a fixture → implementar → verificar no navegador interno com a BIOS e o BT3 do dono (via `DATA_DIR` local) → commit.
+
+### Task 21: Sai o ps2-builder
+
+**Files:** Delete `ps2-builder/`; Modify `docker-compose.yml`, `server/games.ts` (`PS2_STEPS`), `server/routes.ts` (shots), `page/home/*` (estados de compilação, capturas), `tsconfig.json`, README
+- Assistente: passo "BIOS do seu PS2" quando falta; texto do aviso sem "compilação"; drawer sem passos/capturas; card "Falta a BIOS".
+- [ ] Testes ajustados (os do builder saem; os de rota de shots saem) → suíte verde → verificar a home → commit.
+
+### Task 22: Online por streaming
+
+**Files:** Create `page/stream.ts` (host: captura + canal → controle virtual), `page/stream.test.ts`, `page/watch.html`, `page/watch.ts`; Modify `page/pad.ts` (controle virtual na porta 2), `page/volume.ts` (saída extra para o stream), `server/routes.ts` (salas em `ps2/<id>/room*`, `watch/`), `page/home/intro.js` (join → `watch/`)
+- [ ] Testes (`stream.test.ts`: mensagens → estado do controle virtual; rotas) → implementar → verificar com duas abas no navegador interno → commit.
+
+---
+
 ### Task 17: Verificação final
 
 - [ ] **Step 1:** `bun test` (todos) e `bun run typecheck` → verdes; anotar o número de testes.

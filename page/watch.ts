@@ -49,6 +49,14 @@ async function send(to: string, msg: object) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 
+// (the entry page had nowhere to open it: the server has no PUBLIC_URL)
+window.addEventListener("message", (e) => {
+  if (e.source === parent && (e.data as { t?: unknown } | null)?.t === "cordplay:cant-open")
+    status("Não deu para abrir no navegador", "Este servidor ainda não tem o endereço público (PUBLIC_URL). Quem cuida dele precisa configurar.", "error", [
+      { label: "Tentar de novo", run: () => location.reload() },
+    ]);
+});
+
 function gone() {
   status("A sala acabou", "O host saiu ou fechou a sala. Voltando para a biblioteca…", "error");
   setTimeout(() => (location.href = "../../../"), 4000);

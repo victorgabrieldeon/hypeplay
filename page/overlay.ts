@@ -2,6 +2,7 @@
 // top right corner (shown while the pointer moves, gone after a few still seconds, like a video player's controls)
 // opens a panel with the way back to the library, the game's volume, a screen filter for old games, and how to play
 // it online. The volume and filter are kept on the server per person (prefs, next to this script).
+import { rendererName, slowRenderer } from "./gpu";
 import { installVolume } from "./volume";
 
 type Filter = "off" | "crt" | "scan";
@@ -50,15 +51,17 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
   box-shadow: 0 8px 20px -8px rgb(118 85 255 / 0.6); }
 #cp-ov .cp-online button:disabled { background: #242040; box-shadow: none; cursor: default; }
 .cp-code { font: 700 13px/18px ui-monospace, monospace; letter-spacing: 0.14em; color: #c9bdff; padding: 1px 6px; border-radius: 6px; background: #242040; }
-#cp-top { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
+#cp-gpu { top: auto !important; bottom: 16px; align-items: center; }
+#cp-gpu .cp-browser { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 700 13px/32px Manrope, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+#cp-top, #cp-gpu { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
   width: max-content; max-width: min(520px, calc(100% - 120px)); padding: 12px 10px 12px 16px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
   backdrop-filter: blur(10px); box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(160 140 255 / 0.3);
   font: 500 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #d9d8ea; animation: cp-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-#cp-top p { margin: 0; }
-#cp-top b { color: #f3f2fb; }
-#cp-top button { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: #a3a1bd; cursor: pointer; }
-#cp-top button:hover { color: #f3f2fb; background: #242040; }
-#cp-top svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+#cp-top p, #cp-gpu p { margin: 0; }
+#cp-top b, #cp-gpu b { color: #f3f2fb; }
+#cp-top button, #cp-gpu .x { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: #a3a1bd; cursor: pointer; }
+#cp-top button:hover, #cp-gpu .x:hover { color: #f3f2fb; background: #242040; }
+#cp-top svg, #cp-gpu svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 #cp-ov .cp-btn:focus-visible, #cp-ov input:focus-visible, #cp-ov .cp-seg button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
 #cp-ov svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #cp-ov .cp-panel { position: absolute; top: 44px; right: 0; width: 288px; padding: 14px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
@@ -73,18 +76,21 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
 #cp-ov .cp-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; border-radius: 10px; background: #1b1830; }
 #cp-ov .cp-seg button { border: 0; border-radius: 7px; padding: 6px 4px; background: none; color: #a3a1bd; cursor: pointer; font-size: 12px; font-weight: 600; }
 #cp-ov .cp-seg button[aria-pressed=true] { background: #7655ff; color: #fff; }
-#cp-crt { position: fixed; inset: 0; pointer-events: none; z-index: 2147483645; display: none; }
+/* (only still layers over the game, drawn once on their own layer: a CSS filter on the game's canvas, or an animation
+   over it, costs every frame, and inside Discord that stutters) */
+#cp-crt { position: fixed; inset: 0; pointer-events: none; z-index: 2147483645; display: none; transform: translateZ(0); }
 html[data-cp-filter=crt] #cp-crt, html[data-cp-filter=scan] #cp-crt { display: block; }
 html[data-cp-filter=crt] #cp-crt {
   background:
-    radial-gradient(ellipse at center, transparent 58%, rgb(0 0 0 / 0.55) 100%),
-    repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.30) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(90deg, rgb(255 40 40 / 0.06) 0 1px, rgb(40 255 80 / 0.05) 1px 2px, rgb(60 90 255 / 0.06) 2px 3px);
-  box-shadow: inset 0 0 120px rgb(0 0 0 / 0.6); animation: cp-flicker 4s steps(2) infinite; }
+    radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / 0.6) 100%),
+    repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.32) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgb(255 40 40 / 0.07) 0 1px, rgb(40 255 80 / 0.06) 1px 2px, rgb(60 90 255 / 0.07) 2px 3px);
+  box-shadow: inset 0 0 140px rgb(0 0 0 / 0.65); }
 html[data-cp-filter=scan] #cp-crt { background: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.16) 0 1px, transparent 1px 3px); }
-html[data-cp-filter=crt] canvas, html[data-cp-filter=crt] video { filter: contrast(1.1) saturate(1.18) brightness(1.06) blur(0.35px); }
-@keyframes cp-flicker { 50% { opacity: 0.94; } }
-@media (prefers-reduced-motion: reduce) { #cp-crt { animation: none !important; } #cp-ov .cp-panel { animation: none !important; } }
+#cp-ov .cp-browser { height: 36px; border: 0; border-radius: 9px; background: #242040; color: #f3f2fb; font-weight: 700; cursor: pointer; }
+#cp-ov .cp-browser:hover { background: #2c2750; }
+#cp-ov .cp-browser:disabled { color: #a3a1bd; cursor: default; }
+@media (prefers-reduced-motion: reduce) { #cp-ov .cp-panel { animation: none !important; } }
 `;
 
 const ICON_ON = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
@@ -137,6 +143,7 @@ function build() {
       <div class="cp-label"><span>Filtro de imagem</span></div>
       <div class="cp-seg" role="group" aria-label="Filtro de imagem">${FILTERS.map(([f, name]) => `<button type="button" data-filter="${f}">${name}</button>`).join("")}</div>
       <div class="cp-online" hidden><div class="cp-label"><span>Jogar online</span></div><p class="cp-hint"></p></div>
+      ${framed ? '<button class="cp-browser" type="button">Jogar no navegador (mais liso)</button>' : ""}
     </div>`;
   document.body.append(crt, ov);
   const btn = ov.querySelector<HTMLButtonElement>(".cp-btn")!;
@@ -171,9 +178,50 @@ function build() {
   });
   for (const t of ["keyup", "keypress"]) ov.addEventListener(t, (e) => e.stopPropagation());
   document.addEventListener("pointerdown", (e) => { if (!ov.contains(e.target as Node)) toggle(false); }, true);
+  ov.querySelector(".cp-browser")?.addEventListener("click", openInBrowser);
   apply();
   if (pending) showOnline(...pending);
   else if (document.querySelector('meta[name="hypeplay-online"]')?.getAttribute("content") === "menu") portOnline();
+  gpuCheck();
+}
+
+/** Inside Discord (the entry page frames us): the same page in the browser, where games run smoother. */
+const framed = window.parent !== window;
+function openInBrowser() {
+  parent.postMessage({ t: "cordplay:open", path: location.pathname + location.search }, "*");
+}
+// (the entry page had nowhere to open it: the server has no PUBLIC_URL)
+window.addEventListener("message", (e) => {
+  if (e.source !== parent || (e.data as { t?: unknown } | null)?.t !== "cordplay:cant-open") return;
+  for (const b of document.querySelectorAll<HTMLButtonElement>(".cp-browser")) {
+    b.textContent = "Este servidor não tem o PUBLIC_URL";
+    b.disabled = true;
+  }
+});
+
+/**
+ * Drawn without the graphics card (Discord's "Hardware Acceleration" off, or a blocked GPU): the game stutters, and a
+ * note at the bottom says how to fix it, once.
+ */
+function gpuCheck() {
+  let name: string | null = "";
+  try {
+    name = rendererName();
+  } catch {
+    return;
+  }
+  if (!slowRenderer(name)) return;
+  const note = document.createElement("div");
+  note.id = "cp-gpu";
+  note.setAttribute("role", "status");
+  note.innerHTML = `<p><b>O jogo está sendo desenhado sem a placa de vídeo, por isso trava.</b><br>${
+    framed
+      ? "No Discord: Configurações → Avançado → <b>Aceleração de hardware</b> ligada (o Discord reinicia). Ou jogue no navegador."
+      : "Ligue a aceleração de hardware nas configurações do navegador."
+  }</p>${framed ? '<button type="button" class="cp-browser">No navegador</button>' : ""}<button type="button" class="x" aria-label="Fechar">${ICON_CLOSE}</button>`;
+  note.querySelector(".cp-browser")?.addEventListener("click", openInBrowser);
+  note.querySelector(".x")!.addEventListener("click", () => note.remove());
+  document.body.append(note);
 }
 
 /**

@@ -187,3 +187,40 @@ test("the player page and the emulator's files, only from its folder", async () 
   for (const path of ["emulator/", "emulator/cores", "emulator/nope.js", "emulator/%2e%2e/bt3/disc.iso", "emulator/..%2fbt3/disc.iso", "emulator/.hidden", "emulator/cores//x"])
     expect((await get(home(path))).status).toBe(404);
 });
+
+test("in a browser: Entrar com o Discord goes to Discord, and back here with a pass", async () => {
+  const codes: (string | undefined)[][] = [];
+  const web = createApp({
+    dir: root, pageDir: PAGE_DIR, entryJs: "", passes, clientId: "app", publicUrl: "https://hype.example",
+    discord: {
+      signIn: async (code: string, redirectUri?: string) => {
+        codes.push([code, redirectUri]);
+        if (code !== "ana") throw new Error("discord refused the code");
+        return { id: "42", name: "Ana" };
+      },
+    },
+  });
+  const go = (path: string) => web.handle(new Request(`https://hype.example${path}`)) as Promise<Response>;
+  const stateOf = async () => new URL((await go("/login")).headers.get("location")!).searchParams.get("state")!;
+  const login = await go("/login");
+  expect(login.status).toBe(302);
+  const to = new URL(login.headers.get("location")!);
+  expect(to.origin + to.pathname).toBe("https://discord.com/oauth2/authorize");
+  expect(to.searchParams.get("redirect_uri")).toBe("https://hype.example/auth");
+  const state = to.searchParams.get("state")!;
+  expect((await go("/auth?code=ana&state=forged")).status).toBe(400);
+  const back = await go(`/auth?code=ana&state=${state}`);
+  expect(back.status).toBe(302);
+  expect(back.headers.get("location")).toBe(`/p/${pass}/`);
+  expect(codes.at(-1)).toEqual(["ana", "https://hype.example/auth"]);
+  // a state is good once
+  expect((await go(`/auth?code=ana&state=${state}`)).status).toBe(400);
+  // cancelled on Discord's page: back to the start
+  const cancelled = await go(`/auth?error=access_denied&state=${await stateOf()}`);
+  expect([cancelled.status, cancelled.headers.get("location")]).toEqual([302, "/"]);
+  expect((await go(`/auth?code=forged&state=${await stateOf()}`)).status).toBe(502);
+});
+
+test("without PUBLIC_URL there's no signing in from a browser", async () => {
+  expect((await get("/login")).status).toBe(404);
+});

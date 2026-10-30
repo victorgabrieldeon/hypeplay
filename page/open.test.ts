@@ -10,7 +10,6 @@ test("only our own pages are opened outside", () => {
     { t: "cordplay:open", path: "//evil.com/p/x/" },
     { t: "cordplay:open", path: "/p/abc/../../x/" },
     { t: "cordplay:open", path: "/p/abc/ps2/../bt3/" },
-    { t: "cordplay:open", path: "/p/abc/bt3/game/" },
     { t: "cordplay:open", path: "https://evil.com/p/abc/" },
     { t: "cordplay:open" },
     { t: "outro", path: "/p/abc/" },
@@ -25,5 +24,12 @@ test("player 2's page opens outside too, with its room and nothing else", () => 
   const watch = "/p/abc/ps2/slus-21678/watch/?room=XC7WWC";
   expect(openRequest({ t: "cordplay:open", path: watch }, PUBLIC)).toBe(PUBLIC + watch);
   for (const path of ["/p/abc/ps2/slus-21678/watch/?room=XC7WWC&x=1", "/p/abc/ps2/slus-21678/watch/?room=../x", "/p/abc/ps2/slus-21678/game/?room=XC7WWC"])
+    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
+});
+
+test("BT3's port and a homebrew game open outside too (to play smoother than in Discord)", () => {
+  for (const path of ["/p/abc/bt3/game/", "/p/abc/play/?g=tetra&p=GB&t=Tetra+2%21"])
+    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
+  for (const path of ["/p/abc/play/?g=<x>", "/p/abc/play/?g=a b", "/p/abc/play//evil.com"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });

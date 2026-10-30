@@ -24,6 +24,7 @@
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
  */
 import type { Server, WebSocketHandler } from "bun";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -31,7 +32,7 @@ import type { Bios } from "./bios";
 import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { iceServers } from "./ice";
-import type { Discord } from "./discord";
+import { authorizeUrl, type Discord } from "./discord";
 import { GAMES, type Game } from "./games";
 import { BT3_SERIAL } from "./iso9660";
 import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
@@ -124,8 +125,10 @@ export interface AppOptions {
   saves?: Saves;
   people?: People;
   ps2Rooms?: Ps2Rooms;
-  /** The app's public address (PUBLIC_URL), for "Abrir no navegador". */
+  /** The app's public address (PUBLIC_URL), for "Abrir no navegador" and signing in from a browser (/login, /auth). */
   publicUrl?: string;
+  /** The Discord app's id: a browser's sign-in goes to its page (discord.ts' authorizeUrl). */
+  clientId?: string;
   /** TabStationToo's files, emulator/ps2/ by default (emulator/ps2-fetch.ts). */
   ps2Engine?: string;
   /** The PS2 BIOS, sent once for the whole server (bios.ts); without it the PS2 games wait for one. */
@@ -176,6 +179,7 @@ export function createApp({
   people,
   ps2Rooms,
   publicUrl = "",
+  clientId = "",
   turn,
   scripts = {},
   bios,
@@ -502,6 +506,34 @@ export function createApp({
     }
   }
 
+  // Signing in from a browser (outside Discord, where WebRTC and the PS2 games' isolation work): Discord's own page,
+  // and back to <PUBLIC_URL>/auth with a code. `state` ties the two ends together: made here, good once, ten minutes.
+  const states = new Map<string, number>();
+  const redirectUri = `${publicUrl}/auth`;
+  function login(): Response {
+    if (!publicUrl || !clientId) return text("Entrar pelo navegador precisa do PUBLIC_URL no servidor.", 404);
+    for (const [s, exp] of states) if (exp < now()) states.delete(s);
+    const state = randomBytes(18).toString("base64url");
+    states.set(state, now() + 10 * 60_000);
+    return respond(null, 302, { Location: authorizeUrl(clientId, redirectUri, state) });
+  }
+  async function auth(req: Request): Promise<Response> {
+    const q = new URL(req.url).searchParams;
+    const state = q.get("state") ?? "";
+    const exp = states.get(state);
+    states.delete(state);
+    if (!publicUrl || !exp || exp < now()) return text("Essa entrada venceu. Volte e clique em Entrar com o Discord de novo.", 400);
+    const code = q.get("code");
+    // (no code: cancelled on Discord's page)
+    if (!code || code.length > 200) return respond(null, 302, { Location: "/" });
+    try {
+      return respond(null, 302, { Location: `/p/${passes.issue(await discord.signIn(code, redirectUri))}/` });
+    } catch (err) {
+      console.error("discord sign-in (browser) failed:", err);
+      return text("Não deu para entrar pelo Discord. Volte e tente de novo.", 502);
+    }
+  }
+
   async function handle(req: Request, server?: Server<NetData>): Promise<Response | undefined> {
     const { pathname } = new URL(req.url);
     if (req.method === "OPTIONS") return respond(null, 204);
@@ -509,6 +541,8 @@ export function createApp({
     if (pathname === "/") return new Response(Bun.file(join(pageDir, "entry.html")), { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.html! } });
     if (pathname === "/entry.js") return new Response(entryJs, { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.js! } });
     if (pathname === "/token") return token(req);
+    if (pathname === "/login") return login();
+    if (pathname === "/auth") return auth(req);
     const m = /^\/p\/([\w.-]+)(\/.*)?$/.exec(pathname);
     if (!m) return text("Não encontrado", 404);
     const pass = await passes.verify(m[1]!);

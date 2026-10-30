@@ -1,11 +1,19 @@
 /**
- * What the server keeps per person: their controller maps (pads/<id>.json, by the browser's gamepad id) and the last
- * game they opened (users/<id>.json, for the home's spotlight).
+ * What the server keeps per person: their controller maps (pads/<id>.json, by the browser's gamepad id), the last
+ * game they opened (users/<id>.json, for the home's spotlight), and their volume and screen filter (prefs/<id>.json).
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { validMapping, type Mapping } from "../page/padmap";
 import { USER } from "./saves";
+
+/** A person's volume (0–1) and screen filter in the games (overlay.js). */
+export interface Prefs {
+  volume: number;
+  filter: "off" | "crt" | "scan";
+}
+export const DEFAULT_PREFS: Prefs = { volume: 0.7, filter: "off" };
+const FILTERS = new Set(["off", "crt", "scan"]);
 
 /** More than this many controllers for one person is not a person. */
 const MOST_PADS = 16;
@@ -27,6 +35,7 @@ async function writeJson(path: string, value: unknown) {
 export function createPeople(dir: string) {
   const pads = (user: string) => join(dir, "pads", `${user}.json`);
   const users = (user: string) => join(dir, "users", `${user}.json`);
+  const prefs = (user: string) => join(dir, "prefs", `${user}.json`);
 
   return {
     async pads(user: string): Promise<Record<string, Mapping>> {
@@ -41,6 +50,18 @@ export function createPeople(dir: string) {
       if (entries.length > MOST_PADS || !entries.every(([id, m]) => id.length <= 200 && validMapping(m))) return false;
       await writeJson(pads(user), maps);
       return true;
+    },
+
+    async prefs(user: string): Promise<Prefs> {
+      const p = USER.test(user) ? await readJson<Prefs>(prefs(user)) : null;
+      return p ?? { ...DEFAULT_PREFS };
+    },
+
+    async setPrefs(user: string, p: unknown): Promise<boolean> {
+      const o = p as Partial<Prefs> | null;
+      const ok = USER.test(user) && !!o && typeof o.volume === "number" && o.volume >= 0 && o.volume <= 1 && typeof o.filter === "string" && FILTERS.has(o.filter);
+      if (ok) await writeJson(prefs(user), { volume: o!.volume, filter: o!.filter });
+      return ok;
     },
 
     async last(user: string): Promise<string | null> {

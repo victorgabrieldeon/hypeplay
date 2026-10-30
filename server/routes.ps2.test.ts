@@ -184,7 +184,7 @@ test("a PS2 game is served isolated, from its fixed list, gzipped when asked", a
   const csp = page.headers.get("content-security-policy")!;
   expect(csp).not.toContain("sandbox");
   expect(csp).toContain("frame-ancestors https://discord.com");
-  expect(await page.text()).toContain('<script src="../../../pad.js"></script></head>');
+  expect(await page.text()).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
   expect(await (await ana(`ps2/${id}/game/index.html`)).text()).toContain("game");
 
   const wasm = await ana(`ps2/${id}/game/ps2web.wasm`, { headers: { "accept-encoding": "gzip, br" } });
@@ -217,7 +217,7 @@ test("the disc of a PS2 game answers Range and HEAD", async () => {
 
 test("BT3's page gets pad.js, everything else of BT3 is as before", async () => {
   const page = await ana("bt3/game/");
-  expect(await page.text()).toBe('<html><head><script src="../../pad.js"></script></head><body>bt3</body></html>');
+  expect(await page.text()).toBe('<html><head><script src="../../pad.js"></script><script src="../../overlay.js"></script></head><body>bt3</body></html>');
   expect(page.headers.get("content-security-policy")).toStartWith("sandbox ");
 });
 
@@ -271,10 +271,25 @@ test("the page's scripts and fonts", async () => {
   expect((await get("fonts/../package.json")).status).toBe(404);
 });
 
+test("prefs: the person's volume and filter round-trip", async () => {
+  expect(await (await ana("prefs")).json()).toEqual({ volume: 0.7, filter: "off" });
+  expect((await ana("prefs", json({ volume: 0.4, filter: "scan" }, "PUT"))).status).toBe(204);
+  expect(await (await ana("prefs")).json()).toEqual({ volume: 0.4, filter: "scan" });
+  expect((await ana("prefs", json({ volume: 9, filter: "scan" }, "PUT"))).status).toBe(400);
+  expect(await (await bia("prefs")).json()).toEqual({ volume: 0.7, filter: "off" });
+});
+
+test("every game page gets pad.js and then overlay.js", async () => {
+  expect(await (await ana("bt3/game/")).text()).toContain('<script src="../../pad.js"></script><script src="../../overlay.js"></script></head>');
+  const id = await built("SLES-13131", "SLES_131.31");
+  expect(await (await ana(`ps2/${id}/game/`)).text()).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
+  expect(await (await ana("play/")).text()).toContain('<script src="../pad.js"></script><script src="../overlay.js"></script></head>');
+});
+
 test("the homebrew player gets pad.js too, and keeps the home's sandbox", async () => {
   const play = await ana("play/");
   expect(play.status).toBe(200);
-  expect(await play.text()).toContain('<script src="../pad.js"></script></head>');
+  expect(await play.text()).toContain('<script src="../pad.js"></script><script src="../overlay.js"></script></head>');
   expect(play.headers.get("content-security-policy")).toStartWith("sandbox ");
 });
 

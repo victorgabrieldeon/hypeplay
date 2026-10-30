@@ -180,17 +180,22 @@ export function createApp({
   }
 
   let warned = false;
-  /** A game's page with pad.js (the mapped controller) slipped in; without a </head>, the page as it is. */
+  /**
+   * A game's page with pad.js (the mapped controller) and overlay.js (volume, screen filter) slipped in; `pad` is the
+   * relative address of pad.js, overlay.js sits next to it. Without a </head>, the page as it is.
+   */
   async function page(path: string, pad: string, headers: Record<string, string>) {
     const f = Bun.file(path);
     if (!(await f.exists())) return text("Não encontrado", 404);
     const html = await f.text();
+    // (each goes in just before </head>: pad.js first, then overlay.js)
     const withPad = injectPad(html, pad);
-    if (withPad === null && !warned) {
+    const both = withPad && injectPad(withPad, pad.replace(/pad\.js$/, "overlay.js"));
+    if (both === null && !warned) {
       warned = true;
-      console.warn(`${path}: no </head>, served without pad.js`);
+      console.warn(`${path}: no </head>, served without pad.js and overlay.js`);
     }
-    return new Response(withPad ?? html, { headers: { ...headers, "Content-Type": TYPES.html! } });
+    return new Response(both ?? html, { headers: { ...headers, "Content-Type": TYPES.html! } });
   }
 
   async function discIndex({ disc }: Shelf) {
@@ -479,6 +484,11 @@ export function createApp({
       if (req.method === "GET") return json(await people.pads(pass.id));
       if (req.method !== "PUT") return text("Método não permitido", 405);
       return (await people.setPads(pass.id, await body(req))) ? respond(null, 204) : text("Pedido inválido", 400);
+    }
+    if (path === "/prefs" && people) {
+      if (req.method === "GET") return json(await people.prefs(pass.id));
+      if (req.method !== "PUT") return text("Método não permitido", 405);
+      return (await people.setPrefs(pass.id, await body(req))) ? respond(null, 204) : text("Pedido inválido", 400);
     }
     if (path === "/played" && people) {
       if (req.method !== "POST") return text("Método não permitido", 405);

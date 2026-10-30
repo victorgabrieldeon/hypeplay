@@ -64,3 +64,15 @@ test("ids that aren't plain are refused", async () => {
   await people.played("../x", "bt3");
   expect(await people.last("../x")).toBeNull();
 });
+
+test("prefs: 70% and no filter by default, round-trip, bad ones refused", async () => {
+  const { people } = await setup();
+  expect(await people.prefs("42")).toEqual({ volume: 0.7, filter: "off" });
+  expect(await people.setPrefs("42", { volume: 0.35, filter: "crt" })).toBe(true);
+  expect(await people.prefs("42")).toEqual({ volume: 0.35, filter: "crt" });
+  for (const bad of [{ volume: 2, filter: "crt" }, { volume: 0.5, filter: "vhs" }, { volume: "1", filter: "off" }, null, { volume: 0.5 }])
+    expect(await people.setPrefs("42", bad)).toBe(false);
+  expect(await people.prefs("42")).toEqual({ volume: 0.35, filter: "crt" });
+  expect(await people.prefs("43")).toEqual({ volume: 0.7, filter: "off" });
+  expect(await people.setPrefs("../x", { volume: 0.5, filter: "off" })).toBe(false);
+});

@@ -146,3 +146,9 @@ test("a crash while checking the image is not a refusal: the image stays", async
   expect(await read()).toMatchObject({ state: "failed", refused: false });
   expect(await stat(join(dir, "disc.iso")).then(() => true)).toBe(true);
 });
+
+test("status.json writes at the same time (the heartbeat and a look) don't trip on each other", async () => {
+  const { builder, read } = await setup(fakeTools());
+  await Promise.all(Array.from({ length: 20 }, () => builder.write()));
+  expect((await read()).state).toBe("idle");
+});

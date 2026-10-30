@@ -100,11 +100,19 @@ export function createBuilder({ dir, source, commit, run, python = "python3", st
     }
   }
 
-  async function write() {
+  async function save() {
     status.at = now();
     await mkdir(dir, { recursive: true });
     await writeFile(`${paths.status}.tmp`, JSON.stringify(status));
     await rename(`${paths.status}.tmp`, paths.status);
+  }
+
+  // One at a time: the heartbeat and tick() both write, and they'd share status.json.tmp.
+  let writing: Promise<unknown> = Promise.resolve();
+  function write() {
+    const next = writing.then(save, save);
+    writing = next.catch(() => undefined);
+    return next;
   }
 
   const say = (text: string) => {

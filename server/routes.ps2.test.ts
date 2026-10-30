@@ -265,6 +265,25 @@ test("the page's scripts and fonts", async () => {
   expect((await get("fonts/../package.json")).status).toBe(404);
 });
 
+test("the home's own scripts, from a fixed list, with the home's headers", async () => {
+  const app = await ana("home/app.js");
+  expect(app.status).toBe(200);
+  expect(app.headers.get("content-type")).toStartWith("text/javascript");
+  expect(app.headers.get("content-security-policy")).toStartWith("sandbox ");
+  expect(app.headers.get("access-control-allow-origin")).toBe("*");
+  for (const f of ["home/nope.js", "home/../index.html", "home/app.ts", "home/"]) expect((await ana(f)).status).toBe(404);
+});
+
+test("the test runs' screenshots, for the home (not isolated, the home is an opaque origin)", async () => {
+  const id = await built("SLES-10101", "SLES_101.01");
+  const shot = await ana(`ps2/${id}/shots/01.webp`);
+  expect(shot.status).toBe(200);
+  expect(shot.headers.get("content-type")).toBe("image/webp");
+  expect(shot.headers.get("cross-origin-resource-policy")).toBeNull();
+  expect(shot.headers.get("access-control-allow-origin")).toBe("*");
+  for (const f of ["shots/02.webp", "shots/1.webp", "shots/../game.json"]) expect((await ana(`ps2/${id}/${f}`)).status).toBe(404);
+});
+
 test("PS2 routes 404 for unknown ids and without a library", async () => {
   for (const path of ["ps2/slus-00000/status", "ps2/SLUS-00000/status", "ps2/..%2fbt3/status", "ps2/sles-11111/nope", "cover/ps2/slus-00000", "cover/nope"])
     expect((await ana(path)).status).toBe(404);

@@ -54,6 +54,8 @@ const TYPES: Record<string, string> = {
   bin: "application/octet-stream",
 };
 
+/** The home's own scripts (page/home/), plain ES modules. */
+const HOME_FILES = new Set(["app.js", "library.js", "drawer.js", "wizard.js", "controller.js", "intro.js"]);
 /** The PS2 games' page (ps2-builder publishes ps2web.html; it's served as the folder's index) and files. */
 const PS2_FILES = new Set(["ps2web.js", "ps2web.wasm", "ps2web.data"]);
 /** The home's two typefaces, from their packages (OFL), served from here: nothing is fetched elsewhere. */
@@ -333,6 +335,8 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     const disc = lib.disc(id);
     if (rest === "game") return respond(null, 301, { Location: "game/" });
     if (rest.startsWith("game/")) return ps2Game(req, pass, id, rest.slice("game/".length));
+    // The test runs' screenshots for the home, outside game/: the game's isolation headers would keep them from it.
+    if (/^shots\/\d{2}\.webp$/.test(rest)) return file(join(p.build, rest));
     switch (rest) {
       case "":
         if (req.method === "PATCH") {
@@ -418,6 +422,8 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
       const f = Bun.file(join(dir, "intro.mp4"));
       return (await f.exists()) ? rangeResponse(req, f, { ...HEADERS, "Content-Type": TYPES.mp4! }) : text("Sem intro", 404);
     }
+    const own = /^\/home\/([\w-]+\.js)$/.exec(path)?.[1];
+    if (own && HOME_FILES.has(own)) return file(join(pageDir, "home", own));
     const script = /^\/([\w-]+\.js)$/.exec(path)?.[1];
     if (script && Object.hasOwn(scripts, script)) return respond(scripts[script]!, 200, { "Content-Type": TYPES.js! });
     const font = /^\/fonts\/([\w-]+\.woff2)$/.exec(path)?.[1];

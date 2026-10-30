@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GAME_FILES as SERVED } from "../server/routes";
+import { GAMES } from "../server/games";
 import { createBuilder, GAME_FILES, REFUSED, STEPS, type Runner } from "./builder";
 
 const fixtures = join(import.meta.dir, "fixtures");
@@ -55,7 +55,8 @@ async function setup(tools: ReturnType<typeof fakeTools>) {
 }
 
 test("the same list of game files as the server serves", () => {
-  expect(new Set(GAME_FILES)).toEqual(SERVED);
+  expect(new Set(GAME_FILES)).toEqual(GAMES.find((g) => g.id === "bt3")!.files);
+  expect(STEPS).toEqual(GAMES.find((g) => g.id === "bt3")!.steps);
 });
 
 test("nothing to build: idle, with a heartbeat", async () => {

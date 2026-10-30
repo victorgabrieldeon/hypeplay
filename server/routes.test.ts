@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Passes } from "./pass";
-import { createBt3, GAME_FILES, PIECE } from "./routes";
+import { GAMES } from "./games";
+import { createApp, PIECE } from "./routes";
 
 const PAGE_DIR = join(import.meta.dir, "..", "page");
 // The one valid pass, issued to whoever signs in with code "ana" (Discord is faked: discord.test.ts covers it).
@@ -18,25 +19,29 @@ const discord = {
     return { id: "42", name: "Ana" };
   },
 };
+let root: string;
 let dir: string;
-let bt3: ReturnType<typeof createBt3>;
+let app: ReturnType<typeof createApp>;
 // A small stand-in for the disc image: two whole pieces and a shorter last one.
 const SIZE = 2 * PIECE + 1234;
 const iso = new Uint8Array(SIZE).map((_, i) => (i * 7 + (i >> 20)) & 0xff);
 
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), "bt3-routes-"));
+  root = await mkdtemp(join(tmpdir(), "cordplay-routes-"));
+  dir = join(root, "bt3");
+  await mkdir(dir);
   await writeFile(join(dir, "disc.iso"), iso);
   await mkdir(join(dir, "build"));
-  for (const f of [...GAME_FILES, "bt3_node.js", "telemetry.log"]) await writeFile(join(dir, "build", f), `file ${f}`);
+  for (const f of [...GAMES[0]!.files, "bt3_node.js", "telemetry.log"]) await writeFile(join(dir, "build", f), `file ${f}`);
   await mkdir(join(dir, "work"));
   await writeFile(join(dir, "work", "secret.txt"), "intermediate");
-  bt3 = createBt3({ dir, pageDir: PAGE_DIR, entryJs: "/* entry */", passes, discord });
+  app = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "/* entry */", passes, discord });
 });
-afterAll(() => rm(dir, { recursive: true, force: true }));
+afterAll(() => rm(root, { recursive: true, force: true }));
 
-const get = (path: string, init?: RequestInit) => bt3.handle(new Request(`http://localhost${path}`, init)) as Promise<Response>;
-const p = (rest: string) => `/p/${pass}/${rest}`;
+const get = (path: string, init?: RequestInit) => app.handle(new Request(`http://localhost${path}`, init)) as Promise<Response>;
+const home = (rest: string) => `/p/${pass}/${rest}`;
+const p = (rest: string) => home(`bt3/${rest}`);
 
 const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.com https://*.discordsays.com";
 
@@ -70,10 +75,10 @@ test("token: a Discord code for a pass", async () => {
   expect((await get("/token")).status).toBe(405);
 });
 
-test("the page, with the sandbox and CORS headers; the trailing slash is added", async () => {
-  const res = await get(p(""));
+test("the home, with the sandbox and CORS headers; the trailing slash is added", async () => {
+  const res = await get(home(""));
   expect(res.status).toBe(200);
-  expect(await res.text()).toContain("Budokai Tenkaichi 3");
+  expect(await res.text()).toContain("CordPlay");
   const csp = res.headers.get("content-security-policy")!;
   expect(csp).toStartWith("sandbox allow-scripts allow-forms allow-popups allow-downloads;");
   expect(csp).not.toContain("allow-same-origin");
@@ -84,6 +89,7 @@ test("the page, with the sandbox and CORS headers; the trailing slash is added",
   expect(bare.status).toBe(301);
   expect(bare.headers.get("location")).toBe(`${pass}/`);
   expect((await get(p("game"))).headers.get("location")).toBe("game/");
+  expect((await get(home("bt3"))).status).toBe(404);
   // Preflight of the upload's PUT.
   const pre = await get(p("upload"), { method: "OPTIONS" });
   expect(pre.status).toBe(204);
@@ -119,4 +125,18 @@ test("status, net endpoints that keep nothing, and WebSockets only by upgrade", 
   for (const f of ["game/net/stat", "game/net/log", "game/telemetry"]) expect((await get(p(f), { method: "POST", body: "{}" })).status).toBe(204);
   expect((await get(p("game/net/ws?room=ABCD&role=host"))).status).toBe(426);
   expect((await get(p("game/net/ws?room=bad&role=host"))).status).toBe(400);
+});
+
+test("the catalog, each game with its state and without its file list", async () => {
+  const body = (await (await get(home("games"))).json()) as { me: string; games: Record<string, unknown>[] };
+  expect(body.me).toBe("Ana");
+  expect(body.games.map((g) => g.id)).toEqual(["bt3"]);
+  expect(body.games[0]).toMatchObject({ name: GAMES[0]!.name, status: { state: "ready" }, rooms: 0 });
+  expect(body.games[0]).not.toHaveProperty("files");
+});
+
+test("only games from the catalog: an id never reaches the disk", async () => {
+  // ("../" never gets here: the URL is normalized before routing.)
+  for (const path of ["nope/status", "nope/game/", "..%2fbt3/status", "bt3./status", "work/secret.txt", "status", "upload"])
+    expect((await get(home(path))).status).toBe(404);
 });

@@ -1,13 +1,14 @@
 /**
- * The Budokai Tenkaichi 3 Discord Activity's server (docs/2026-10-29-plugin-bt3-design.md).
+ * CordPlay's server, the Discord Activity (docs/2026-10-29-plugin-bt3-design.md).
  *
- *   /, entry.js, /icon.svg            public: the entry page signs in with Discord (page/entry.html, entry.ts)
- *   /token                            POST { code }: the Discord code for a pass (discord.ts, pass.ts)
- *   /p/<pass>/                        the game's page (page/index.html), framed by the entry page
- *             status, upload, retry   its state, the disc image's upload, "Tentar de novo"
- *             game/<file>             the compiled game, from a fixed list
- *             game/disc/...           the disc image in 1 MiB pieces, read straight from it
- *             game/net/ws, net/queue  online rooms (rooms.ts)
+ *   /, entry.js, /icon.svg                 public: the entry page signs in with Discord (page/entry.html, entry.ts)
+ *   /token                                 POST { code }: the Discord code for a pass (discord.ts, pass.ts)
+ *   /p/<pass>/                             the home (page/index.html), framed by the entry page
+ *             games                        the catalog (games.ts), each game with its state
+ *             <id>/status, upload, retry   a game's state, its disc image's upload, "Tentar de novo"
+ *             <id>/game/<file>             the compiled game, from its fixed list
+ *             <id>/game/disc/...           the disc image in 1 MiB pieces, read straight from it
+ *             <id>/game/net/ws, net/queue  online rooms (rooms.ts), one set per game
  *
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
@@ -15,24 +16,10 @@
 import type { Server, WebSocketHandler } from "bun";
 import { join } from "node:path";
 import type { Discord } from "./discord";
+import { GAMES, type Game } from "./games";
 import type { Passes } from "./pass";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { createDiscStore, MAX_PIECE } from "./upload";
-
-/** The compiled game's files: nothing else from build/ is ever served. */
-export const GAME_FILES = new Set([
-  "index.html",
-  "net.js",
-  "net.css",
-  "bt3-jspi.js",
-  "bt3-jspi.wasm",
-  "bt3-async.js",
-  "bt3-async.wasm",
-  "icon-180.png",
-  "icon-192.png",
-  "icon-512.png",
-  "manifest.webmanifest",
-]);
 
 export const PIECE = 1024 * 1024;
 
@@ -61,14 +48,14 @@ export const HEADERS = {
 
 const ENTRY_HEADERS = { "Content-Security-Policy": FRAME_ANCESTORS, "Cache-Control": "no-cache" };
 
-export type NetData = { kind: "room"; params: RoomParams } | { kind: "queue"; params: QueueParams };
+export type NetData = { game: string } & ({ kind: "room"; params: RoomParams } | { kind: "queue"; params: QueueParams });
 
 const typeOf = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? TYPES.bin!;
 /** The last segment with a slash after it, relative: page addresses need the trailing slash. */
 const slashed = (pathname: string) => `${pathname.slice(pathname.lastIndexOf("/") + 1)}/`;
 
-export interface Bt3Options {
-  /** The data folder (/app/data/bt3/). */
+export interface AppOptions {
+  /** The data folder (/app/data/): each game's in <id>/. */
   dir: string;
   /** page/: the entry page, the game's page and the icon. */
   pageDir: string;
@@ -76,12 +63,15 @@ export interface Bt3Options {
   entryJs: string;
   passes: Passes;
   discord: Pick<Discord, "signIn">;
+  games?: Game[];
   now?: () => number;
 }
 
-export function createBt3({ dir, pageDir, entryJs, passes, discord, now = () => Date.now() }: Bt3Options) {
-  const disc = createDiscStore(dir, { now });
-  const rooms = new NetRooms(now);
+export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAMES, now = () => Date.now() }: AppOptions) {
+  const shelf = new Map(
+    games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
+  );
+  type Shelf = NonNullable<ReturnType<typeof shelf.get>>;
   function respond(body: ConstructorParameters<typeof Response>[0], status = 200, headers: Record<string, string> = {}) {
     return new Response(body, { status, headers: { ...HEADERS, ...headers } });
   }
@@ -93,20 +83,21 @@ export function createBt3({ dir, pageDir, entryJs, passes, discord, now = () => 
     return (await f.exists()) ? respond(f, 200, { "Content-Type": type, ...headers }) : text("Não encontrado", 404);
   }
 
-  async function discIndex() {
+  async function discIndex({ disc }: Shelf) {
     const f = Bun.file(disc.paths.iso);
     return (await f.exists()) ? { size: f.size, piece: PIECE } : null;
   }
 
-  async function game(rest: string, req: Request, server: Server<NetData> | undefined): Promise<Response | undefined> {
-    if (rest === "" || GAME_FILES.has(rest)) return file(join(disc.paths.build, rest || "index.html"));
+  async function game(on: Shelf, rest: string, req: Request, server: Server<NetData> | undefined): Promise<Response | undefined> {
+    const { disc } = on;
+    if (rest === "" || on.game.files.has(rest)) return file(join(disc.paths.build, rest || "index.html"));
     if (rest === "disc/index.json") {
-      const index = await discIndex();
+      const index = await discIndex(on);
       return index ? json(index) : text("Sem ISO no servidor", 404);
     }
     const piece = /^disc\/(\d{5})\.bin$/.exec(rest);
     if (piece) {
-      const index = await discIndex();
+      const index = await discIndex(on);
       const n = Number(piece[1]);
       if (!index || n * PIECE >= index.size) return text("Não encontrado", 404);
       const blob = Bun.file(disc.paths.iso).slice(n * PIECE, Math.min(index.size, (n + 1) * PIECE));
@@ -115,11 +106,11 @@ export function createBt3({ dir, pageDir, entryJs, passes, discord, now = () => 
     if (rest === "net/ws" || rest === "net/queue") {
       const q = new URL(req.url).searchParams;
       let data: NetData;
-      if (rest === "net/queue") data = { kind: "queue", params: parseQueueParams(q) };
+      if (rest === "net/queue") data = { game: on.game.id, kind: "queue", params: parseQueueParams(q) };
       else {
         const params = parseRoomParams(q);
         if (!params) return text("Pedido inválido", 400);
-        data = { kind: "room", params };
+        data = { game: on.game.id, kind: "room", params };
       }
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
       return server.upgrade(req, { data }) ? undefined : text("Não deu para abrir a conexão", 400);
@@ -153,12 +144,25 @@ export function createBt3({ dir, pageDir, entryJs, passes, discord, now = () => 
     const pass = await passes.verify(m[1]!);
     if (!pass) return text("Acesso vencido: feche e abra a atividade de novo.", 403);
     const path = m[2];
-    if (path === undefined || path === "/game") return respond(null, 301, { Location: slashed(pathname) });
-    const rest = path.slice(1);
-    if (rest.startsWith("game/")) return game(rest.slice(5), req, server);
+    if (path === undefined) return respond(null, 301, { Location: slashed(pathname) });
+    if (path === "/") return file(join(pageDir, "index.html"));
+    if (path === "/games")
+      return json({
+        me: pass.name,
+        games: await Promise.all(
+          [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }) => ({ ...g, status: await disc.status(pass), rooms: rooms.size })),
+        ),
+      });
+    const g = /^\/([\w-]+)(\/.*)?$/.exec(path);
+    const on = g && shelf.get(g[1]!);
+    if (!on) return text("Não encontrado", 404);
+    const sub = g![2];
+    if (!sub) return text("Não encontrado", 404);
+    if (sub === "/game") return respond(null, 301, { Location: slashed(pathname) });
+    const rest = sub.slice(1);
+    if (rest.startsWith("game/")) return game(on, rest.slice(5), req, server);
+    const { disc } = on;
     switch (rest) {
-      case "":
-        return file(join(pageDir, "index.html"));
       case "status":
         return json(await disc.status(pass));
       case "upload": {
@@ -182,20 +186,21 @@ export function createBt3({ dir, pageDir, entryJs, passes, discord, now = () => 
     return text("Não encontrado", 404);
   }
 
+  const roomsOf = (ws: { data: NetData }) => shelf.get(ws.data.game)!.rooms;
   const websocket: WebSocketHandler<NetData> = {
     open(ws) {
-      if (ws.data.kind === "room") rooms.openRoom(ws, ws.data.params);
-      else rooms.openQueue(ws, ws.data.params);
+      if (ws.data.kind === "room") roomsOf(ws).openRoom(ws, ws.data.params);
+      else roomsOf(ws).openQueue(ws, ws.data.params);
     },
     message(ws, msg) {
-      rooms.message(ws, msg);
+      roomsOf(ws).message(ws, msg);
     },
     close(ws, code) {
-      rooms.close(ws, code);
+      roomsOf(ws).close(ws, code);
     },
   };
 
-  return { handle, websocket, rooms, disc };
+  return { handle, websocket, shelf };
 }
 
-export type Bt3 = ReturnType<typeof createBt3>;
+export type App = ReturnType<typeof createApp>;

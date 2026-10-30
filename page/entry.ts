@@ -10,7 +10,7 @@ async function start() {
   try {
     sdk = new DiscordSDK(process.env.DISCORD_CLIENT_ID!);
   } catch {
-    throw new Error("Abra o Budokai Tenkaichi 3 pelo 🚀 de um canal de voz do Discord.");
+    throw new Error("Abra o CordPlay pelo 🚀 de um canal de voz do Discord.");
   }
   await sdk.ready();
   // Asks for consent the first time only; after that it's silent.

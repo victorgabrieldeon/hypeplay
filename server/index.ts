@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { createDiscord } from "./discord";
 import { createPasses } from "./pass";
-import { createBt3, type NetData } from "./routes";
+import { createApp, type NetData } from "./routes";
 
 const env = (name: string) => {
   const value = process.env[name];
@@ -22,8 +22,9 @@ const built = await Bun.build({
 });
 if (!built.success) throw new AggregateError(built.logs, "page/entry.ts didn't build");
 
-const bt3 = createBt3({
-  dir: process.env.BT3_DIR ?? join(import.meta.dir, "..", "data", "bt3"),
+const app = createApp({
+  // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/.
+  dir: process.env.DATA_DIR ?? join(import.meta.dir, "..", "data"),
   pageDir,
   entryJs: await built.outputs[0]!.text(),
   // The client secret signs the passes too: resetting it in the portal also ends every open session.
@@ -33,8 +34,8 @@ const bt3 = createBt3({
 
 Bun.serve<NetData>({
   port: PORT,
-  fetch: (req, server) => bt3.handle(req, server),
-  websocket: bt3.websocket,
+  fetch: (req, server) => app.handle(req, server),
+  websocket: app.websocket,
 });
 
-console.log(`bt3 on http://localhost:${PORT}`);
+console.log(`cordplay on http://localhost:${PORT}`);

@@ -1,6 +1,10 @@
-# Budokai Tenkaichi 3 (atividade do Discord)
+# CordPlay (atividade do Discord)
 
-Dragon Ball Z: Budokai Tenkaichi 3 como atividade do Discord (o 🚀 do canal de voz). Usa o port web do
+Uma central de jogos como atividade do Discord (o 🚀 do canal de voz): quem abre escolhe o jogo no catálogo,
+envia a ISO uma vez e o servidor compila o jogo para o navegador. Cada jogo é um port web de uma decompilação,
+com o próprio compilador (serviço `builder`). Por enquanto o catálogo tem um jogo:
+
+- **Dragon Ball Z: Budokai Tenkaichi 3**, o port web do
 [Tenkaichi3Decomp](https://github.com/stufno102/Tenkaichi3Decomp) (fork do stufno102, commit `81507cde`),
 compilado no próprio servidor a partir da ISO do dono. Desenho original (da época em que era plugin do
 HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-design.md).
@@ -11,7 +15,10 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
 
 ## Como usar
 
-- **Primeira vez:** quem abrir a atividade envia a ISO (só a americana, SLUS-21678; uma vez para o servidor
+- **Home:** o catálogo, com o estado de cada jogo (pronto, precisa da ISO, enviando, compilando). "Jogar
+  agora" abre o jogo pronto. O painel do lado mostra o envio com porcentagem, velocidade e quanto falta
+  (também para quem só está olhando o envio de outra pessoa) e os passos da compilação.
+- **Primeira vez:** quem abrir a atividade escolhe o jogo e envia a ISO (só a americana, SLUS-21678; uma vez para o servidor
   todo). O envio vai em pedaços de 32 MB e retoma se cair, até de outra vez que abrir a atividade. O serviço
   `builder` confere a ISO, extrai os dados e compila o jogo (alguns minutos, 2 CPUs no máximo). Quem abrir a
   atividade no meio-tempo vê o passo atual. Depois disso, abrir a atividade carrega o jogo direto, com tudo
@@ -24,7 +31,7 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
 
 ## Configurar o app no Discord
 
-Um app só para o jogo (não o do HypeMeet), em https://discord.com/developers/applications:
+Um app para o CordPlay (não o do HypeMeet; o nome que aparece no Discord é o do app), em https://discord.com/developers/applications:
 
 1. **OAuth2**: copie o *Client ID* e o *Client Secret* (vão nas variáveis abaixo). Em **Redirects**
    adicione `https://127.0.0.1`: o Discord exige um redirect cadastrado, mesmo sem usar.
@@ -54,8 +61,8 @@ Sem qualquer uma das duas o servidor não sobe.
 
 A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopo `identify`) e o
 troca em `POST /token`. O servidor troca o código pelo usuário do Discord e devolve um passe assinado aqui
-mesmo (HMAC, 12 h): sem passar pelo Discord, não há passe. A entrada então abre o jogo num iframe em
-`p/<passe>/`: tudo do jogo mora sob esse caminho, porque o iframe não manda cabeçalhos e, no Discord, não tem
+mesmo (HMAC, 12 h): sem passar pelo Discord, não há passe. A entrada então abre a home num iframe em
+`p/<passe>/`, e cada jogo em `p/<passe>/<id>/` (estado, envio, `game/`). Tudo mora sob esse caminho, porque o iframe não manda cabeçalhos e, no Discord, não tem
 cookie. Sem passe válido, tudo ali responde 403. A entrada e o ícone são públicos; só o Discord pode
 emoldurar as páginas.
 
@@ -86,9 +93,18 @@ docker run --rm -v "$PWD/data:/app/data" bt3-builder
 
 ## Por dentro
 
-- `server/`: entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
+- `server/`: o catálogo (`games.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), salas do online em memória (`rooms.ts`, port do `room.js` do fork).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe) e a
-  página do jogo (`index.html`: envio, progresso, erros).
-- `builder/`: a imagem e o laço do compilador. O `patch.ts` troca os caminhos absolutos do jogo por
+  home (`index.html`: catálogo, envio, progresso, erros).
+- `builder/`: a imagem e o laço do compilador do BT3. O `patch.ts` troca os caminhos absolutos do jogo por
   relativos e falha alto se o fork mudar.
+
+## Adicionar um jogo
+
+1. Uma entrada em `server/games.ts`: o `id` vira a pasta no volume (`/app/data/<id>/`) e o caminho
+   (`p/<passe>/<id>/`). Também vão a ISO aceita, os tamanhos, os passos e a lista fixa de arquivos servidos.
+2. Um compilador próprio, no molde de `builder/`: lê `/app/data/<id>/disc.iso`, escreve `status.json`
+   (com o heartbeat) e publica em `build/`. Vira mais um serviço no `docker-compose.yml`, no mesmo volume.
+3. O port precisa usar só caminhos relativos (como o `patch.ts` faz no BT3). As salas do online
+   (`rooms.ts`) seguem o protocolo do port do BT3: um jogo com outro protocolo precisa do próprio.

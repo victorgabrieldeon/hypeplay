@@ -1,6 +1,6 @@
 FROM oven/bun:1.4-slim
 WORKDIR /app
-ENV PORT=3003 BT3_DIR=/app/data/bt3
+ENV PORT=3003 DATA_DIR=/app/data
 # Only the Discord SDK, bundled into the entry page at startup. Nothing of the game: the builder makes it in the volume.
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile

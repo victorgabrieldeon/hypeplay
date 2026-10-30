@@ -15,7 +15,7 @@ import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { patchNet, patchShell } from "./patch";
 
-/** The game's files the server serves (the same list as server/routes.ts GAME_FILES). */
+/** The game's files the server serves (the same list as bt3's files in server/games.ts). */
 export const GAME_FILES = [
   "index.html",
   "net.js",

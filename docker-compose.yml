@@ -1,0 +1,22 @@
+# Production stack (Dokploy). Env: HYPEMEET_URL, the HypeMeet site whose rooms open the plugin (https://meet.example.com).
+# Domain (HTTPS via Traefik): app → port 3003. Then put that address in HypeMeet's PLUGINS.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      HYPEMEET_URL: ${HYPEMEET_URL}
+    volumes:
+      - bt3-data:/app/data
+
+  # Compiles the game from the disc image sent through the plugin (builder/).
+  # Idle, it only looks at the volume every 5 s; a build is once per disc image, held to 2 CPUs so calls don't suffer.
+  builder:
+    build: builder
+    restart: unless-stopped
+    cpus: "2"
+    volumes:
+      - bt3-data:/app/data
+
+volumes:
+  bt3-data:

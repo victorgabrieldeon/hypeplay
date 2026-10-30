@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GAME_FILES as SERVED } from "../../../server/bt3/routes";
+import { GAME_FILES as SERVED } from "../server/routes";
 import { createBuilder, GAME_FILES, REFUSED, STEPS, type Runner } from "./builder";
 
 const fixtures = join(import.meta.dir, "fixtures");
@@ -83,7 +83,7 @@ test("the steps in order, with state and log; publishes build/ in one swap", asy
     "link.py web",
     "link.py webasync",
   ]);
-  // What HypeMeet read while each ran.
+  // What the server read while each ran.
   expect(tools.statuses.map((s) => (s as { step: number }).step)).toEqual([1, 2, 2, 3, 3, 3, 3]);
   expect(tools.statuses[0]).toMatchObject({ state: "building", total: STEPS.length, label: "Conferindo a ISO" });
   const iso = (await stat(join(dir, "disc.iso"))).mtimeMs;

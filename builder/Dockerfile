@@ -13,7 +13,7 @@ RUN apt-get update \
 RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --no-cache-dir "splat64[mips]==0.50.0"
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
-# The fork at a fixed commit: plugins/bt3/builder/patch.ts is checked against this one.
+# The fork at a fixed commit: builder/patch.ts is checked against this one.
 ARG BT3_REPO=https://github.com/stufno102/Tenkaichi3Decomp.git
 ARG BT3_COMMIT=81507cde58685a6f5aab917c298d9a9f82fe09b0
 RUN git init -q /opt/t3 \

@@ -1,6 +1,6 @@
 /**
- * The game's page and net.js, adjusted to live under a path: HypeMeet serves it at /plugins/bt3/p/<pass>/game/
- * (and, in Discord, under <app>.discordsays.com), where the fork's absolute addresses (/disc, /net/ws...) would
+ * The game's page and net.js, adjusted to live under a path: the plugin's server has it at /p/<pass>/game/
+ * (and, in Discord, under <app>.discordsays.com/plugins/bt3/), where the fork's absolute addresses (/disc, /net/ws...) would
  * miss. Each swap must find its text exactly: a change in the fork fails the build here, loudly, instead of
  * shipping a game that can't find its disc.
  */
@@ -43,7 +43,7 @@ function apply(name: string, source: string, swaps: Swap[]): string {
   let out = source;
   for (const { from, to } of swaps) {
     const at = out.indexOf(from);
-    if (at < 0) throw new Error(`${name}: não achei o trecho ${JSON.stringify(from)} (o jogo mudou? revise plugins/bt3/builder/patch.ts)`);
+    if (at < 0) throw new Error(`${name}: não achei o trecho ${JSON.stringify(from)} (o jogo mudou? revise builder/patch.ts)`);
     out = out.split(from).join(to);
   }
   return out;

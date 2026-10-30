@@ -1,6 +1,6 @@
 /**
- * The Budokai Tenkaichi 3 plugin's builder (service bt3-builder in docker-compose.prod.yml): watches the data
- * folder HypeMeet shares with it, and when a disc image is there and no game built from it, makes one:
+ * The Budokai Tenkaichi 3 plugin's builder (service builder in docker-compose.yml): watches the data
+ * folder the plugin's server shares with it, and when a disc image is there and no game built from it, makes one:
  *
  *   1. Conferindo a ISO      install.py's disc step: the USA release, unmodified (else the image is deleted)
  *   2. Extraindo os dados    install.py's game data and executable data steps
@@ -8,14 +8,14 @@
  *   4. Ajustando caminhos    patch.ts: the page and net.js work under a path
  *   5. Publicando            the fixed list of files into build.tmp/, swapped in as build/
  *
- * It's the only writer of status.json (with a heartbeat, `at`, every few seconds: HypeMeet shows "offline" without
+ * It's the only writer of status.json (with a heartbeat, `at`, every few seconds: the page shows "offline" without
  * it). The tools' output goes to build.log; their intermediate files stay in work/, reused by a later build.
  */
 import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { patchNet, patchShell } from "./patch";
 
-/** The game's files HypeMeet serves (the same list as server/bt3/routes.ts GAME_FILES). */
+/** The game's files the server serves (the same list as server/routes.ts GAME_FILES). */
 export const GAME_FILES = [
   "index.html",
   "net.js",
@@ -40,7 +40,7 @@ const REFUSED_CODE = 2;
 
 export type Runner = (cmd: string[], opts: { cwd: string; log: (text: string) => void }) => Promise<{ code: number; output: string }>;
 
-/** status.json (read by server/bt3/upload.ts). */
+/** status.json (read by server/upload.ts). */
 interface Status {
   at: number;
   state: "idle" | "building" | "ready" | "failed";
@@ -54,7 +54,7 @@ interface Status {
 }
 
 export interface BuilderOptions {
-  /** The data folder shared with HypeMeet (/app/data/bt3/). */
+  /** The data folder shared with the plugin's server (/app/data/bt3/). */
   dir: string;
   /** The fork's source in the image, at its fixed commit; copied to work/ to build in. */
   source: string;

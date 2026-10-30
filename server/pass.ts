@@ -1,8 +1,8 @@
 /**
- * The Budokai Tenkaichi 3 plugin's access pass: proof that whoever loads its page is in some room. It rides in the
- * path (/plugins/bt3/p/<pass>/...) because the plugin's iframe sends no headers and, in Discord, has no cookie.
- *
- *   base64url(JSON { id, name, exp }) "." base64url(HMAC-SHA256(secret, first part))
+ * The access pass: proof that whoever loads the page is in some HypeMeet room. The manifest asks for one
+ * ("pass": true), the room opens the page with ?pass=<pass>, and the page lives under /p/<pass>/ from then on,
+ * because the iframe sends no headers and, in Discord, has no cookie. Only HypeMeet can read a pass: it's asked
+ * once (POST /api/plugins/pass) and remembered until it expires.
  */
 
 export interface Pass {
@@ -14,56 +14,30 @@ export interface Pass {
   exp: number;
 }
 
-export const PASS_TTL_MS = 12 * 60 * 60_000;
-
-const encoder = new TextEncoder();
-const b64url = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64url");
-
-export function createPasses(secret: string, now = () => Date.now()) {
-  const key = crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
-  const sign = async (body: string) => new Uint8Array(await crypto.subtle.sign("HMAC", await key, encoder.encode(body)));
+export function createPasses(hypemeetUrl: string, plugin: string, { now = () => Date.now(), fetch = globalThis.fetch } = {}) {
+  const known = new Map<string, Pass>();
 
   return {
-    async issue(id: string, name: string): Promise<string> {
-      const body = b64url(encoder.encode(JSON.stringify({ id, name, exp: now() + PASS_TTL_MS } satisfies Pass)));
-      return `${body}.${b64url(await sign(body))}`;
-    },
-    /** The pass's holder, or null when it's forged, damaged or expired. */
+    /** The pass's holder, or null when HypeMeet doesn't vouch for it (or can't be reached), or it's another plugin's. */
     async verify(pass: string): Promise<Pass | null> {
-      const [body, mac, extra] = pass.split(".");
-      if (!body || !mac || extra !== undefined) return null;
-      const ok = await crypto.subtle.verify("HMAC", await key, Buffer.from(mac, "base64url"), encoder.encode(body));
-      if (!ok) return null;
-      try {
-        const p = JSON.parse(Buffer.from(body, "base64url").toString()) as Partial<Pass>;
-        if (typeof p.id !== "string" || typeof p.name !== "string" || typeof p.exp !== "number" || p.exp <= now()) return null;
-        return { id: p.id, name: p.name, exp: p.exp };
-      } catch {
+      const hit = known.get(pass);
+      if (hit) return hit.exp > now() ? hit : null;
+      const res = await fetch(new URL("/api/plugins/pass", hypemeetUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pass }),
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => null);
+      if (!res?.ok) return null;
+      const p = (await res.json().catch(() => null)) as { plugin?: unknown; id?: unknown; name?: unknown; exp?: unknown } | null;
+      if (p?.plugin !== plugin || typeof p.id !== "string" || typeof p.name !== "string" || typeof p.exp !== "number" || p.exp <= now())
         return null;
-      }
+      for (const [k, v] of known) if (v.exp <= now()) known.delete(k);
+      const valid = { id: p.id, name: p.name, exp: p.exp };
+      known.set(pass, valid);
+      return valid;
     },
   };
 }
 
 export type Passes = ReturnType<typeof createPasses>;
-
-/** What a room token says about its holder (livekit-server-sdk's ClaimGrants, the part read here). */
-export interface RoomClaims {
-  sub?: string;
-  name?: string;
-  video?: { room?: string };
-  attributes?: Record<string, string>;
-}
-
-/**
- * A pass for whoever holds this room token: a valid token of a room that exists, from someone in it (not a
- * browser transmitter, which only sends screens for someone else). Null otherwise.
- */
-export async function passForToken(
-  token: unknown,
-  deps: { verify: (token: string) => Promise<RoomClaims>; roomExists: (code: string) => boolean; passes: Passes },
-): Promise<string | null> {
-  const claims = typeof token === "string" && token ? await deps.verify(token).catch(() => null) : null;
-  if (!claims?.sub || !claims.video?.room || !deps.roomExists(claims.video.room) || claims.attributes?.castFor) return null;
-  return deps.passes.issue(claims.sub, claims.name || claims.sub.split("#")[0]!);
-}

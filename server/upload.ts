@@ -2,7 +2,7 @@
  * The disc image's upload and the plugin's state, from the files in the data folder (/app/data/bt3/):
  *
  *   upload/disc.iso.part, upload/state.json   an upload under way ({ size, received, by, at })
- *   disc.iso                                  the whole image: the builder (plugins/bt3/builder) takes it from here
+ *   disc.iso                                  the whole image: the builder (builder/) takes it from here
  *   retry                                     left here by "Tentar de novo"; the builder deletes it when it starts
  *   status.json                               the builder's own state, written only by it (with a heartbeat, `at`)
  *   build/                                    the compiled game, swapped in whole by the builder
@@ -28,7 +28,7 @@ interface UploadState {
   at: number;
 }
 
-/** status.json (plugins/bt3/builder/builder.ts). */
+/** status.json (builder/builder.ts). */
 export interface BuilderStatus {
   at: number;
   state: "idle" | "building" | "ready" | "failed";

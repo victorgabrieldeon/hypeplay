@@ -2,14 +2,16 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPasses } from "./pass";
+import type { Passes } from "./pass";
 import { createBt3, GAME_FILES, MANIFEST, PIECE } from "./routes";
 
-const PAGE_DIR = join(import.meta.dir, "..", "..", "plugins", "bt3", "page");
-const passes = createPasses("secret");
+const PAGE_DIR = join(import.meta.dir, "..", "page");
+const HYPEMEET = "https://meet.example.com";
+// What HypeMeet vouches for (pass.ts asks it): just this one.
+const pass = "Ana-body.Ana_mac";
+const passes: Passes = { verify: async (p) => (p === pass ? { id: "Ana#1", name: "Ana", exp: Infinity } : null) };
 let dir: string;
 let bt3: ReturnType<typeof createBt3>;
-let pass: string;
 // A small stand-in for the disc image: two whole pieces and a shorter last one.
 const SIZE = 2 * PIECE + 1234;
 const iso = new Uint8Array(SIZE).map((_, i) => (i * 7 + (i >> 20)) & 0xff);
@@ -21,23 +23,31 @@ beforeAll(async () => {
   for (const f of [...GAME_FILES, "bt3_node.js", "telemetry.log"]) await writeFile(join(dir, "build", f), `file ${f}`);
   await mkdir(join(dir, "work"));
   await writeFile(join(dir, "work", "secret.txt"), "intermediate");
-  bt3 = createBt3({ enabled: true, dir, pageDir: PAGE_DIR, passes });
-  pass = await passes.issue("Ana#1", "Ana");
+  bt3 = createBt3({ dir, pageDir: PAGE_DIR, hypemeetOrigin: HYPEMEET, passes });
 });
 afterAll(() => rm(dir, { recursive: true, force: true }));
 
-const get = (path: string, init?: RequestInit, on = bt3) => on.handle(new Request(`http://localhost${path}`, init)) as Promise<Response>;
-const p = (rest: string) => `/plugins/bt3/p/${pass}/${rest}`;
+const get = (path: string, init?: RequestInit) => bt3.handle(new Request(`http://localhost${path}`, init)) as Promise<Response>;
+const p = (rest: string) => `/p/${pass}/${rest}`;
 
 test("manifest and icon are public; the rest needs a valid pass", async () => {
-  const manifest = await get("/plugins/bt3/hypemeet-plugin.json");
+  const manifest = await get("/hypemeet-plugin.json");
   expect(await manifest.json()).toEqual(MANIFEST);
-  expect((await get("/plugins/bt3/icon.svg")).headers.get("content-type")).toBe("image/svg+xml");
-  expect((await get("/plugins/bt3/")).status).toBe(403);
+  expect(MANIFEST.pass).toBe(true);
+  expect((await get("/icon.svg")).headers.get("content-type")).toBe("image/svg+xml");
+  expect((await get("/")).status).toBe(403);
   const forged = `${pass.split(".")[0]}.AAAA`;
-  for (const path of [`/plugins/bt3/p/${forged}/`, `/plugins/bt3/p/${forged}/status`, `/plugins/bt3/p/${forged}/game/disc/00000.bin`, "/plugins/bt3/p/nopass/status"])
-    expect([403, 404]).toContain((await get(path)).status);
-  expect((await get(`/plugins/bt3/p/${forged}/game/index.html`)).status).toBe(403);
+  for (const path of [`/p/${forged}/`, `/p/${forged}/status`, `/p/${forged}/game/disc/00000.bin`, "/p/nopass/status"])
+    expect((await get(path)).status).toBe(403);
+  expect((await get(`/p/${forged}/game/index.html`)).status).toBe(403);
+  expect((await get("/elsewhere")).status).toBe(404);
+});
+
+test("the room opens it with ?pass=: on to p/<pass>/, relative (in Discord it lives under /plugins/bt3/)", async () => {
+  const res = await get(`/?pass=${pass}`);
+  expect(res.status).toBe(302);
+  expect(res.headers.get("location")).toBe(`p/${pass}/`);
+  expect((await get("/?pass=a%0d%0ab")).status).toBe(403);
 });
 
 test("the page, with the sandbox and CORS headers; the trailing slash is added", async () => {
@@ -47,13 +57,13 @@ test("the page, with the sandbox and CORS headers; the trailing slash is added",
   const csp = res.headers.get("content-security-policy")!;
   expect(csp).toStartWith("sandbox allow-scripts allow-forms allow-popups allow-downloads;");
   expect(csp).not.toContain("allow-same-origin");
-  expect(csp).toContain("frame-ancestors 'self' https://discord.com https://*.discord.com https://*.discordsays.com");
+  expect(csp).toContain(`frame-ancestors ${HYPEMEET} https://discord.com https://*.discord.com https://*.discordsays.com`);
   expect(res.headers.get("access-control-allow-origin")).toBe("*");
   expect(res.headers.get("cache-control")).toBe("no-cache");
-  const bare = await get(`/plugins/bt3/p/${pass}`);
+  const bare = await get(`/p/${pass}`);
   expect(bare.status).toBe(301);
-  expect(bare.headers.get("location")).toBe(`/plugins/bt3/p/${pass}/`);
-  expect((await get(p("game"))).headers.get("location")).toBe(`/plugins/bt3/p/${pass}/game/`);
+  expect(bare.headers.get("location")).toBe(`${pass}/`);
+  expect((await get(p("game"))).headers.get("location")).toBe("game/");
   // Preflight of the upload's PUT.
   const pre = await get(p("upload"), { method: "OPTIONS" });
   expect(pre.status).toBe(204);
@@ -89,9 +99,4 @@ test("status, net endpoints that keep nothing, and WebSockets only by upgrade", 
   for (const f of ["game/net/stat", "game/net/log", "game/telemetry"]) expect((await get(p(f), { method: "POST", body: "{}" })).status).toBe(204);
   expect((await get(p("game/net/ws?room=ABCD&role=host"))).status).toBe(426);
   expect((await get(p("game/net/ws?room=bad&role=host"))).status).toBe(400);
-});
-
-test("BT3_PLUGIN=0: everything 404", async () => {
-  const off = createBt3({ enabled: false, dir, pageDir: PAGE_DIR, passes });
-  for (const path of ["/plugins/bt3/hypemeet-plugin.json", p(""), p("game/index.html")]) expect((await get(path, undefined, off)).status).toBe(404);
 });

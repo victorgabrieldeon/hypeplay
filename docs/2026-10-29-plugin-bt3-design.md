@@ -1,5 +1,12 @@
 # Plugin Budokai Tenkaichi 3 — design
 
+> **Atualização (2026-10-30):** escrito quando o plugin era embutido no HypeMeet (PR #3). Agora ele é este
+> repositório, com servidor próprio na raiz do domínio dele (`/p/<passe>/` em vez de `/plugins/bt3/p/<passe>/`)
+> e listado em `PLUGINS` como qualquer outro plugin. O passe continua sendo emitido pelo HypeMeet, para
+> qualquer plugin cujo manifest tenha `"pass": true`; este servidor confere cada passe com
+> `POST <HYPEMEET_URL>/api/plugins/pass`. Saíram `BT3_PLUGIN`, `builtin` e o serviço `bt3-builder` do
+> compose do HypeMeet (aqui ele é o `builder`). O resto do desenho vale como está.
+
 Data: 2026-10-29. Branch: `feat/plugin-bt3`.
 
 ## Objetivo

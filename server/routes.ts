@@ -1,32 +1,32 @@
 /**
- * The Budokai Tenkaichi 3 plugin, built into HypeMeet (docs/superpowers/specs/2026-10-29-plugin-bt3-design.md).
+ * The Budokai Tenkaichi 3 plugin's server (docs/2026-10-29-plugin-bt3-design.md).
  *
- *   /plugins/bt3/hypemeet-plugin.json, icon.svg    public: nothing of the game
- *   /plugins/bt3/p/<pass>/                         the plugin's page (plugins/bt3/page/index.html)
- *                          status, upload, retry   its state, the disc image's upload, "Tentar de novo"
- *                          game/<file>             the compiled game, from a fixed list
- *                          game/disc/...           the disc image in 1 MiB pieces, read straight from it
- *                          game/net/ws, net/queue  online rooms (rooms.ts)
+ *   /hypemeet-plugin.json, /icon.svg  public: nothing of the game
+ *   /?pass=<pass>                     where the room opens it: on to p/<pass>/
+ *   /p/<pass>/                        the plugin's page (page/index.html)
+ *             status, upload, retry   its state, the disc image's upload, "Tentar de novo"
+ *             game/<file>             the compiled game, from a fixed list
+ *             game/disc/...           the disc image in 1 MiB pieces, read straight from it
+ *             game/net/ws, net/queue  online rooms (rooms.ts)
  *
- * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar: no access to the
- * room's storage. That makes every fetch cross-origin, hence the CORS headers.
+ * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
+ * fetch cross-origin, hence the CORS headers. Redirects are relative: in Discord it all lives under /plugins/bt3/.
  */
 import type { Server, WebSocketHandler } from "bun";
 import { join } from "node:path";
-import type { PluginInfo } from "../plugins";
 import type { Passes } from "./pass";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { createDiscStore, MAX_PIECE } from "./upload";
 
 export const BT3_ID = "bt3";
-const BASE = `/plugins/${BT3_ID}/`;
 
 export const MANIFEST = {
   id: BT3_ID,
   name: "Budokai Tenkaichi 3",
   description: "Luta 1x1 online ou local. Cada um precisa ter o jogo.",
-  icon: `${BASE}icon.svg`,
-  entry: BASE,
+  icon: "/icon.svg",
+  entry: "/",
+  pass: true,
 };
 
 /** The compiled game's files: nothing else from build/ is ever served. */
@@ -58,43 +58,50 @@ const TYPES: Record<string, string> = {
   bin: "application/octet-stream",
 };
 
-export const HEADERS = {
+/** Only HypeMeet's rooms and its Discord Activity may frame it. */
+export const headersFor = (hypemeetOrigin: string) => ({
   "Content-Security-Policy":
     "sandbox allow-scripts allow-forms allow-popups allow-downloads; " +
-    "frame-ancestors 'self' https://discord.com https://*.discord.com https://*.discordsays.com",
+    `frame-ancestors ${hypemeetOrigin} https://discord.com https://*.discord.com https://*.discordsays.com`,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
   "Access-Control-Allow-Headers": "content-type",
   "Cache-Control": "no-cache",
-};
+});
 
 export type NetData = { kind: "room"; params: RoomParams } | { kind: "queue"; params: QueueParams };
 
-function respond(body: ConstructorParameters<typeof Response>[0], status = 200, headers: Record<string, string> = {}) {
-  return new Response(body, { status, headers: { ...HEADERS, ...headers } });
-}
-const text = (body: string, status: number) => respond(body, status, { "Content-Type": "text/plain; charset=utf-8" });
-const json = (body: unknown, status = 200) => respond(JSON.stringify(body), status, { "Content-Type": TYPES.json! });
 const typeOf = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? TYPES.bin!;
-
-async function file(path: string, type = typeOf(path), headers: Record<string, string> = {}) {
-  const f = Bun.file(path);
-  return (await f.exists()) ? respond(f, 200, { "Content-Type": type, ...headers }) : text("Não encontrado", 404);
-}
+const PASS = /^[\w.-]+$/;
+/** The last segment with a slash after it, relative: page addresses need the trailing slash. */
+const slashed = (pathname: string) => `${pathname.slice(pathname.lastIndexOf("/") + 1)}/`;
 
 export interface Bt3Options {
-  enabled: boolean;
   /** The data folder (/app/data/bt3/). */
   dir: string;
-  /** plugins/bt3/page/: the plugin's page and icon. */
+  /** page/: the plugin's page and icon. */
   pageDir: string;
+  /** The HypeMeet site whose rooms open it. */
+  hypemeetOrigin: string;
   passes: Passes;
   now?: () => number;
 }
 
-export function createBt3({ enabled, dir, pageDir, passes, now = () => Date.now() }: Bt3Options) {
+export function createBt3({ dir, pageDir, hypemeetOrigin, passes, now = () => Date.now() }: Bt3Options) {
   const disc = createDiscStore(dir, { now });
   const rooms = new NetRooms(now);
+  const base = headersFor(hypemeetOrigin);
+
+  function respond(body: ConstructorParameters<typeof Response>[0], status = 200, headers: Record<string, string> = {}) {
+    return new Response(body, { status, headers: { ...base, ...headers } });
+  }
+  const text = (body: string, status: number) => respond(body, status, { "Content-Type": "text/plain; charset=utf-8" });
+  const json = (body: unknown, status = 200) => respond(JSON.stringify(body), status, { "Content-Type": TYPES.json! });
+
+  async function file(path: string, type = typeOf(path), headers: Record<string, string> = {}) {
+    const f = Bun.file(path);
+    return (await f.exists()) ? respond(f, 200, { "Content-Type": type, ...headers }) : text("Não encontrado", 404);
+  }
 
   async function discIndex() {
     const f = Bun.file(disc.paths.iso);
@@ -133,18 +140,21 @@ export function createBt3({ enabled, dir, pageDir, passes, now = () => Date.now(
   }
 
   async function handle(req: Request, server?: Server<NetData>): Promise<Response | undefined> {
-    if (!enabled) return text("Não encontrado", 404);
-    const { pathname } = new URL(req.url);
+    const { pathname, searchParams } = new URL(req.url);
     if (req.method === "OPTIONS") return respond(null, 204);
-    if (pathname === `${BASE}hypemeet-plugin.json`) return json(MANIFEST);
-    if (pathname === `${BASE}icon.svg`) return file(join(pageDir, "icon.svg"));
-    const m = /^\/plugins\/bt3\/p\/([\w-]+\.[\w-]+)(\/.*)?$/.exec(pathname);
-    if (!m) return text("Abra o Budokai Tenkaichi 3 pelo painel de Plugins de uma sala.", pathname === BASE ? 403 : 404);
+    if (pathname === "/hypemeet-plugin.json") return json(MANIFEST);
+    if (pathname === "/icon.svg") return file(join(pageDir, "icon.svg"));
+    if (pathname === "/") {
+      const given = searchParams.get("pass");
+      if (given && PASS.test(given)) return respond(null, 302, { Location: `p/${given}/` });
+      return text("Abra o Budokai Tenkaichi 3 pelo painel de Plugins de uma sala do HypeMeet.", 403);
+    }
+    const m = /^\/p\/([\w.-]+)(\/.*)?$/.exec(pathname);
+    if (!m) return text("Não encontrado", 404);
     const pass = await passes.verify(m[1]!);
     if (!pass) return text("Acesso vencido: feche e abra o plugin de novo.", 403);
     const path = m[2];
-    // Relative addresses need the trailing slash.
-    if (path === undefined || path === "/game") return respond(null, 301, { Location: `${pathname}/` });
+    if (path === undefined || path === "/game") return respond(null, 301, { Location: slashed(pathname) });
     const rest = path.slice(1);
     if (rest.startsWith("game/")) return game(rest.slice(5), req, server);
     switch (rest) {
@@ -186,17 +196,7 @@ export function createBt3({ enabled, dir, pageDir, passes, now = () => Date.now(
     },
   };
 
-  /** For /api/plugins: listed next to the external ones while it's on. */
-  const info: PluginInfo = {
-    id: MANIFEST.id,
-    name: MANIFEST.name,
-    description: MANIFEST.description,
-    icon: MANIFEST.icon,
-    url: MANIFEST.entry,
-    builtin: true,
-  };
-
-  return { enabled, info, handle, websocket, rooms, disc };
+  return { handle, websocket, rooms, disc };
 }
 
 export type Bt3 = ReturnType<typeof createBt3>;

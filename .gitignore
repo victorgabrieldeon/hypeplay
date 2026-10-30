@@ -1,0 +1,5 @@
+node_modules
+*.tsbuildinfo
+.env
+# The disc image and everything made from it: never in git.
+data

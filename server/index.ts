@@ -49,7 +49,7 @@ const app = createApp({
   ps2Rooms: new Ps2Rooms(),
   publicUrl: PUBLIC_URL,
   turn: TURN,
-  scripts: { "iso.js": await bundle("iso.ts"), "pad.js": await bundle("pad.ts") },
+  scripts: { "iso.js": await bundle("iso.ts"), "pad.js": await bundle("pad.ts"), "padmap.js": await bundle("padmap-global.ts") },
 });
 
 // Homebrew Hub's list: the saved one now, a fresh one in the background when it's a day old.

@@ -212,6 +212,19 @@
   .dialog footer { display: flex; justify-content: flex-end; gap: var(--s2); flex-wrap: wrap; }
   .dialog ol.chips { list-style: none; margin: 0; padding: 0; }
 
+  /* controller screen */
+  .pads { display: flex; flex-direction: column; gap: var(--s2); }
+  .pad-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3); border-radius: var(--r-sm); background: var(--surface); }
+  .pad-row b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
+  .ps2 { width: 100%; max-width: 520px; margin: 0 auto; display: block; }
+  .ps2 .k { fill: var(--surface-top); stroke: rgb(255 255 255 / 0.12); stroke-width: 2; transition: fill var(--fast) var(--ease); }
+  .ps2 .k.want { fill: var(--primary); animation: pulse 1.2s var(--ease) infinite; }
+  .ps2 .k.lit { fill: var(--accent); }
+  .ps2 .body { fill: var(--surface); stroke: rgb(255 255 255 / 0.1); stroke-width: 2; }
+  .ps2 text { fill: var(--soft); font: 600 14px var(--body); text-anchor: middle; pointer-events: none; }
+  .ask { text-align: center; font: var(--t-lg); }
+  .ask small { display: block; font: var(--t-sm); color: var(--soft); }
+
   /* intro */
   .intro { position: fixed; inset: 0; z-index: 40; background: #000; display: grid; place-items: center; cursor: pointer; animation: fade var(--base) var(--ease); }
   .intro video { width: 100%; height: 100%; object-fit: contain; }
@@ -312,6 +325,7 @@
 <input id="file" type="file">
 
 <script src="iso.js"></script>
+<script src="padmap.js"></script>
 <script type="module" src="home/app.js"></script>
 </body>
 </html>

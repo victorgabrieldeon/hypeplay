@@ -23,13 +23,15 @@ import type { Server, WebSocketHandler } from "bun";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { COVER_MAX, generatedCover, normalizeCover } from "./cover";
+import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
+import { iceServers } from "./ice";
 import type { Discord } from "./discord";
 import { GAMES, PS2_STEPS, type Game } from "./games";
 import { BT3_SERIAL } from "./iso9660";
 import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
 import type { Pass, Passes } from "./pass";
 import type { People } from "./people";
-import type { Ps2Rooms } from "./ps2rooms";
+import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { CARD_BYTES, type Saves } from "./saves";
 import { createDiscStore, MAX_PIECE, type DiscStore, type Status } from "./upload";
@@ -45,11 +47,20 @@ const TYPES: Record<string, string> = {
   svg: "image/svg+xml",
   json: "application/json",
   webmanifest: "application/manifest+json",
+  webp: "image/webp",
+  mp4: "video/mp4",
+  woff2: "font/woff2",
+  data: "application/octet-stream",
   bin: "application/octet-stream",
 };
 
-/** Only Discord may frame it: the Activity, and in it the entry page (on *.discordsays.com). */
-const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.com https://*.discordsays.com";
+/** The PS2 games' page (ps2-builder publishes ps2web.html; it's served as the folder's index) and files. */
+const PS2_FILES = new Set(["ps2web.js", "ps2web.wasm", "ps2web.data"]);
+/** The home's two typefaces, from their packages (OFL), served from here: nothing is fetched elsewhere. */
+const FONTS: Record<string, string> = {
+  "inter-latin-wght-normal.woff2": "@fontsource-variable/inter",
+  "space-grotesk-latin-wght-normal.woff2": "@fontsource-variable/space-grotesk",
+};
 
 export const HEADERS = {
   "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups allow-downloads; ${FRAME_ANCESTORS}`,
@@ -85,6 +96,10 @@ export interface AppOptions {
   ps2Rooms?: Ps2Rooms;
   /** The app's public address (PUBLIC_URL), for "Abrir no navegador". */
   publicUrl?: string;
+  /** A TURN relay for the PS2 games' online (TURN_URL, TURN_SECRET). */
+  turn?: { url: string; secret: string };
+  /** The page's bundled scripts by name (iso.js, pad.js…), served under /p/<pass>/. */
+  scripts?: Record<string, string>;
 }
 
 /** One game of the home's catalog: BT3's port or a PS2 game of the library. */
@@ -114,7 +129,7 @@ export interface CatalogEntry {
 
 const PS2_DISC = "Um disco de PS2 que você tem. Jogos fora do BT3 são experimentais.";
 
-export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAMES, now = () => Date.now(), library, saves, people, ps2Rooms, publicUrl = "" }: AppOptions) {
+export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAMES, now = () => Date.now(), library, saves, people, ps2Rooms, publicUrl = "", turn, scripts = {} }: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
   );
@@ -130,6 +145,20 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     return (await f.exists()) ? respond(f, 200, { "Content-Type": type, ...headers }) : text("Não encontrado", 404);
   }
 
+  let warned = false;
+  /** A game's page with pad.js (the mapped controller) slipped in; without a </head>, the page as it is. */
+  async function page(path: string, pad: string, headers: Record<string, string>) {
+    const f = Bun.file(path);
+    if (!(await f.exists())) return text("Não encontrado", 404);
+    const html = await f.text();
+    const withPad = injectPad(html, pad);
+    if (withPad === null && !warned) {
+      warned = true;
+      console.warn(`${path}: no </head>, served without pad.js`);
+    }
+    return new Response(withPad ?? html, { headers: { ...headers, "Content-Type": TYPES.html! } });
+  }
+
   async function discIndex({ disc }: Shelf) {
     const f = Bun.file(disc.paths.iso);
     return (await f.exists()) ? { size: f.size, piece: PIECE } : null;
@@ -137,7 +166,8 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
 
   async function game(on: Shelf, rest: string, req: Request, server: Server<NetData> | undefined): Promise<Response | undefined> {
     const { disc } = on;
-    if (rest === "" || on.game.files.has(rest)) return file(join(disc.paths.build, rest || "index.html"));
+    if (rest === "" || rest === "index.html") return page(join(disc.paths.build, "index.html"), "../../pad.js", HEADERS);
+    if (on.game.files.has(rest)) return file(join(disc.paths.build, rest));
     if (rest === "disc/index.json") {
       const index = await discIndex(on);
       return index ? json(index) : text("Sem ISO no servidor", 404);
@@ -246,12 +276,63 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     return respond(generatedCover(g.serial, g.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
   }
 
+  /** ps2/<id>/game/…: the compiled game, its disc, its online rooms. All isolated (http.ts). */
+  async function ps2Game(req: Request, pass: Pass, id: string, rest: string): Promise<Response | undefined> {
+    const p = library!.paths(id);
+    const isolated = (body: ConstructorParameters<typeof Response>[0], status: number, type: string) =>
+      new Response(body, { status, headers: { ...ISOLATED, "Content-Type": type } });
+    const notFound = () => isolated("Não encontrado", 404, "text/plain; charset=utf-8");
+    if (rest === "" || rest === "index.html") return page(join(p.build, "ps2web.html"), "../../../pad.js", ISOLATED);
+    if (PS2_FILES.has(rest) || /^shots\/\d{2}\.webp$/.test(rest)) {
+      const path = join(p.build, rest);
+      const gz = Bun.file(`${path}.gz`);
+      if (/\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") && (await gz.exists()))
+        return new Response(gz, { headers: { ...ISOLATED, "Content-Type": typeOf(rest), "Content-Encoding": "gzip", Vary: "Accept-Encoding" } });
+      const f = Bun.file(path);
+      return (await f.exists()) ? isolated(f, 200, typeOf(rest)) : notFound();
+    }
+    if (rest === "disc.iso") {
+      const f = Bun.file(p.iso);
+      return (await f.exists()) ? rangeResponse(req, f, { ...ISOLATED, "Content-Type": TYPES.bin! }) : notFound();
+    }
+    if (rest === "ice")
+      return isolated(JSON.stringify(iceServers({ turnUrl: turn?.url, turnSecret: turn?.secret, user: pass.id, now: now() })), 200, TYPES.json!);
+    if (!ps2Rooms) return notFound();
+    const asJson = (v: unknown, status = 200) => isolated(JSON.stringify(v), status, TYPES.json!);
+    if (rest === "room") {
+      if (req.method !== "POST") return asJson({ error: "Método não permitido" }, 405);
+      return asJson({ room: ps2Rooms.create(id, pass) });
+    }
+    const m = /^room\/([A-Z2-9]{6})\/([^/]+)$/.exec(rest);
+    if (!m || !INBOX.test(m[2]!)) return notFound();
+    const [, code, who] = m;
+    if (req.method === "GET") {
+      const after = Number(new URL(req.url).searchParams.get("after") ?? 0);
+      const got = await ps2Rooms.wait(code!, who!, Number.isSafeInteger(after) && after >= 0 ? after : 0);
+      return got ? asJson(got) : asJson({ error: "no such room" }, 404);
+    }
+    if (req.method !== "POST") return asJson({ error: "Método não permitido" }, 405);
+    if (Number(req.headers.get("content-length") ?? 0) > MESSAGE_MAX) return asJson({ error: "too big" }, 413);
+    const raw = await req.text();
+    if (raw.length > MESSAGE_MAX) return asJson({ error: "too big" }, 413);
+    let message: unknown;
+    try {
+      message = JSON.parse(raw);
+    } catch {
+      return asJson({ error: "bad message" }, 400);
+    }
+    if (!message || typeof message !== "object" || Array.isArray(message)) return asJson({ error: "bad message" }, 400);
+    return ps2Rooms.post(code!, who!, message) ? asJson({}) : asJson({ error: "no such room" }, 404);
+  }
+
   /** Everything under ps2/<id>/ but the game itself. */
   async function ps2(req: Request, pass: Pass, id: string, rest: string): Promise<Response | undefined> {
     const lib = library!;
     if (!(await lib.get(id))) return text("Não encontrado", 404);
     const p = lib.paths(id);
     const disc = lib.disc(id);
+    if (rest === "game") return respond(null, 301, { Location: "game/" });
+    if (rest.startsWith("game/")) return ps2Game(req, pass, id, rest.slice("game/".length));
     switch (rest) {
       case "":
         if (req.method === "PATCH") {
@@ -333,6 +414,15 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     if (path === undefined) return respond(null, 301, { Location: slashed(pathname) });
     if (path === "/") return file(join(pageDir, "index.html"));
     if (path === "/games") return json(await catalog(pass));
+    if (path === "/intro.mp4") {
+      const f = Bun.file(join(dir, "intro.mp4"));
+      return (await f.exists()) ? rangeResponse(req, f, { ...HEADERS, "Content-Type": TYPES.mp4! }) : text("Sem intro", 404);
+    }
+    const script = /^\/([\w-]+\.js)$/.exec(path)?.[1];
+    if (script && Object.hasOwn(scripts, script)) return respond(scripts[script]!, 200, { "Content-Type": TYPES.js! });
+    const font = /^\/fonts\/([\w-]+\.woff2)$/.exec(path)?.[1];
+    if (font && Object.hasOwn(FONTS, font))
+      return file(join(import.meta.dir, "..", "node_modules", FONTS[font]!, "files", font), TYPES.woff2, { "Cache-Control": "private, max-age=31536000, immutable" });
     if (path.startsWith("/cover/")) return cover(path.slice("/cover/".length));
     if (path === "/pad" && people) {
       if (req.method === "GET") return json(await people.pads(pass.id));

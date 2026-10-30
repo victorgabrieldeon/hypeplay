@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import { createDiscord } from "./discord";
+import { createLibrary } from "./library";
 import { createPasses } from "./pass";
+import { createPeople } from "./people";
+import { Ps2Rooms } from "./ps2rooms";
 import { createApp, type NetData } from "./routes";
+import { createSaves } from "./saves";
 
 const env = (name: string) => {
   const value = process.env[name];
@@ -13,23 +17,36 @@ const PORT = Number(process.env.PORT ?? 3003);
 // The Discord app the Activity belongs to (Developer Portal → OAuth2).
 const DISCORD_CLIENT_ID = env("DISCORD_CLIENT_ID");
 const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
+// Optional: the app's public address, for "Abrir no navegador" (inside Discord the page is behind its proxy).
+const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
+// Optional: a TURN relay for the PS2 games' online (coturn with --use-auth-secret).
+const TURN = process.env.TURN_URL && process.env.TURN_SECRET ? { url: process.env.TURN_URL, secret: process.env.TURN_SECRET } : undefined;
 
 const pageDir = join(import.meta.dir, "..", "page");
-const built = await Bun.build({
-  entrypoints: [join(pageDir, "entry.ts")],
-  minify: true,
-  define: { "process.env.DISCORD_CLIENT_ID": JSON.stringify(DISCORD_CLIENT_ID) },
-});
-if (!built.success) throw new AggregateError(built.logs, "page/entry.ts didn't build");
 
+/** A page script, bundled once at startup. */
+async function bundle(entry: string, define: Record<string, string> = {}) {
+  const built = await Bun.build({ entrypoints: [join(pageDir, entry)], minify: true, format: "iife", define });
+  if (!built.success) throw new AggregateError(built.logs, `page/${entry} didn't build`);
+  return built.outputs[0]!.text();
+}
+
+const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 const app = createApp({
-  // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/.
-  dir: process.env.DATA_DIR ?? join(import.meta.dir, "..", "data"),
+  // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/, the PS2 games live in /app/data/ps2/.
+  dir,
   pageDir,
-  entryJs: await built.outputs[0]!.text(),
+  entryJs: await bundle("entry.ts", { "process.env.DISCORD_CLIENT_ID": JSON.stringify(DISCORD_CLIENT_ID) }),
   // The client secret signs the passes too: resetting it in the portal also ends every open session.
   passes: createPasses(DISCORD_CLIENT_SECRET),
   discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET }),
+  library: createLibrary(dir),
+  saves: createSaves(dir),
+  people: createPeople(dir),
+  ps2Rooms: new Ps2Rooms(),
+  publicUrl: PUBLIC_URL,
+  turn: TURN,
+  scripts: { "iso.js": await bundle("iso.ts") },
 });
 
 Bun.serve<NetData>({

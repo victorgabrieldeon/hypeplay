@@ -2,15 +2,16 @@
  * Game covers: the one someone sent, made a 600×900 WebP (2:3, a PS2 case) so every cover in the library is the same
  * shape and size; or, without one, a drawing made here from the serial: geometric shapes in the brand's purples and the
  * game's name, the same every time for the same game. Never anyone's logo or art.
+ *
+ * sharp (a native module) is loaded on the first cover sent, not at startup: the server never depends on it to run.
  */
-import sharp from "sharp";
-
 export const COVER_MAX = 5 * 1024 ** 2;
 const FORMATS = new Set(["png", "jpeg", "webp"]);
 
 export async function normalizeCover(body: Uint8Array): Promise<{ ok: true; webp: Uint8Array } | { ok: false; error: string }> {
   if (body.length > COVER_MAX) return { ok: false, error: "A capa pode ter até 5 MB" };
   const wrong = { ok: false as const, error: "A capa precisa ser PNG, JPG ou WebP" };
+  const { default: sharp } = await import("sharp");
   try {
     const meta = await sharp(body).metadata();
     if (!meta.format || !FORMATS.has(meta.format)) return wrong;

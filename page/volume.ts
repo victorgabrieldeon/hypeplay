@@ -6,7 +6,7 @@
  */
 
 interface Node {
-  context: { destination: unknown; createGain(): Gain };
+  context: { destination: unknown; createGain(): Gain; createMediaStreamDestination?(): Node & { stream: MediaStream } };
   connect(to: unknown, ...rest: unknown[]): unknown;
   disconnect(to?: unknown, ...rest: unknown[]): unknown;
 }
@@ -63,9 +63,19 @@ export function installVolume(api: AudioApi, initial: number) {
     };
   }
 
+  let tapped: MediaStream | null = null;
   return {
     get volume() {
       return volume;
+    },
+    /** What the game plays, at the volume, as a stream (the online host sends it): from the first context with sound. */
+    tap(): MediaStream | null {
+      if (tapped) return tapped;
+      const g = gains.values().next().value as Gain | undefined;
+      const out = g?.context.createMediaStreamDestination?.();
+      if (!g || !out) return null;
+      connect.call(g, out);
+      return (tapped = out.stream);
     },
     set(v: number) {
       volume = clamp(v);

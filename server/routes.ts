@@ -337,7 +337,7 @@ export function createApp({
   }
 
   /** ps2/<id>/game/…: TabStationToo with the game's disc, its online rooms. All isolated (http.ts). */
-  async function ps2Game(req: Request, pass: Pass, id: string, rest: string): Promise<Response | undefined> {
+  async function ps2Game(req: Request, id: string, rest: string): Promise<Response | undefined> {
     const p = library!.paths(id);
     const isolated = (body: ConstructorParameters<typeof Response>[0], status: number, type: string) =>
       new Response(body, { status, headers: { ...ISOLATED, "Content-Type": type } });
@@ -354,34 +354,37 @@ export function createApp({
       const f = Bun.file(p.iso);
       return (await f.exists()) ? rangeResponse(req, f, { ...ISOLATED, "Content-Type": TYPES.bin! }) : notFound();
     }
-    if (rest === "ice")
-      return isolated(JSON.stringify(iceServers({ turnUrl: turn?.url, turnSecret: turn?.secret, user: pass.id, now: now() })), 200, TYPES.json!);
-    if (!ps2Rooms) return notFound();
-    const asJson = (v: unknown, status = 200) => isolated(JSON.stringify(v), status, TYPES.json!);
+    return notFound();
+  }
+
+  /** ps2/<id>/room…, ice: the online's setting up, for the host's game page and the guest's page (rooms.ts' cousin). */
+  async function ps2Room(req: Request, pass: Pass, id: string, rest: string): Promise<Response> {
+    if (rest === "ice") return json(iceServers({ turnUrl: turn?.url, turnSecret: turn?.secret, user: pass.id, now: now() }));
+    if (!ps2Rooms) return text("Não encontrado", 404);
     if (rest === "room") {
-      if (req.method !== "POST") return asJson({ error: "Método não permitido" }, 405);
-      return asJson({ room: ps2Rooms.create(id, pass) });
+      if (req.method !== "POST") return text("Método não permitido", 405);
+      return json({ room: ps2Rooms.create(id, pass) });
     }
     const m = /^room\/([A-Z2-9]{6})\/([^/]+)$/.exec(rest);
-    if (!m || !INBOX.test(m[2]!)) return notFound();
+    if (!m || !INBOX.test(m[2]!)) return text("Não encontrado", 404);
     const [, code, who] = m;
     if (req.method === "GET") {
       const after = Number(new URL(req.url).searchParams.get("after") ?? 0);
       const got = await ps2Rooms.wait(code!, who!, Number.isSafeInteger(after) && after >= 0 ? after : 0);
-      return got ? asJson(got) : asJson({ error: "no such room" }, 404);
+      return got ? json(got) : json({ error: "no such room" }, 404);
     }
-    if (req.method !== "POST") return asJson({ error: "Método não permitido" }, 405);
-    if (Number(req.headers.get("content-length") ?? 0) > MESSAGE_MAX) return asJson({ error: "too big" }, 413);
+    if (req.method !== "POST") return text("Método não permitido", 405);
+    if (Number(req.headers.get("content-length") ?? 0) > MESSAGE_MAX) return json({ error: "too big" }, 413);
     const raw = await req.text();
-    if (raw.length > MESSAGE_MAX) return asJson({ error: "too big" }, 413);
+    if (raw.length > MESSAGE_MAX) return json({ error: "too big" }, 413);
     let message: unknown;
     try {
       message = JSON.parse(raw);
     } catch {
-      return asJson({ error: "bad message" }, 400);
+      return json({ error: "bad message" }, 400);
     }
-    if (!message || typeof message !== "object" || Array.isArray(message)) return asJson({ error: "bad message" }, 400);
-    return ps2Rooms.post(code!, who!, message) ? asJson({}) : asJson({ error: "no such room" }, 404);
+    if (!message || typeof message !== "object" || Array.isArray(message)) return json({ error: "bad message" }, 400);
+    return ps2Rooms.post(code!, who!, message) ? json({}) : json({ error: "no such room" }, 404);
   }
 
   /** Everything under ps2/<id>/ but the game itself. */
@@ -391,7 +394,11 @@ export function createApp({
     const p = lib.paths(id);
     const disc = lib.disc(id);
     if (rest === "game") return respond(null, 301, { Location: "game/" });
-    if (rest.startsWith("game/")) return ps2Game(req, pass, id, rest.slice("game/".length));
+    if (rest.startsWith("game/")) return ps2Game(req, id, rest.slice("game/".length));
+    if (rest === "ice" || rest === "room" || rest.startsWith("room/")) return ps2Room(req, pass, id, rest);
+    // The online guest's page: only video and their pad, so neither isolated (it opens inside Discord) nor sandboxed.
+    if (rest === "watch") return respond(null, 301, { Location: "watch/" });
+    if (rest === "watch/") return page(join(pageDir, "watch.html"), "../../../pad.js", ENTRY_HEADERS);
     switch (rest) {
       case "":
         if (req.method === "PATCH") {

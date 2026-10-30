@@ -252,22 +252,35 @@ test("a removed game's routes 404 while open", async () => {
 
 test("rooms: create, post, wait, listed in games; ice with and without TURN", async () => {
   const id = await built("SLES-99999", "SLES_999.99");
-  const made = await ana(`ps2/${id}/game/room`, { method: "POST" });
+  const made = await ana(`ps2/${id}/room`, { method: "POST" });
   const { room } = (await made.json()) as { room: string };
   expect(room).toMatch(/^[A-Z2-9]{6}$/);
-  expect((await bia(`ps2/${id}/game/room/${room}/host`, json({ type: "join", from: "g1" }))).status).toBe(200);
-  expect(await (await ana(`ps2/${id}/game/room/${room}/host?after=0`)).json()).toEqual({ messages: [{ type: "join", from: "g1" }], next: 1 });
-  expect((await bia(`ps2/${id}/game/room/ZZZZZZ/host`, json({ type: "join" }))).status).toBe(404);
-  expect((await bia(`ps2/${id}/game/room/${room}/HOST!`, json({ type: "x" }))).status).toBe(404);
-  expect((await bia(`ps2/${id}/game/room/${room}/host`, { method: "POST", body: "[1]" })).status).toBe(400);
-  expect((await bia(`ps2/${id}/game/room/${room}/host`, { method: "POST", body: "x".repeat(65_537) })).status).toBe(413);
+  expect((await bia(`ps2/${id}/room/${room}/host`, json({ type: "join", from: "g1" }))).status).toBe(200);
+  expect(await (await ana(`ps2/${id}/room/${room}/host?after=0`)).json()).toEqual({ messages: [{ type: "join", from: "g1" }], next: 1 });
+  expect((await bia(`ps2/${id}/room/ZZZZZZ/host`, json({ type: "join" }))).status).toBe(404);
+  expect((await bia(`ps2/${id}/room/${room}/HOST!`, json({ type: "x" }))).status).toBe(404);
+  expect((await bia(`ps2/${id}/room/${room}/host`, { method: "POST", body: "[1]" })).status).toBe(400);
+  expect((await bia(`ps2/${id}/room/${room}/host`, { method: "POST", body: "x".repeat(65_537) })).status).toBe(413);
   const entry = (await catalog()).games.find((g) => g.id === id)!;
   expect(entry.open).toEqual([{ code: room, host: "Ana", since: expect.any(Number), busy: true }]);
 
-  expect(await (await ana(`ps2/${id}/game/ice`)).json()).toEqual([{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }]);
+  expect(await (await ana(`ps2/${id}/ice`)).json()).toEqual([{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }]);
   const turned = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, turn: { url: "turn:t.exemplo.com:3478", secret: "s" } });
-  const ice = (await ((await turned.handle(new Request(`http://localhost/p/${ANA}/ps2/${id}/game/ice`))) as Response).json()) as { username?: string }[];
+  const ice = (await ((await turned.handle(new Request(`http://localhost/p/${ANA}/ps2/${id}/ice`))) as Response).json()) as { username?: string }[];
   expect(ice[1]!.username).toEndWith(":42");
+});
+
+test("the guest's page: ours, framed by Discord, not isolated and not sandboxed, with pad.js", async () => {
+  const id = await built("SLES-14141", "SLES_141.41");
+  const page = await ana(`ps2/${id}/watch/`);
+  expect(page.status).toBe(200);
+  expect(page.headers.get("content-security-policy")).toBe("frame-ancestors https://discord.com https://*.discord.com https://*.discordsays.com");
+  expect(page.headers.get("cross-origin-embedder-policy")).toBeNull();
+  const html = await page.text();
+  expect(html).toContain('<script src="../../../watch.js"></script>');
+  expect(html).toContain('<script src="../../../pad.js"></script>');
+  expect((await ana(`ps2/${id}/watch`)).headers.get("location")).toBe("watch/");
+  expect((await ana(`ps2/${id}/game/room`, { method: "POST" })).status).toBe(404);
 });
 
 test("intro with Range, 404 without the file", async () => {

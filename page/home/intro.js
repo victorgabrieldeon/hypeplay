@@ -6,7 +6,8 @@ import { hooks } from './app.js';
 const layer = document.getElementById('layer');
 
 function go(g, join) {
-  location.href = `${g.key}/game/${join ? '?join=' + encodeURIComponent(join) : ''}`;
+  // a PS2 game's player 2 watches the host's stream (watch/); everything else opens the game itself
+  location.href = join && g.kind === 'recomp' ? `${g.key}/watch/?room=${encodeURIComponent(join)}` : `${g.key}/game/${join ? '?join=' + encodeURIComponent(join) : ''}`;
 }
 
 hooks.play = (g, join) => {

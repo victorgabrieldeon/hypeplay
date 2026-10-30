@@ -1,3 +1,5 @@
+import { roomButton } from "./stream";
+
 // ps2play.js (bundled at startup, server/index.ts; put in TabStationToo's page by server/ps2page.ts, before its
 // app.js, which this loads itself once ready). It makes TabStationToo the PS2 games' player:
 //
@@ -80,6 +82,7 @@ function bar() {
   b.id = "cp-bar";
   b.innerHTML = '<a href="../../../" aria-label="Voltar para a biblioteca">← Biblioteca</a><b></b>';
   b.querySelector("b")!.textContent = document.title.replace(/ · CordPlay$/, "");
+  b.append(roomButton());
   document.body.append(b);
   document.addEventListener("pointermove", (e) => b.classList.toggle("near", e.clientX < 320 && e.clientY < 90), { passive: true });
 }
@@ -172,4 +175,3 @@ async function start() {
 
 void start();
 
-export {};

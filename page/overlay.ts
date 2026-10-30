@@ -18,6 +18,9 @@ const volume = installVolume(
   prefs.volume,
 );
 
+// (the online host's stream.ts takes the game's sound from here)
+(window as unknown as { cordplayVolume: typeof volume }).cordplayVolume = volume;
+
 const FILTERS: [Filter, string][] = [["off", "Desligado"], ["crt", "TV de tubo"], ["scan", "Scanlines leves"]];
 
 const CSS = `

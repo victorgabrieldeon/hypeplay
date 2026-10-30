@@ -21,7 +21,7 @@ function record(name: Uint8Array, extent: number, size: number, dir: boolean): U
 }
 
 /** Files by name ("SYSTEM.CNF" is stored as "SYSTEM.CNF;1"; a name with ";" is kept as is). `pad`: least total size. */
-export function makeIso(files: Record<string, string | Uint8Array>, { pad = 0 }: { pad?: number } = {}): Uint8Array {
+export function makeIso(files: Record<string, string | Uint8Array>, { pad = 0 }: { pad?: number } = {}): Uint8Array<ArrayBuffer> {
   const enc = new TextEncoder();
   const entries = Object.entries(files).map(([name, data]) => ({
     name: enc.encode(name.includes(";") ? name : `${name};1`),

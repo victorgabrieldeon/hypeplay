@@ -16,10 +16,10 @@ export function createSaves(dir: string) {
   const path = (game: string, user: string) => (ID.test(game) && USER.test(user) ? join(dir, "saves", game, `${user}.ps2`) : null);
 
   return {
-    async get(game: string, user: string): Promise<Uint8Array | null> {
+    async get(game: string, user: string): Promise<Uint8Array<ArrayBuffer> | null> {
       const p = path(game, user);
       if (!p) return null;
-      return readFile(p).then((b) => new Uint8Array(b), () => null);
+      return readFile(p).then((b) => Uint8Array.from(b), () => null);
     },
 
     async put(game: string, user: string, body: Uint8Array): Promise<{ ok: true } | { ok: false; error: string }> {

@@ -9,17 +9,30 @@
  *             <id>/game/<file>             the compiled game, from its fixed list
  *             <id>/game/disc/...           the disc image in 1 MiB pieces, read straight from it
  *             <id>/game/net/ws, net/queue  online rooms (rooms.ts), one set per game
+ *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
+ *             pad, played                  the person's controller maps and last game (people.ts)
+ *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
+ *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, rebuild, cover, save
+ *
+ * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
  *
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
  */
 import type { Server, WebSocketHandler } from "bun";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { COVER_MAX, generatedCover, normalizeCover } from "./cover";
 import type { Discord } from "./discord";
-import { GAMES, type Game } from "./games";
-import type { Passes } from "./pass";
+import { GAMES, PS2_STEPS, type Game } from "./games";
+import { BT3_SERIAL } from "./iso9660";
+import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
+import type { Pass, Passes } from "./pass";
+import type { People } from "./people";
+import type { Ps2Rooms } from "./ps2rooms";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
-import { createDiscStore, MAX_PIECE } from "./upload";
+import { CARD_BYTES, type Saves } from "./saves";
+import { createDiscStore, MAX_PIECE, type DiscStore, type Status } from "./upload";
 
 export const PIECE = 1024 * 1024;
 
@@ -41,7 +54,7 @@ const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.c
 export const HEADERS = {
   "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups allow-downloads; ${FRAME_ANCESTORS}`,
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PUT, POST, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "content-type",
   "Cache-Control": "no-cache",
 };
@@ -65,9 +78,43 @@ export interface AppOptions {
   discord: Pick<Discord, "signIn">;
   games?: Game[];
   now?: () => number;
+  /** The PS2 library (library.ts) and what's kept per person; without them, the PS2 routes answer 404. */
+  library?: Library;
+  saves?: Saves;
+  people?: People;
+  ps2Rooms?: Ps2Rooms;
+  /** The app's public address (PUBLIC_URL), for "Abrir no navegador". */
+  publicUrl?: string;
 }
 
-export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAMES, now = () => Date.now() }: AppOptions) {
+/** One game of the home's catalog: BT3's port or a PS2 game of the library. */
+export interface CatalogEntry {
+  key: string;
+  kind: "port" | "recomp";
+  id: string;
+  name: string;
+  serial?: string;
+  platform: string;
+  year?: number;
+  tags: string[];
+  blurb?: string;
+  disc?: string;
+  steps: string[];
+  minIso: number;
+  maxIso: number;
+  cover: string;
+  colors?: [string, string];
+  status: Status;
+  rooms: number;
+  open: { code: string; host: string; since: number; busy: boolean }[];
+  by?: string;
+  note?: string;
+  shots: number;
+}
+
+const PS2_DISC = "Um disco de PS2 que você tem. Jogos fora do BT3 são experimentais.";
+
+export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAMES, now = () => Date.now(), library, saves, people, ps2Rooms, publicUrl = "" }: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
   );
@@ -120,6 +167,145 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     return text("Não encontrado", 404);
   }
 
+  /** PUT <game>/upload, the same for BT3 and the PS2 games; `done` runs once the whole image is in. */
+  async function upload(disc: DiscStore, req: Request, pass: Pass, done?: () => Promise<{ ok: true } | { ok: false; message: string }>) {
+    if (req.method === "GET") return json(await disc.progress());
+    if (req.method !== "PUT") return text("Método não permitido", 405);
+    const q = new URL(req.url).searchParams;
+    const offset = Number(q.get("offset"));
+    const size = Number(q.get("size"));
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_PIECE) return json({ error: "Pedaço grande demais", code: "size" }, 413);
+    const body = new Uint8Array(await req.arrayBuffer());
+    const result = await disc.put(pass, offset, size, body);
+    if (!result.ok) return json({ error: result.error, code: result.code, received: result.received }, result.status);
+    if (result.done && done) {
+      const checked = await done();
+      if (!checked.ok) return json({ error: checked.message, code: "disc" }, 400);
+    }
+    return json({ received: result.received, done: result.done });
+  }
+
+  async function body<T>(req: Request): Promise<T | null> {
+    return (await req.json().catch(() => null)) as T | null;
+  }
+
+  async function ps2Entry(g: Ps2Game, pass: Pass): Promise<CatalogEntry> {
+    const disc = library!.disc(g.id);
+    const [status, builder] = await Promise.all([disc.status(pass), disc.builder()]);
+    const open = ps2Rooms?.list(g.id) ?? [];
+    return {
+      key: `ps2/${g.id}`,
+      kind: "recomp",
+      id: g.id,
+      name: g.name,
+      serial: g.serial,
+      platform: "PlayStation 2",
+      tags: ["Experimental"],
+      disc: PS2_DISC,
+      steps: PS2_STEPS,
+      minIso: PS2_MIN,
+      maxIso: PS2_MAX,
+      cover: `cover/ps2/${g.id}?v=${g.cover ? `${g.at}-c` : g.at}`,
+      status,
+      rooms: open.length,
+      open,
+      by: g.by.name,
+      ...(builder?.note ? { note: builder.note } : {}),
+      shots: status.state === "ready" ? (builder?.shots ?? 0) : 0,
+    };
+  }
+
+  async function catalog(pass: Pass) {
+    const ports = await Promise.all(
+      [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }): Promise<CatalogEntry> => ({
+        ...g,
+        key: g.id,
+        kind: "port",
+        cover: `cover/${g.id}`,
+        status: await disc.status(pass),
+        rooms: rooms.size,
+        open: [],
+        shots: 0,
+      })),
+    );
+    const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
+    return { me: pass.name, last: (await people?.last(pass.id)) ?? null, publicUrl, games: [...ports, ...ps2] };
+  }
+
+  async function cover(key: string): Promise<Response> {
+    const immutable = { "Cache-Control": "private, max-age=31536000, immutable" };
+    const port = shelf.get(key);
+    if (port && key === "bt3") return respond(generatedCover(BT3_SERIAL, port.game.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
+    const id = /^ps2\/(.+)$/.exec(key)?.[1];
+    const g = id && library ? await library.get(id) : null;
+    if (!g) return text("Não encontrado", 404);
+    if (g.cover) {
+      const f = Bun.file(library!.paths(g.id).cover);
+      if (await f.exists()) return respond(f, 200, { "Content-Type": "image/webp", ...immutable });
+    }
+    return respond(generatedCover(g.serial, g.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
+  }
+
+  /** Everything under ps2/<id>/ but the game itself. */
+  async function ps2(req: Request, pass: Pass, id: string, rest: string): Promise<Response | undefined> {
+    const lib = library!;
+    if (!(await lib.get(id))) return text("Não encontrado", 404);
+    const p = lib.paths(id);
+    const disc = lib.disc(id);
+    switch (rest) {
+      case "":
+        if (req.method === "PATCH") {
+          const name = (await body<{ name?: unknown }>(req))?.name;
+          if (typeof name !== "string") return text("Pedido inválido", 400);
+          await lib.rename(id, name);
+          return respond(null, 204);
+        }
+        if (req.method === "DELETE") {
+          await lib.remove(id);
+          return respond(null, 204);
+        }
+        return text("Método não permitido", 405);
+      case "status":
+        return json(await disc.status(pass));
+      case "upload":
+        return upload(disc, req, pass, () => lib.verify(id));
+      case "retry":
+        if (req.method !== "POST") return text("Método não permitido", 405);
+        await disc.retry();
+        return respond(null, 204);
+      case "rebuild":
+        if (req.method !== "POST") return text("Método não permitido", 405);
+        await lib.rebuild(id);
+        return respond(null, 204);
+      case "cover": {
+        if (req.method === "DELETE") {
+          await rm(p.cover, { force: true });
+          await lib.setCover(id, false);
+          return respond(null, 204);
+        }
+        if (req.method !== "PUT") return text("Método não permitido", 405);
+        if (Number(req.headers.get("content-length") ?? 0) > COVER_MAX) return json({ error: "A capa pode ter até 5 MB" }, 413);
+        const made = await normalizeCover(new Uint8Array(await req.arrayBuffer()));
+        if (!made.ok) return json({ error: made.error }, made.error.includes("5 MB") ? 413 : 400);
+        await writeFile(p.cover, made.webp);
+        await lib.setCover(id, true);
+        return respond(null, 204);
+      }
+      case "save": {
+        if (!saves) return text("Não encontrado", 404);
+        if (req.method === "GET") {
+          const card = await saves.get(id, pass.id);
+          return card ? respond(card, 200, { "Content-Type": TYPES.bin!, "Cache-Control": "no-store" }) : text("Sem save", 404);
+        }
+        if (req.method !== "PUT") return text("Método não permitido", 405);
+        if (Number(req.headers.get("content-length") ?? 0) > CARD_BYTES) return json({ error: "Isso não é um memory card de PS2" }, 413);
+        const r = await saves.put(id, pass.id, new Uint8Array(await req.arrayBuffer()));
+        return r.ok ? respond(null, 204) : json({ error: r.error }, 400);
+      }
+    }
+    return text("Não encontrado", 404);
+  }
+
   async function token(req: Request): Promise<Response> {
     if (req.method !== "POST") return text("Método não permitido", 405);
     const code = ((await req.json().catch(() => null)) as { code?: unknown } | null)?.code;
@@ -146,13 +332,30 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     const path = m[2];
     if (path === undefined) return respond(null, 301, { Location: slashed(pathname) });
     if (path === "/") return file(join(pageDir, "index.html"));
-    if (path === "/games")
-      return json({
-        me: pass.name,
-        games: await Promise.all(
-          [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }) => ({ ...g, status: await disc.status(pass), rooms: rooms.size })),
-        ),
-      });
+    if (path === "/games") return json(await catalog(pass));
+    if (path.startsWith("/cover/")) return cover(path.slice("/cover/".length));
+    if (path === "/pad" && people) {
+      if (req.method === "GET") return json(await people.pads(pass.id));
+      if (req.method !== "PUT") return text("Método não permitido", 405);
+      return (await people.setPads(pass.id, await body(req))) ? respond(null, 204) : text("Pedido inválido", 400);
+    }
+    if (path === "/played" && people) {
+      if (req.method !== "POST") return text("Método não permitido", 405);
+      const key = (await body<{ key?: unknown }>(req))?.key;
+      const known = typeof key === "string" && (shelf.has(key) || (!!library && /^ps2\//.test(key) && !!(await library.get(key.slice(4)))));
+      if (!known) return text("Pedido inválido", 400);
+      await people.played(pass.id, key as string);
+      return respond(null, 204);
+    }
+    if (library && path === "/ps2") {
+      if (req.method !== "POST") return text("Método não permitido", 405);
+      const b = await body<{ serial?: unknown; name?: unknown }>(req);
+      if (typeof b?.serial !== "string" || !/^[A-Z]{4}-\d{5}$/.test(b.serial)) return json({ error: "Pedido inválido" }, 400);
+      const r = await library.reserve(pass, b.serial, typeof b.name === "string" ? b.name : "");
+      return r.ok ? json({ key: `ps2/${r.game.id}`, id: r.game.id }, 201) : json({ exists: r.exists }, 409);
+    }
+    const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
+    if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "") : text("Não encontrado", 404);
     const g = /^\/([\w-]+)(\/.*)?$/.exec(path);
     const on = g && shelf.get(g[1]!);
     if (!on) return text("Não encontrado", 404);
@@ -165,19 +368,8 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     switch (rest) {
       case "status":
         return json(await disc.status(pass));
-      case "upload": {
-        if (req.method === "GET") return json(await disc.progress());
-        if (req.method !== "PUT") return text("Método não permitido", 405);
-        const q = new URL(req.url).searchParams;
-        const offset = Number(q.get("offset"));
-        const size = Number(q.get("size"));
-        if (Number(req.headers.get("content-length") ?? 0) > MAX_PIECE) return json({ error: "Pedaço grande demais", code: "size" }, 413);
-        const body = new Uint8Array(await req.arrayBuffer());
-        const result = await disc.put(pass, offset, size, body);
-        return result.ok
-          ? json({ received: result.received, done: result.done })
-          : json({ error: result.error, code: result.code, received: result.received }, result.status);
-      }
+      case "upload":
+        return upload(disc, req, pass);
       case "retry":
         if (req.method !== "POST") return text("Método não permitido", 405);
         await disc.retry();

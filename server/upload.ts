@@ -41,6 +41,11 @@ export interface BuilderStatus {
   message?: string;
   /** It turned the image down and deleted it: another one can be sent. */
   refused?: boolean;
+  /** (PS2 games) the line of the test runs' log that says why the game stopped, when it did */
+  reason?: string;
+  /** (PS2 games) where the test runs stopped, and how many screenshots of them were published */
+  note?: string;
+  shots?: number;
 }
 
 export type Status =
@@ -48,7 +53,7 @@ export type Status =
   | { state: "uploading"; received: number; size: number; by: string; mine: boolean; stale: boolean }
   | { state: "queued" }
   | { state: "building"; step: number; total: number; label: string; elapsed: number }
-  | { state: "failed"; message: string; refused: boolean }
+  | { state: "failed"; message: string; refused: boolean; reason?: string }
   | { state: "ready" }
   | { state: "offline" };
 
@@ -141,6 +146,9 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
       });
     },
 
+    /** The builder's own status.json, as it wrote it. */
+    builder: () => readJsonFile<BuilderStatus>(paths.status),
+
     /** "Tentar de novo": the builder picks it up on its next look. */
     async retry() {
       await mkdir(dir, { recursive: true });
@@ -179,7 +187,8 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
             label: builder.label ?? "",
             elapsed: Math.max(0, t - (builder.startedAt ?? t)),
           };
-        if (builder.state === "failed") return { state: "failed", message: builder.message ?? "", refused: false };
+        if (builder.state === "failed")
+          return { state: "failed", message: builder.message ?? "", refused: false, ...(builder.reason ? { reason: builder.reason } : {}) };
       }
       return { state: "queued" };
     },

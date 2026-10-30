@@ -466,6 +466,24 @@ Lista de controles (`navigator.getGamepads()`; "Reconhecido" quando `mapping ===
 
 ---
 
+### Task 16b: Volume e filtro de TV de tubo nos jogos (pedido no meio da execução)
+
+**Files:**
+- Create: `page/overlay.ts` (bundle `overlay.js`), `page/volume.ts` (a parte testável), `page/volume.test.ts`
+- Modify: `server/people.ts` (+ `prefs`), `server/routes.ts` (rota `prefs`, injeção do `overlay.js`), `server/index.ts`, testes de `people` e rotas
+
+**Interfaces:**
+- `server/people.ts`: `interface Prefs { volume: number /* 0–1 */; filter: "off" | "crt" | "scan" }`, `DEFAULT_PREFS = { volume: 0.7, filter: "off" }`, `prefs(user): Promise<Prefs>`, `setPrefs(user, p: unknown): Promise<boolean>`; arquivo `prefs/<id>.json`.
+- Rota `GET/PUT prefs` sob `/p/<passe>/`.
+- `page/volume.ts`: `installVolume(api: { AudioNode, AudioDestinationNode, HTMLMediaElement? }, volume: number) → { set(v: number): void }` — todo `connect(destination)` passa por um `GainNode` por contexto; `disconnect(destination)` desfaz no ganho; elementos `<audio>/<video>` recebem `volume`.
+- `overlay.js` (injetado depois do `pad.js` em todo jogo: BT3, PS2 e `play/`): botão discreto no canto superior direito (opaco só no hover/foco), painel com slider de volume (0–100, mudo), filtro (Desligado / TV de tubo / Scanlines leves); filtro como camada `pointer-events: none` (scanlines, máscara RGB, vinheta) mais `filter` leve no canvas; preferências lidas e salvas em `../prefs` (debounce 500 ms); teclas dentro do painel não chegam ao jogo; foco volta ao canvas.
+
+- [ ] Testes: `people` (prefs padrão, ida e volta, inválido recusado), rotas (`prefs`, `overlay.js` injetado nos três tipos de página), `volume.test.ts` (com nós falsos: um ganho por contexto, `set` muda o ganho, `disconnect(destination)`).
+- [ ] Implementar; verificar no navegador interno (botão, painel, filtro visível, preferências voltam ao recarregar).
+- [ ] Commit — `"Jogos: volume e filtro de TV de tubo"`.
+
+---
+
 ### Task 17: Verificação final
 
 - [ ] **Step 1:** `bun test` (todos) e `bun run typecheck` → verdes; anotar o número de testes.

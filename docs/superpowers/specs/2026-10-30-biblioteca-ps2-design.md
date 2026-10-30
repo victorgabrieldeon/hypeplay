@@ -245,6 +245,14 @@ Segue o [`DESIGN.md`](../../../DESIGN.md). Uma página estática como hoje, sem 
   animada, fade na intro. Tudo desligado com `prefers-reduced-motion`.
 - **Estreito** (< 760 px): uma coluna, lateral vira barra no topo, gaveta ocupa a tela.
 
+### Volume e filtro nos jogos (pedido durante a implementação)
+
+Em todo jogo (BT3, PS2 e homebrew) o servidor injeta o `overlay.js`, como o `pad.js`: um botão discreto no canto
+abre um painel com **slider de volume** e **filtro** (Desligado, TV de tubo, Scanlines leves). O volume passa todo o
+áudio WebAudio do jogo por um ganho (e ajusta `<audio>/<video>`); o filtro é uma camada por cima do jogo
+(scanlines, máscara RGB, vinheta) e um ajuste leve de cor no canvas. As escolhas ficam no servidor por pessoa
+(`prefs/<id>.json`), com volume padrão de 70%.
+
 ## Estados de um jogo de PS2
 
 `empty` (reservado, sem envio) → `uploading` → `queued` → `building` (passos 1–6) → `ready`, ou `failed`

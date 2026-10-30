@@ -96,7 +96,7 @@ test("token: a Discord code for a pass", async () => {
 test("the home, with the sandbox and CORS headers; the trailing slash is added", async () => {
   const res = await get(home(""));
   expect(res.status).toBe(200);
-  expect(await res.text()).toContain("CordPlay");
+  expect(await res.text()).toContain("HypePlay");
   const csp = res.headers.get("content-security-policy")!;
   expect(csp).toStartWith("sandbox allow-scripts allow-forms allow-popups allow-downloads;");
   expect(csp).not.toContain("allow-same-origin");

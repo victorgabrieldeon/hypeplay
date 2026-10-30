@@ -4,21 +4,42 @@
  * game's name, the same every time for the same game. Never anyone's logo or art.
  *
  * sharp (a native module) is loaded on the first cover sent, not at startup: the server never depends on it to run.
+ * Where it can't load at all (no native build for the machine, a path too long for Windows), a cover goes as sent.
  */
 export const COVER_MAX = 5 * 1024 ** 2;
 /** The drawing's version: covers are kept a year by address, so a new drawing needs new addresses. */
 export const COVER_ART = 2;
 const FORMATS = new Set(["png", "jpeg", "webp"]);
 
-export async function normalizeCover(body: Uint8Array): Promise<{ ok: true; webp: Uint8Array } | { ok: false; error: string }> {
+/** A PNG, JPG or WebP's type, from its first bytes; null for anything else. */
+export function imageType(b: Uint8Array): "image/png" | "image/jpeg" | "image/webp" | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.subarray(from, to));
+  if (b[0] === 0x89 && ascii(1, 4) === "PNG") return "image/png";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+type Sharp = typeof import("sharp").default;
+
+export async function normalizeCover(
+  body: Uint8Array,
+  load: () => Promise<{ default: Sharp }> = () => import("sharp"),
+): Promise<{ ok: true; image: Uint8Array } | { ok: false; error: string }> {
   if (body.length > COVER_MAX) return { ok: false, error: "A capa pode ter até 5 MB" };
   const wrong = { ok: false as const, error: "A capa precisa ser PNG, JPG ou WebP" };
-  const { default: sharp } = await import("sharp");
+  let sharp: Sharp;
+  try {
+    sharp = (await load()).default;
+  } catch (err) {
+    console.warn("covers go as sent: sharp didn't load", err instanceof Error ? err.message.split("\n")[0] : err);
+    return imageType(body) ? { ok: true, image: body } : wrong;
+  }
   try {
     const meta = await sharp(body).metadata();
     if (!meta.format || !FORMATS.has(meta.format)) return wrong;
     const webp = await sharp(body).rotate().resize(600, 900, { fit: "cover", position: "attention" }).webp({ quality: 82 }).toBuffer();
-    return { ok: true, webp: new Uint8Array(webp) };
+    return { ok: true, image: new Uint8Array(webp) };
   } catch {
     return wrong;
   }

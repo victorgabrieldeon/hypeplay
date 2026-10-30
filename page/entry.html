@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CordPlay</title>
+<title>HypePlay</title>
 <!--
   Where the Activity opens (server/routes.ts serves it at /). entry.js signs in with Discord, trades the code for a
   pass and frames the game's page, p/<pass>/. This page stays: it holds the Discord SDK's connection. Until the home
@@ -35,12 +35,12 @@
 <body>
 <div class="splash">
   <img src="icon.svg" alt="">
-  <b>Cord<span>Play</span></b>
+  <b>Hype<span>Play</span></b>
   <p id="msg">Entrando pelo Discord…</p>
   <div class="load" aria-hidden="true"></div>
 </div>
 <!-- The home, then a game: games want controllers, sound without a click first, and full screen. -->
-<iframe id="game" title="CordPlay" allow="gamepad; autoplay; fullscreen" hidden></iframe>
+<iframe id="game" title="HypePlay" allow="gamepad; autoplay; fullscreen" hidden></iframe>
 <script type="module" src="entry.js"></script>
 </body>
 </html>

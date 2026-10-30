@@ -1,5 +1,5 @@
 /**
- * CordPlay's catalog: the games the server knows how to build from a disc image. Each one is a web port of a
+ * HypePlay's catalog: the games the server knows how to build from a disc image. Each one is a web port of a
  * decompiled game, compiled by its own builder service (builder/ for BT3) in its own data folder, <data>/<id>/.
  * The id is never taken from an address: routes look it up here.
  */
@@ -20,7 +20,7 @@ export interface Game {
   steps: string[];
   /** The compiled game's files: nothing else from build/ is ever served. */
   files: Set<string>;
-  /** Its cover: two colors for the gradient (no box art: nothing of the game ships with CordPlay). */
+  /** Its cover: two colors for the gradient (no box art: nothing of the game ships with HypePlay). */
   colors: [string, string];
 }
 

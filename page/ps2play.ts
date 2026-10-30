@@ -1,4 +1,5 @@
 import { createCardSync, heldByOtherTab, type CardStore } from "./cardsync";
+import type { OverlayApi } from "./overlay";
 import { roomButton } from "./stream";
 
 // ps2play.js (bundled at startup, server/index.ts; put in TabStationToo's page by server/ps2page.ts, before its
@@ -39,8 +40,9 @@ body > * { visibility: hidden !important; }
 #slate .cmd, #slate #dev-copy, #slate #slate-library, #slate #slate-disc, #slate #slate-remove { display: none !important; }
 #cp-bar { position: fixed; top: 10px; left: 10px; z-index: 2147483646; display: flex; align-items: center; gap: 8px; padding: 4px;
   border-radius: 12px; background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
-  font: 600 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; opacity: 0.25; transition: opacity 120ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-#cp-bar:hover, #cp-bar:focus-within, #cp-bar.near { opacity: 1; }
+  font: 600 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; opacity: 0; transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+/* (overlay.js marks the page awake while the pointer moves; a room waiting for its friend keeps the bar up) */
+html.cp-awake #cp-bar, #cp-bar:hover, #cp-bar:focus-within, #cp-bar.waiting { opacity: 1; }
 #cp-bar a, #cp-bar button { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: #242040;
   color: inherit; text-decoration: none; font: inherit; cursor: pointer; }
 #cp-bar a:hover, #cp-bar button:hover { background: #2c2750; }
@@ -97,10 +99,25 @@ function bar() {
   const b = document.createElement("div");
   b.id = "cp-bar";
   b.innerHTML = '<a href="../../../" aria-label="Voltar para a biblioteca">← Biblioteca</a><b></b>';
-  b.querySelector("b")!.textContent = document.title.replace(/ · CordPlay$/, "");
-  b.append(roomButton());
+  b.querySelector("b")!.textContent = document.title.replace(/ · HypePlay$/, "");
+  const room = roomButton();
+  b.append(room);
   document.body.append(b);
-  document.addEventListener("pointermove", (e) => b.classList.toggle("near", e.clientX < 320 && e.clientY < 90), { passive: true });
+  // The same room from the game's panel (overlay.js): a button that presses this one and shows what it says.
+  const mirror = document.createElement("button");
+  mirror.type = "button";
+  const sync = () => {
+    mirror.textContent = room.textContent;
+    mirror.disabled = room.disabled;
+    b.classList.toggle("waiting", /esperando/.test(room.textContent ?? ""));
+  };
+  new MutationObserver(sync).observe(room, { childList: true, characterData: true, subtree: true, attributes: true });
+  sync();
+  mirror.addEventListener("click", () => room.click());
+  (window as unknown as { hypeplayOverlay?: OverlayApi }).hypeplayOverlay?.online(
+    "Abra uma sala: um amigo entra pela <b>biblioteca</b>, em <b>Entrar como jogador 2</b>, e joga com o controle dele.",
+    mirror,
+  );
 }
 
 function idb(): Promise<IDBDatabase> {
@@ -142,7 +159,7 @@ async function seedCard(db: IDBDatabase, bytes: Uint8Array) {
   await new Promise<void>((ok, fail) => {
     const t = db.transaction(["cards", "bytes", "meta"], "readwrite");
     const now = Date.now();
-    t.objectStore("cards").put({ id: CARD_ID, name: "CordPlay", created: now, used: now, handle: null, file: null, unlinked: false });
+    t.objectStore("cards").put({ id: CARD_ID, name: "HypePlay", created: now, used: now, handle: null, file: null, unlinked: false });
     t.objectStore("bytes").put(bytes, CARD_ID);
     t.objectStore("meta").put({ slots: [CARD_ID, null], last: [CARD_ID, null] }, "slots");
     t.oncomplete = () => ok();
@@ -209,7 +226,7 @@ async function start() {
   try {
     card = await cards();
   } catch (err) {
-    console.warn("CordPlay: the memory card", err);
+    console.warn("HypePlay: the memory card", err);
   }
   if (card === "other-tab")
     return note("Este jogo já está aberto em outra aba", "Os saves só ficam guardados em uma janela por vez. Feche a outra e abra o jogo de novo aqui.");

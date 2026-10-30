@@ -63,7 +63,8 @@ export function drawer(g, ctx) {
     ? `<label class="sr" for="game-name">Nome do jogo</label><input class="field" id="game-name" data-rename="${esc(g.key)}" value="${esc(g.name)}" maxlength="80">`
     : `<p class="name">${esc(g.name)}</p>`;
   const head = `<div class="game-head">
-      <img src="${esc(g.cover)}" alt="">
+      <button class="cover-edit" type="button" data-cover="${esc(g.key)}" aria-label="Trocar a capa"><img src="${esc(g.cover)}" alt="">
+        <span>${icon('image')}Trocar capa</span></button>
       <div>${name}
         <p>${esc(g.platform)}${g.year ? ' · ' + g.year : ''}${g.serial ? ' · ' + esc(g.serial) : ''}</p>
         ${g.by ? `<p>Adicionado por ${esc(g.by)}</p>` : ''}
@@ -77,13 +78,11 @@ export function drawer(g, ctx) {
         ${r.busy ? '<span class="state">Cheia</span>' : `<button class="btn small" data-play="${esc(g.key)}" data-join="${esc(r.code)}">${icon('users')}Entrar como jogador 2</button>`}
       </div>`).join('')}</div></div>`
     : '';
-  const manage = recomp
-    ? `<div class="block"><h3>Jogo</h3><div class="row-actions">
+  const manage = `<div class="block"><h3>Jogo</h3><div class="row-actions">
         <button class="btn second small" data-cover="${esc(g.key)}">${icon('image')}Trocar capa</button>
         ${g.cover.includes('-c') ? `<button class="btn quiet small" data-cover-remove="${esc(g.key)}">Tirar capa</button>` : ''}
-        <button class="btn danger small" data-remove="${esc(g.key)}">Remover</button>
-      </div><p>Qualquer pessoa pode editar. Remover tira o jogo para todo mundo; os saves ficam guardados.</p></div>`
-    : '';
+        ${recomp ? `<button class="btn danger small" data-remove="${esc(g.key)}">Remover</button>` : ''}
+      </div><p>${recomp ? 'Qualquer pessoa pode editar. Remover tira o jogo para todo mundo; os saves ficam guardados.' : 'Qualquer pessoa pode trocar a capa: vale para todo mundo.'}</p></div>`;
   const warning = recomp
     ? `<p class="note">${icon('warn')} Em teste: roda no TabStationToo, o PCSX2 no navegador. A maioria dos jogos roda; alguns podem travar, ficar lentos ou com gráficos errados.</p>`
     : '';

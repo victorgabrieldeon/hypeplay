@@ -1,5 +1,5 @@
 /**
- * CordPlay's server, the Discord Activity (docs/2026-10-29-plugin-bt3-design.md).
+ * HypePlay's server, the Discord Activity (docs/2026-10-29-plugin-bt3-design.md).
  *
  *   /, entry.js, /icon.svg                 public: the entry page signs in with Discord (page/entry.html, entry.ts)
  *   /token                                 POST { code }: the Discord code for a pass (discord.ts, pass.ts)
@@ -25,10 +25,10 @@
  */
 import type { Server, WebSocketHandler } from "bun";
 import { readFileSync } from "node:fs";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bios } from "./bios";
-import { COVER_MAX, coverVersion, generatedCover, normalizeCover } from "./cover";
+import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { iceServers } from "./ice";
 import type { Discord } from "./discord";
@@ -223,7 +223,9 @@ export function createApp({
 
   async function game(on: Shelf, rest: string, req: Request, server: Server<NetData> | undefined): Promise<Response | undefined> {
     const { disc } = on;
-    if (rest === "" || rest === "index.html") return page(join(disc.paths.build, "index.html"), "../../pad.js", HEADERS);
+    // (the port plays online from its own main menu: overlay.js says so in the game's panel)
+    if (rest === "" || rest === "index.html")
+      return page(join(disc.paths.build, "index.html"), "../../pad.js", HEADERS, (html) => html.replace("</head>", '<meta name="hypeplay-online" content="menu">\n</head>'));
     if (on.game.files.has(rest)) return file(join(disc.paths.build, rest));
     if (rest === "disc/index.json") {
       const index = await discIndex(on);
@@ -307,17 +309,39 @@ export function createApp({
     };
   }
 
+  /** Where a port's sent cover is kept (beside its disc image). */
+  const portCover = (id: string) => join(dir, id, "cover.webp");
+
+  /** PUT or DELETE of a game's cover, kept at `path`; `has` records whether it now has one. */
+  async function coverUpload(req: Request, path: string, has: (on: boolean) => Promise<unknown>) {
+    if (req.method === "DELETE") {
+      await rm(path, { force: true });
+      await has(false);
+      return respond(null, 204);
+    }
+    if (req.method !== "PUT") return text("Método não permitido", 405);
+    if (Number(req.headers.get("content-length") ?? 0) > COVER_MAX) return json({ error: "A capa pode ter até 5 MB" }, 413);
+    const made = await normalizeCover(new Uint8Array(await req.arrayBuffer()));
+    if (!made.ok) return json({ error: made.error }, made.error.includes("5 MB") ? 413 : 400);
+    await writeFile(path, made.image);
+    await has(true);
+    return respond(null, 204);
+  }
+
   async function catalog(pass: Pass) {
     const ports = await Promise.all(
-      [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }): Promise<CatalogEntry> => ({
-        ...g,
-        key: g.id,
-        kind: "port",
-        cover: `cover/${g.id}?v=${coverVersion(BT3_SERIAL, g.name)}`,
-        status: await disc.status(pass),
-        rooms: rooms.size,
-        open: [],
-      })),
+      [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }): Promise<CatalogEntry> => {
+        const sent = Bun.file(portCover(g.id));
+        return {
+          ...g,
+          key: g.id,
+          kind: "port",
+          cover: `cover/${g.id}?v=${(await sent.exists()) ? `${sent.lastModified}-c` : coverVersion(BT3_SERIAL, g.name)}`,
+          status: await disc.status(pass),
+          rooms: rooms.size,
+          open: [],
+        };
+      }),
     );
     const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
     return { me: pass.name, last: (await people?.last(pass.id)) ?? null, publicUrl, games: [...ports, ...ps2] };
@@ -325,16 +349,20 @@ export function createApp({
 
   async function cover(key: string): Promise<Response> {
     const immutable = { "Cache-Control": "private, max-age=31536000, immutable" };
+    /** A sent cover, with its own type (WebP once sharp made it one; as sent where sharp couldn't load). */
+    const sent = async (path: string) => {
+      const f = Bun.file(path);
+      if (!(await f.exists())) return null;
+      const type = imageType(new Uint8Array(await f.slice(0, 12).arrayBuffer())) ?? "image/webp";
+      return respond(f, 200, { "Content-Type": type, ...immutable });
+    };
     const port = shelf.get(key);
-    if (port && key === "bt3") return respond(generatedCover(BT3_SERIAL, port.game.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
+    if (port && key === "bt3")
+      return (await sent(portCover(key))) ?? respond(generatedCover(BT3_SERIAL, port.game.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
     const id = /^ps2\/(.+)$/.exec(key)?.[1];
     const g = id && library ? await library.get(id) : null;
     if (!g) return text("Não encontrado", 404);
-    if (g.cover) {
-      const f = Bun.file(library!.paths(g.id).cover);
-      if (await f.exists()) return respond(f, 200, { "Content-Type": "image/webp", ...immutable });
-    }
-    return respond(generatedCover(g.serial, g.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
+    return (g.cover && (await sent(library!.paths(g.id).cover))) || respond(generatedCover(g.serial, g.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
   }
 
   /** ps2/<id>/game/…: TabStationToo with the game's disc, its online rooms. All isolated (http.ts). */
@@ -426,20 +454,8 @@ export function createApp({
         if (req.method !== "POST") return text("Método não permitido", 405);
         await disc.retry();
         return respond(null, 204);
-      case "cover": {
-        if (req.method === "DELETE") {
-          await rm(p.cover, { force: true });
-          await lib.setCover(id, false);
-          return respond(null, 204);
-        }
-        if (req.method !== "PUT") return text("Método não permitido", 405);
-        if (Number(req.headers.get("content-length") ?? 0) > COVER_MAX) return json({ error: "A capa pode ter até 5 MB" }, 413);
-        const made = await normalizeCover(new Uint8Array(await req.arrayBuffer()));
-        if (!made.ok) return json({ error: made.error }, made.error.includes("5 MB") ? 413 : 400);
-        await writeFile(p.cover, made.webp);
-        await lib.setCover(id, true);
-        return respond(null, 204);
-      }
+      case "cover":
+        return coverUpload(req, p.cover, (on) => lib.setCover(id, on));
       case "save": {
         if (!saves) return text("Não encontrado", 404);
         if (req.method === "GET") {
@@ -567,6 +583,10 @@ export function createApp({
         return json(await disc.status(pass));
       case "upload":
         return upload(disc, req, pass);
+      case "cover":
+        // (the address carries the file's time: nothing to record)
+        await mkdir(join(dir, on.game.id), { recursive: true });
+        return coverUpload(req, portCover(on.game.id), async () => {});
       case "retry":
         if (req.method !== "POST") return text("Método não permitido", 405);
         await disc.retry();

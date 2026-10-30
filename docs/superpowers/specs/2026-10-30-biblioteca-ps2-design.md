@@ -9,6 +9,8 @@ feature abre a central para **qualquer jogo de PS2**: alguém envia a ISO (e, se
 compila o jogo **uma vez só** com o [ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) e o jogo fica
 na biblioteca para todo mundo jogar depois, pela atividade do Discord. Junto vêm:
 
+- **online para jogos com segundo jogador**: quem joga abre a sala e um amigo entra como jogador 2, de dentro
+  do Discord;
 - saves no servidor, um memory card por pessoa;
 - mapeamento do controle de PS2, para quando o navegador não reconhece o controle;
 - a intro do PS2 ao abrir um jogo;
@@ -25,6 +27,7 @@ na biblioteca para todo mundo jogar depois, pela atividade do Discord. Junto vê
 | BT3 | Continua com o builder e o online dele (**abordagem A**: builder genérico novo ao lado). |
 | Controle | Sempre um controle de PS2. Funciona sozinho quando o navegador reconhece; se não reconhecer, a pessoa mapeia uma vez. |
 | Intro | Toca toda vez que alguém abre um jogo (BT3 incluso), pode ser pulada, com som. |
+| Online (PS2) | O do próprio ps2-web-recomp (o host transmite, o convidado é o jogador 2), com as salas listadas na home. O BT3 segue com o Dragon Net Battle. |
 
 ## Premissas e limites
 
@@ -116,6 +119,8 @@ Rotas novas (todas sob `/p/<passe>/`, como hoje; sem passe válido, 403):
 | `GET pad.js`, `GET iso.js`, `GET fonts/*` | Scripts da página e as fontes (de `@fontsource-variable/*`, servidas daqui). |
 | `GET ps2/<id>/game/` e `game/<arquivo>` | O jogo, da lista fixa: `index.html` (o `ps2web.html` publicado), `ps2web.js`, `ps2web.wasm`, `ps2web.data` (o `.gz` quando o navegador aceita), `shots/NN.png`. |
 | `GET ps2/<id>/game/disc.iso` | A ISO com **Range** (206, `Content-Range`, `Accept-Ranges`); HEAD também (o shell mede o disco assim). |
+| `POST ps2/<id>/game/room`, `POST ps2/<id>/game/room/<código>/<para>`, `GET ps2/<id>/game/room/<código>/<eu>?after=N` | A sinalização do online (ver Online). |
+| `GET ps2/<id>/game/ice` | Os servidores ICE para o WebRTC: STUN sempre, e TURN com credencial temporária quando configurado. |
 
 **Cabeçalhos das rotas `ps2/<id>/game/*`:** sem o CSP `sandbox` (uma origem opaca provavelmente impede a
 isolation); com `Content-Security-Policy: frame-ancestors …` (só o Discord emoldura), `Document-Isolation-Policy:
@@ -145,7 +150,9 @@ aparece.
   2. **Abrir no navegador:** quando `missingFeatures()` só acusa a isolation, em vez do erro mostra o botão;
      o clique faz `parent.postMessage({ t: "cordplay:open", url }, "*")` com a URL do jogo em `PUBLIC_URL`.
      Os outros requisitos (WebGPU, JSPI…) mostram a mensagem do shell, em português.
-  3. **Invite escondido** (multiplayer por streaming fica fora da v1).
+  3. **Online** (ver Online): o botão Invite vira "Abrir sala" / "Sala ABC234", sem copiar link; o
+     `rtcConfig` fixo vira o que `GET ice` devolver (com o fixo de hoje como reserva se a chamada falhar);
+     textos do convidado em português.
   4. **Quick save** e preferências seguem usando o armazenamento do navegador quando ele existe (na aba do
      navegador funciona; no Discord, falha em silêncio, como o próprio shell já trata com `try`).
 - **Laço** (`ps2-builder/builder.ts`, Bun, mesmo padrão do `builder/builder.ts`): a cada 5 s, sinal de vida
@@ -161,6 +168,33 @@ aparece.
   `[iop] missing <lib> #<n>` no log, essa linha vira o motivo em destaque. Sem espaço em disco → "Sem espaço
   no servidor" e `ps2-work/<id>/` apagada. Jogo removido no meio da compilação → para e segue para o próximo.
 - **Compose:** serviço `ps2-builder`, mesmo volume, `cpus: "2"`, `restart: unless-stopped`.
+
+### Online dos jogos de PS2
+
+O ps2-web-recomp já traz o online pronto no shell: **quem hospeda** roda o jogo e transmite o vídeo e o som
+do canvas por WebRTC; **o convidado** abre a mesma página com `?join=<código>`, não baixa jogo nem disco e
+manda o controle dele por um canal de dados, que vira o **jogador 2** do console. Vale para qualquer jogo que
+aceite um segundo controle (o próprio jogo decide o que o jogador 2 faz). O convidado **não precisa de
+isolation, WebGPU nem JSPI** (o shell pula essas checagens com `?join=`), então joga de dentro do Discord
+mesmo quando o host precisou abrir no navegador.
+
+- **Sinalização** (`server/ps2rooms.ts`, port do `/room` do `scripts/serve.py`, em memória): `POST room` cria
+  uma sala com código de 6 letras (`A–Z` e `2–9`, sem as ambíguas) e guarda quem criou (nome do passe) e o
+  jogo; `POST room/<código>/<para>` põe uma mensagem JSON (até 64 KB) na caixa de alguém; `GET
+  room/<código>/<eu>?after=N` espera até 20 s por mensagens novas (long-poll). Sala sem uso por 1 h some. As
+  mensagens são a oferta, a resposta e os candidatos do WebRTC, repassados como vêm. Lógica numa classe com
+  relógio injetável, testável sem rede, como o `rooms.ts` do BT3.
+- **Salas na home:** `GET games` traz, por jogo, as salas abertas `{ código, host, desde, ocupada }`. A gaveta
+  do jogo e o destaque mostram **"Fulano está jogando — Entrar como jogador 2"**; o clique toca a intro e
+  abre `ps2/<id>/game/?join=<código>`. Sala com convidado aparece como "Cheia".
+- **Host:** dentro do jogo, "Abrir sala" cria a sala e mostra o código; o resto (aceitar o convidado, soltar o
+  jogador 2 quando ele sai ou some por 3 s) é do próprio shell.
+- **ICE / TURN:** `GET ice` devolve STUN (os públicos que o shell já usa) e, se as variáveis `TURN_URL` e
+  `TURN_SECRET` existirem, um TURN com credencial temporária no padrão REST do coturn (usuário
+  `<expiração>:<id do Discord>`, senha HMAC-SHA1 com o segredo, válida por 12 h). Sem TURN, redes que não
+  se alcançam direto não conectam; o compose ganha um serviço `turn` (coturn) opcional, comentado, com o que
+  precisa abrir no firewall.
+- **BT3:** sem mudança; continua com o Dragon Net Battle (`rooms.ts`).
 
 ### Página de entrada (`page/entry.ts`)
 
@@ -233,6 +267,9 @@ envio há mais de 24 h some da biblioteca (reserva abandonada).
 | Capa inválida ou > 5 MB | 400 com o motivo; o jogo segue sem capa. |
 | Dois envios do mesmo jogo | O segundo vê "Fulano está enviando este jogo" (regra de hoje). |
 | `ps2-builder` parado | `offline` no card. |
+| Sala não existe mais / host saiu | O convidado vê "A sala ABC234 não existe mais" e volta para a home. |
+| Sala cheia | "Cheia" na home; um segundo convidado não substitui o primeiro. |
+| WebRTC não conecta (sem TURN) | Depois de 15 s: "Não deu para conectar com o host. Talvez a rede de um dos dois bloqueie; o servidor precisa de um TURN." |
 | Disco cheio | `failed` "Sem espaço no servidor", intermediários apagados. |
 
 ## Testes
@@ -250,8 +287,13 @@ Automatizados (`bun test`, ao lado do código):
   ISO completa com serial diferente; intro com Range.
 - `ps2-builder/builder.test.ts` — `port.sh` falso: passos a partir da saída, fila de um por vez, falha com
   motivo, retry, publicação atômica com as capturas, jogo removido no meio.
+- `server/ps2rooms.test.ts` — criar sala (código válido, sem repetir), mensagem chega na caixa certa, long-poll
+  acorda com mensagem nova e expira em 20 s, sala ociosa some, limite de 64 KB, sala listada por jogo com o
+  host e "ocupada".
+- `server/ice.test.ts` — só STUN sem as variáveis; TURN com usuário e senha no padrão do coturn, expiração.
 - `ps2-builder/patch.test.ts` — trechos reais do `web/shell.html` do commit fixo (em `fixtures/`): saves no
-  servidor, botão "Abrir no navegador", Invite escondido; falha alto se um trecho sumir.
+  servidor, botão "Abrir no navegador", "Abrir sala" e o `rtcConfig` vindo de `ice`; falha alto se um trecho
+  sumir.
 - `page/pad.test.ts` — botão, eixo e hat; eixos invertidos; sem mapa passa direto; layout standard.
 
 Suíte inteira e `bun run typecheck` antes de cada commit.
@@ -262,12 +304,14 @@ Manuais (navegador interno, depois o Discord — o dono valida):
 - Save persiste entre sessões e entre PCs.
 - Mapear um controle não reconhecido; o mapa vale no BT3 e no jogo de PS2.
 - Intro toca, com som, e pula.
+- Online: um abre a sala num jogo de 2 jogadores, outro entra pela home dentro do Discord, controla o jogador 2,
+  sai e o host continua.
 - Dentro do Discord: o jogo de PS2 isola ou mostra "Abrir no navegador", que abre a aba e joga.
 - BT3 continua igual (online incluso).
 
 ## Fora deste trabalho
 
-- Multiplayer do ps2-web-recomp (Invite por streaming) e um relay `/room` no servidor.
+- Mais de 2 jogadores (multitap) e espectadores no online dos jogos de PS2.
 - Bibliotecas por servidor do Discord ou por pessoa.
 - Upscaler de IA para a intro (a versão em 1080p já foi feita com filtros clássicos).
 - Patches do PCSX2 (`--pnach`) pela interface.
@@ -276,6 +320,11 @@ Manuais (navegador interno, depois o Discord — o dono valida):
 
 - **Isolation no Discord** — o maior: se o Chromium do Discord não aceitar o `Document-Isolation-Policy`,
   jogos de PS2 só rodam pelo "Abrir no navegador".
+- **WebRTC dentro do Discord** — a atividade roda atrás do proxy do Discord; o vídeo do host e o STUN/TURN
+  saem direto entre os navegadores. Se o Discord bloquear isso, o convidado só joga pelo navegador; precisa
+  ser testado no app.
+- **Qualidade do online** — o convidado recebe o vídeo comprimido, com o atraso da rede somado; para jogo de
+  luta é jogável na mesma cidade, sofre mais longe.
 - **Compatibilidade** — a maioria dos jogos deve compilar e não chegar longe; a interface precisa deixar isso
   claro sem frustrar.
 - **Recursos do servidor** — compilação longa com 2 CPUs e sem GPU; ~300 MB por jogo mais a ISO.

@@ -160,3 +160,20 @@ test("Quick Match pairs two, with a code and sides; the waiting hear the count",
   rooms.openQueue(dan, { name: "Dan", cid: "d" });
   expect(dan.messages.find((m) => m.t === "match")).toMatchObject({ role: "join", vs: "Cai" });
 });
+
+test("the library's list: a host waiting in its lobby; busy once someone joined or the match began; gone when left", () => {
+  let t = 1000;
+  const r = new NetRooms(() => t);
+  const host = new Fake();
+  r.openRoom(host, p("host"));
+  expect(r.lobbies()).toEqual([{ code: "ABCD", host: "Ana", since: 1000, busy: false }]);
+  const guest = new Fake();
+  t = 2000;
+  r.openRoom(guest, p("join"));
+  expect(r.lobbies()).toEqual([{ code: "ABCD", host: "Ana", since: 1000, busy: true }]);
+  r.close(guest, 1000);
+  r.close(host, 1000);
+  expect(r.lobbies()).toEqual([]);
+  r.openRoom(new Fake(), p("host", { room: "WXYZ", phase: "session" }));
+  expect(r.lobbies()).toEqual([{ code: "WXYZ", host: "Ana", since: 2000, busy: true }]);
+});

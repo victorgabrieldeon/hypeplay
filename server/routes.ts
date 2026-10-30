@@ -339,7 +339,8 @@ export function createApp({
           cover: `cover/${g.id}?v=${(await sent.exists()) ? `${sent.lastModified}-c` : coverVersion(BT3_SERIAL, g.name)}`,
           status: await disc.status(pass),
           rooms: rooms.size,
-          open: [],
+          // (the game's own Dragon Net Battle rooms: their code is what a friend types in Join a Match)
+          open: rooms.lobbies(),
         };
       }),
     );

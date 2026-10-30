@@ -95,7 +95,8 @@ function warn(text: string) {
   setTimeout(() => n.remove(), 12_000);
 }
 
-function bar() {
+/** `open`: opened from the library's "Abrir uma sala": the room opens straight away. */
+function bar(open: boolean) {
   const b = document.createElement("div");
   b.id = "cp-bar";
   b.innerHTML = '<a href="../../../" aria-label="Voltar para a biblioteca">← Biblioteca</a><b></b>';
@@ -118,6 +119,7 @@ function bar() {
     "Abra uma sala: um amigo entra pela <b>biblioteca</b>, em <b>Entrar como jogador 2</b>, e joga com o controle dele.",
     mirror,
   );
+  if (open) room.click();
 }
 
 function idb(): Promise<IDBDatabase> {
@@ -219,6 +221,8 @@ async function start() {
   }
   // TabStationToo boots what ?bios= and ?disc= name (same origin): the server's BIOS and this game's disc.
   const q = new URLSearchParams(location.search);
+  const openRoom = q.get("online") === "host";
+  q.delete("online");
   q.set("bios", "../../../bios.bin");
   q.set("disc", "disc.iso");
   history.replaceState(null, "", `${location.pathname}?${q}`);
@@ -231,7 +235,7 @@ async function start() {
   if (card === "other-tab")
     return note("Este jogo já está aberto em outra aba", "Os saves só ficam guardados em uma janela por vez. Feche a outra e abra o jogo de novo aqui.");
   if (document.readyState === "loading") await new Promise((ok) => document.addEventListener("DOMContentLoaded", ok, { once: true }));
-  bar();
+  bar(openRoom);
   if (card !== "saving") warn("Não deu para buscar o seu save no servidor agora. Dá para jogar, mas o que você salvar nesta vez não vai para o servidor.");
   // (app.js names the tab after the disc and itself: the tab keeps the game's name and ours)
   const ours = document.title;

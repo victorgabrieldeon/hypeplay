@@ -76,6 +76,12 @@ export const seal = (g) => g.kind === 'port' ? '<span class="seal tested">Testad
 export const needsDisc = (g, sending) => !sending && (g.status.state === 'empty' || (g.status.state === 'failed' && g.status.refused) || (g.status.state === 'uploading' && (g.status.mine || g.status.stale)));
 const free = (g) => g.open.filter((r) => !r.busy);
 
+/** The spotlight's online button: into a friend's open room, else open one (BT3's port: its own Dragon Net Battle). */
+function online(g, room) {
+  if (room) return `<button class="btn second" data-play="${esc(g.key)}" data-join="${esc(room.code)}">${icon('users')}${g.kind === 'port' ? 'Entrar na sala' : 'Entrar como jogador 2'}</button>`;
+  return g.status.state === 'ready' ? `<button class="btn second" data-play="${esc(g.key)}" data-online>${icon('users')}Jogar online</button>` : '';
+}
+
 /** `label`: why this game is in the spotlight ("Continuar jogando", "Em destaque"). */
 export function hero(g, sending, label) {
   const room = free(g)[0];
@@ -89,8 +95,8 @@ export function hero(g, sending, label) {
       <div class="chips"><span class="chip">${esc(g.platform)}</span>${seal(g)}${g.tags.filter((t) => t !== 'Experimental').map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
       <h2>${esc(g.name)}</h2>
       ${sub ? `<p>${esc(sub)}</p>` : ''}
-      <div class="actions">${play}<button class="btn second" data-open="${esc(g.key)}">Detalhes</button>${stateBadge(g, sending)}
-        ${room ? `<button class="btn second" data-play="${esc(g.key)}" data-join="${esc(room.code)}">${icon('users')}Entrar como jogador 2</button><span class="live">${esc(room.host)} está jogando</span>` : ''}</div>
+      <div class="actions">${play}${online(g, room)}<button class="btn second" data-open="${esc(g.key)}">Detalhes</button>${stateBadge(g, sending)}
+        ${room ? `<span class="live">${esc(room.host)} ${g.kind === 'port' ? `abriu a sala ${esc(room.code)}` : 'está jogando'}</span>` : ''}</div>
     </div>
     <img class="case" src="${esc(g.cover)}" alt="">`;
 }

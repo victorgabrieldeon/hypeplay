@@ -20,3 +20,10 @@ test("only our own pages are opened outside", () => {
     expect(openRequest(bad, PUBLIC)).toBeNull();
   expect(openRequest({ t: "cordplay:open", path: "/p/abc/" }, "")).toBeNull();
 });
+
+test("player 2's page opens outside too, with its room and nothing else", () => {
+  const watch = "/p/abc/ps2/slus-21678/watch/?room=XC7WWC";
+  expect(openRequest({ t: "cordplay:open", path: watch }, PUBLIC)).toBe(PUBLIC + watch);
+  for (const path of ["/p/abc/ps2/slus-21678/watch/?room=XC7WWC&x=1", "/p/abc/ps2/slus-21678/watch/?room=../x", "/p/abc/ps2/slus-21678/game/?room=XC7WWC"])
+    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
+});

@@ -393,3 +393,13 @@ test("BT3's page tells the game panel where its online is (the game's own menu)"
   expect(html).toContain('<meta name="hypeplay-online" content="menu">');
   expect(html.indexOf("hypeplay-online")).toBeLessThan(html.indexOf("</head>"));
 });
+
+test("BT3's rooms (the game's Dragon Net Battle) are listed in the library, with the code to type", async () => {
+  const rooms = app.shelf.get("bt3")!.rooms;
+  const ws = { send() {}, close() {} };
+  rooms.openRoom(ws, { room: "QRST", role: "host", phase: "lobby", name: "Ana", cid: "a" });
+  const bt3 = () => catalog().then((c) => c.games.find((g) => g.key === "bt3")!);
+  expect((await bt3()).open).toEqual([{ code: "QRST", host: "Ana", since: expect.any(Number), busy: false }]);
+  rooms.close(ws, 1000);
+  expect((await bt3()).open).toEqual([]);
+});

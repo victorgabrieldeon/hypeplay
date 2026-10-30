@@ -72,12 +72,22 @@ export function drawer(g, ctx) {
       </div>
     </div>`;
   const error = ctx.uploadError.key === g.key && ctx.uploadError.text ? `<p class="error">${esc(ctx.uploadError.text)}</p>` : '';
+  // BT3's port plays online in the game itself (Dragon Net Battle): its rooms carry the code a friend types there
+  const port = g.kind === 'port';
   const rooms = g.open.length
-    ? `<div class="block"><h3>Salas abertas</h3><div class="rooms">${g.open.map((r) => `<div class="room">
-        <span><strong>${esc(r.host)}</strong> está jogando</span>
-        ${r.busy ? '<span class="state">Cheia</span>' : `<button class="btn small" data-play="${esc(g.key)}" data-join="${esc(r.code)}">${icon('users')}Entrar como jogador 2</button>`}
-      </div>`).join('')}</div></div>`
+    ? `<div class="rooms">${g.open.map((r) => `<div class="room">
+        <span><strong>${esc(r.host)}</strong> ${port ? `abriu a sala <strong class="code">${esc(r.code)}</strong>` : 'está jogando'}</span>
+        ${r.busy ? `<span class="state">${port ? 'Em partida' : 'Cheia'}</span>`
+          : `<button class="btn small" data-play="${esc(g.key)}" data-join="${esc(r.code)}">${icon('users')}${port ? 'Entrar na sala' : 'Entrar como jogador 2'}</button>`}
+      </div>`).join('')}</div>`
     : '';
+  const online = g.status.state === 'ready'
+    ? `<div class="block"><h3>Jogar online</h3>${rooms}
+        <p>${port
+          ? 'O online é do próprio jogo: no menu principal, <strong>Dragon Net Battle</strong>. <strong>Host a Match</strong> cria uma sala com um código de 4 letras, que aparece aqui para os amigos; quem entra usa <strong>Join a Match</strong> com o código. <strong>Quick Match</strong> acha outra pessoa procurando.'
+          : 'Abra uma sala: um amigo entra por aqui, em <strong>Entrar como jogador 2</strong>, e joga com o controle dele.'}</p>
+        <button class="btn second" data-play="${esc(g.key)}" data-online>${icon('users')}${port ? 'Jogar online' : 'Abrir uma sala'}</button></div>`
+    : g.open.length ? `<div class="block"><h3>Salas abertas</h3>${rooms}</div>` : '';
   const manage = `<div class="block"><h3>Jogo</h3><div class="row-actions">
         <button class="btn second small" data-cover="${esc(g.key)}">${icon('image')}Trocar capa</button>
         ${g.cover.includes('-c') ? `<button class="btn quiet small" data-cover-remove="${esc(g.key)}">Tirar capa</button>` : ''}
@@ -87,5 +97,5 @@ export function drawer(g, ctx) {
     ? `<p class="note">${icon('warn')} Em teste: roda no TabStationToo, o PCSX2 no navegador. A maioria dos jogos roda; alguns podem travar, ficar lentos ou com gráficos errados.</p>`
     : '';
   const art = `<div class="art" aria-hidden="true" style="background-image:url('${esc(g.cover)}')"></div>`;
-  return `${art}${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${rooms}${manage}${warning}`;
+  return `${art}${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${online}${manage}${warning}`;
 }

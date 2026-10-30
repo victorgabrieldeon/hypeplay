@@ -37,7 +37,7 @@ export interface QueueParams {
 }
 
 type Conn =
-  | ({ kind: "room" } & RoomParams)
+  | ({ kind: "room"; t: number } & RoomParams)
   | ({ kind: "queue"; t: number; matched: boolean } & QueueParams);
 
 /** Closed by us: the same player again (4000), turned away (4001), no host (4002). No "left" for those. */
@@ -80,6 +80,20 @@ export class NetRooms {
     return this.rooms.size;
   }
 
+  /**
+   * What the library lists: each room with its host, since when, and whether it's busy (someone joined, or the
+   * match began). The code is what a friend types in the game's Join a Match.
+   */
+  lobbies(): { code: string; host: string; since: number; busy: boolean }[] {
+    const out = [];
+    for (const [code, members] of this.rooms) {
+      const cs = [...members].map((ws) => this.conns.get(ws)).filter((c) => c?.kind === "room");
+      const host = cs.find((c) => c.role === "host");
+      if (host) out.push({ code, host: host.name, since: host.t, busy: cs.some((c) => c.role === "join" || c.phase === "session") });
+    }
+    return out;
+  }
+
   openRoom(ws: NetSocket, p: RoomParams) {
     const members = this.rooms.get(p.room) ?? new Set<NetSocket>();
     // The same role already here: the same player again (a reload) replaces it; anyone else is turned away.
@@ -101,7 +115,7 @@ export class NetRooms {
       ws.close(4002, "no host");
       return;
     }
-    this.conns.set(ws, { kind: "room", ...p });
+    this.conns.set(ws, { kind: "room", t: this.now(), ...p });
     members.add(ws);
     this.rooms.set(p.room, members);
     if (other) {

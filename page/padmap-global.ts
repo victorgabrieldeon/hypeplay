@@ -1,4 +1,5 @@
 // padmap.js for the home's controller screen (bundled at startup, server/index.ts): the same mapping the games use.
 import { padFamily, remap, STANDARD, validMapping } from "./padmap";
+import { centered, pushed, turning } from "./stickmap";
 
-(globalThis as { CordPad?: unknown }).CordPad = { padFamily, remap, STANDARD, validMapping };
+(globalThis as { CordPad?: unknown }).CordPad = { centered, padFamily, pushed, remap, STANDARD, turning, validMapping };

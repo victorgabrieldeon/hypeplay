@@ -134,9 +134,10 @@ export async function looksLikeBios(file) {
 }
 
 /** Sends the BIOS once for the whole server. Resolves with an error text, or '' when it went in. */
-export async function sendBios(file) {
+/** `replace`: the server has one already and this one goes in its place. */
+export async function sendBios(file, replace = false) {
   if (!(await looksLikeBios(file))) return 'Isso não parece a BIOS de um PS2 (o arquivo de 4 MB do console, .bin ou .ROM0).';
-  const r = await fetch('bios', { method: 'PUT', body: file });
+  const r = await fetch(replace ? 'bios?replace=1' : 'bios', { method: 'PUT', body: file });
   if (r.ok || r.status === 409) return '';
   return (await r.json().catch(() => ({}))).error || `Erro ${r.status}`;
 }

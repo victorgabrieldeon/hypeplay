@@ -25,7 +25,7 @@
  */
 import type { Server, WebSocketHandler } from "bun";
 import { readFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bios } from "./bios";
 import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
@@ -66,7 +66,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** The home's own scripts (page/home/), plain ES modules. */
-const HOME_FILES = new Set(["app.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "intro.js", "homebrew.js"]);
+const HOME_FILES = new Set(["app.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "homebrew.js"]);
 /** TabStationToo's files (emulator/ps2/, pinned by emulator/ps2-files.json): nothing else of that folder is served. */
 const ENGINE_FILES = new Set(
   (JSON.parse(readFileSync(join(import.meta.dir, "..", "emulator", "ps2-files.json"), "utf8")) as { files: { path: string }[] }).files
@@ -92,6 +92,11 @@ export const HEADERS = {
 const DAY = { "Cache-Control": "private, max-age=86400" };
 
 const ENTRY_HEADERS = { "Content-Security-Policy": FRAME_ANCESTORS, "Cache-Control": "no-cache" };
+
+/** The intro played before a game (intro.mp4 in the data folder): an MP4 up to this size. */
+const INTRO_MAX = 64 * 1024 ** 2;
+/** An MP4 (ISO media) starts with its "ftyp" box: 4 bytes of size, then "ftyp". */
+const isMp4 = (b: Uint8Array) => b.length > 12 && String.fromCharCode(...b.subarray(4, 8)) === "ftyp";
 
 export type NetData = { game: string } & ({ kind: "room"; params: RoomParams } | { kind: "queue"; params: QueueParams });
 
@@ -513,7 +518,22 @@ export function createApp({
     if (path === "/") return file(join(pageDir, "index.html"));
     if (path === "/games") return json(await catalog(pass));
     if (path === "/intro.mp4") {
-      const f = Bun.file(join(dir, "intro.mp4"));
+      const where = join(dir, "intro.mp4");
+      // sent once from the home's "Servidor" screen, for everyone (like the BIOS); anyone may replace or take it off
+      if (req.method === "PUT") {
+        if (Number(req.headers.get("content-length") ?? 0) > INTRO_MAX) return json({ error: "O vídeo pode ter até 64 MB" }, 413);
+        const video = new Uint8Array(await req.arrayBuffer());
+        if (video.length > INTRO_MAX) return json({ error: "O vídeo pode ter até 64 MB" }, 413);
+        if (!isMp4(video)) return json({ error: "O vídeo precisa ser MP4" }, 400);
+        await writeFile(`${where}.tmp`, video);
+        await rename(`${where}.tmp`, where);
+        return respond(null, 204);
+      }
+      if (req.method === "DELETE") {
+        await rm(where, { force: true });
+        return respond(null, 204);
+      }
+      const f = Bun.file(where);
       return (await f.exists()) ? rangeResponse(req, f, { ...HEADERS, "Content-Type": TYPES.mp4! }) : text("Sem intro", 404);
     }
     const own = /^\/home\/([\w-]+\.js)$/.exec(path)?.[1];

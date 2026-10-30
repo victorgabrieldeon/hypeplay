@@ -331,6 +331,19 @@ test("intro with Range, 404 without the file", async () => {
   expect(part.headers.get("content-type")).toBe("video/mp4");
 });
 
+test("the intro is sent from the app (once, for everyone), replaced and taken off; only an MP4 goes in", async () => {
+  const mp4 = new Uint8Array([0, 0, 0, 24, ...new TextEncoder().encode("ftypisom"), 0, 0, 2, 0, ...new TextEncoder().encode("isomiso2"), 1, 2, 3]);
+  expect((await bia("intro.mp4", { method: "PUT", body: mp4 })).status).toBe(204);
+  const got = await ana("intro.mp4");
+  expect(got.status).toBe(200);
+  expect(new Uint8Array(await got.arrayBuffer())).toEqual(mp4);
+  expect((await ana("intro.mp4", { method: "HEAD" })).status).toBe(200);
+  expect((await ana("intro.mp4", { method: "PUT", body: "not a video" })).status).toBe(400);
+  expect((await ana("intro.mp4", { method: "PUT", body: new Uint8Array(64 * 1024 ** 2 + 1) })).status).toBe(413);
+  expect((await ana("intro.mp4", { method: "DELETE" })).status).toBe(204);
+  expect((await ana("intro.mp4")).status).toBe(404);
+});
+
 test("the page's scripts and fonts", async () => {
   const withScripts = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, scripts: { "iso.js": "/* iso */" } });
   const get = (path: string) => withScripts.handle(new Request(`http://localhost/p/${ANA}/${path}`)) as Promise<Response>;

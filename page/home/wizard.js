@@ -1,6 +1,7 @@
 // "Adicionar jogo": a PS2 game into the library, once, for everyone. The warning first (only with "Entendi"); the
 // PS2 BIOS when the server has none yet (once for the whole server); then the disc image, whose serial is read here
-// (iso.js) so a game already in the library is never sent again; then its name and cover. Sending is the library's
+// (iso.js) so a game already in the library is never sent again (BT3, which has its tested port, can still go to
+// the PS2 library too); then its name and cover. Sending is the library's
 // own upload, in the game's drawer; once the image is in, the game plays.
 import { gameOf, hooks, poll, send, state } from './app.js';
 import { esc, gb, icon, sendBios } from './library.js';
@@ -56,7 +57,12 @@ function body() {
         <button class="btn" data-w="pick">Escolher a ISO</button><p>Um disco de PS2 (.iso). Fica no servidor para todo mundo.</p></div>
       ${w.busy ? '<div class="busy"><div class="spin"></div><p>Lendo o disco…</p></div>' : ''}
       ${w.error ? `<p class="error">${esc(w.error)}</p>` : ''}
-      ${existing ? `<p><strong>${esc(existing.name)}</strong> já está na biblioteca. Não precisa enviar de novo.</p>
+      ${existing && existing.kind === 'port' ? `<div class="callout ok">${icon('check')}<p><strong>${esc(existing.name)}</strong> já está na biblioteca
+          na versão <strong>Testado</strong>: roda liso e tem online pelo menu do jogo. Você também pode guardar esta ISO no servidor e
+          jogar no emulador de PS2, com save no servidor e sala da HypePlay.</p></div>
+        <div class="row-actions"><button class="btn" data-w="upload-anyway">${icon('upload')}Enviar para o servidor</button>
+          <button class="btn second" data-w="play">${icon('play')}Jogar a versão Testado</button></div>`
+        : existing ? `<p><strong>${esc(existing.name)}</strong> já está na biblioteca. Não precisa enviar de novo.</p>
         <button class="btn" data-w="play">${icon('play')}Jogar</button>` : ''}
       <footer><button class="btn quiet" data-w="back">Voltar</button></footer>`;
   }
@@ -105,12 +111,20 @@ async function chooseDisc(file) {
     w.error = 'Isso não parece um disco de PS2 (não achei o SYSTEM.CNF com o jogo).';
     return render();
   }
-  const exists = id.serial === BT3_SERIAL ? 'bt3' : state.games?.find((g) => g.serial === id.serial)?.key;
+  // the PS2 library's copy first; BT3's port only when the library hasn't got it (it can still be sent: anyway())
+  const exists = state.games?.find((g) => g.kind === 'recomp' && g.serial === id.serial)?.key ?? (id.serial === BT3_SERIAL ? 'bt3' : null);
   if (exists) {
-    w.exists = exists;
+    Object.assign(w, { exists, found: { file, serial: id.serial } });
     return render();
   }
   Object.assign(w, { file, serial: id.serial, name: w.name || id.serial, step: 'name' });
+  render();
+}
+
+/** BT3 already has its tested port: send the disc to the PS2 library all the same. */
+function anyway() {
+  const { file, serial } = w.found;
+  Object.assign(w, { file, serial, name: w.name || `${gameOf('bt3')?.name ?? serial} (PS2)`, step: 'name', exists: null, error: '' });
   render();
 }
 
@@ -157,6 +171,7 @@ layer.addEventListener('click', (e) => {
   if (a === 'pickbios') return pick('.bin,.rom0,.ROM0,application/octet-stream', chooseBios);
   if (a === 'pick') return pick('.iso,.bin,.img', chooseDisc);
   if (a === 'play') { const g = gameOf(w.exists); close(); if (g) hooks.play(g); return; }
+  if (a === 'upload-anyway') return anyway();
   if (a === 'cover') return pick('image/png,image/jpeg,image/webp', (f) => {
     if (f.size > 5 * 1024 ** 2) { w.error = 'A capa pode ter até 5 MB.'; return render(); }
     if (w.coverUrl) URL.revokeObjectURL(w.coverUrl);

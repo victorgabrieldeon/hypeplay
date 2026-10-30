@@ -11,7 +11,7 @@ async function start() {
   try {
     sdk = new DiscordSDK(process.env.DISCORD_CLIENT_ID!);
   } catch {
-    throw new Error("Abra o CordPlay pelo 🚀 de um canal de voz do Discord.");
+    throw new Error("Abra o HypePlay pelo 🚀 de um canal de voz do Discord.");
   }
   await sdk.ready();
   // "Abrir no navegador" from a game Discord can't isolate (or whose controller it holds back).

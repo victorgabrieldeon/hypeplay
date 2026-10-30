@@ -6,8 +6,8 @@
  */
 import type { PadButton, PadLike } from "./padmap";
 
-export const GUEST_ID = "CordPlay convidado (jogador 2)";
-const HOST_ID = "CordPlay (host)";
+export const GUEST_ID = "HypePlay convidado (jogador 2)";
+const HOST_ID = "HypePlay (host)";
 
 /** The guest's keyboard, on the standard layout (the same keys TabStationToo and the PS2 web ports use). */
 export const KEYS: Record<string, number> = {

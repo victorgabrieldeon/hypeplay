@@ -137,6 +137,21 @@ test("rename, cover (webp, generated, too big) and remove", async () => {
   expect((await catalog()).games.some((g) => g.id === "sles-44444")).toBe(false);
 });
 
+test("BT3's cover can be sent and taken off too, like any game's", async () => {
+  const coverOf = async () => (await catalog()).games.find((g) => g.key === "bt3")!.cover;
+  const drawn = await coverOf();
+  const png = await sharp({ create: { width: 300, height: 300, channels: 3, background: "#3ddc84" } }).png().toBuffer();
+  expect((await bia("bt3/cover", { method: "PUT", body: png })).status).toBe(204);
+  const sent = await coverOf();
+  expect(sent).not.toBe(drawn);
+  expect(sent).toEndWith("-c");
+  expect((await ana("cover/bt3")).headers.get("content-type")).toBe("image/webp");
+  expect((await ana("bt3/cover", { method: "PUT", body: "not an image" })).status).toBe(400);
+  expect((await ana("bt3/cover", { method: "DELETE" })).status).toBe(204);
+  expect(await coverOf()).toBe(drawn);
+  expect((await ana("cover/bt3")).headers.get("content-type")).toBe("image/svg+xml");
+});
+
 test("a cover's address changes whenever its picture does (it is kept a year): a rename, each cover sent, a new drawing", async () => {
   await ana("ps2", json({ serial: "SLES-56565", name: "Antes" }));
   const coverOf = async (key = "ps2/sles-56565") => (await catalog()).games.find((g) => g.key === key)!.cover;
@@ -209,7 +224,7 @@ test("a PS2 game is TabStationToo's page, patched and isolated, with its files f
   expect(csp).not.toContain("sandbox");
   expect(csp).toContain("frame-ancestors https://discord.com");
   const html = await page.text();
-  expect(html).toContain("<title>SLES-66666 · CordPlay</title>");
+  expect(html).toContain("<title>SLES-66666 · HypePlay</title>");
   expect(html).toContain('<script src="../../../ps2play.js"></script>');
   expect(html).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
 
@@ -257,7 +272,7 @@ test("the disc of a PS2 game answers Range and HEAD", async () => {
 
 test("BT3's page gets pad.js, everything else of BT3 is as before", async () => {
   const page = await ana("bt3/game/");
-  expect(await page.text()).toBe('<html><head><script src="../../pad.js"></script><script src="../../overlay.js"></script></head><body>bt3</body></html>');
+  expect(await page.text()).toBe('<html><head><meta name="hypeplay-online" content="menu">\n<script src="../../pad.js"></script><script src="../../overlay.js"></script></head><body>bt3</body></html>');
   expect(page.headers.get("content-security-policy")).toStartWith("sandbox ");
 });
 
@@ -371,4 +386,10 @@ test("PS2 routes 404 for unknown ids and without a library", async () => {
     expect(((await bare.handle(new Request(`http://localhost/p/${ANA}/${path}`))) as Response).status).toBe(404);
   const games = (await ((await bare.handle(new Request(`http://localhost/p/${ANA}/games`))) as Response).json()) as { games: Entry[] };
   expect(games.games.map((g) => g.key)).toEqual(["bt3"]);
+});
+
+test("BT3's page tells the game panel where its online is (the game's own menu)", async () => {
+  const html = await (await ana("bt3/game/")).text();
+  expect(html).toContain('<meta name="hypeplay-online" content="menu">');
+  expect(html.indexOf("hypeplay-online")).toBeLessThan(html.indexOf("</head>"));
 });

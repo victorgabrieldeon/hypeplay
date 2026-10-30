@@ -7,7 +7,7 @@ const page = readFileSync(join(import.meta.dir, "fixtures", "tabstation-index.ht
 const out = patchTabStation(page, "God of War <II>");
 
 test("the game's name, no service worker, and app.js held back for ps2play.js", () => {
-  expect(out).toContain("<title>God of War &lt;II&gt; · CordPlay</title>");
+  expect(out).toContain("<title>God of War &lt;II&gt; · HypePlay</title>");
   expect(out).not.toContain('<script src="coi-serviceworker.js">');
   expect(out).not.toMatch(/<script src="app\.js[^"]*" defer><\/script>/);
   expect(out).toMatch(/<script data-cp-app="app\.js\?v=[\w]+"><\/script>/);
@@ -33,6 +33,6 @@ test("a name with $ patterns is taken as written", () => {
   for (const name of ["$$'", "$'", "$&", "$1 Game $`"]) {
     const html = patchTabStation(page, name);
     const xml = name.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-    expect(html).toContain(`<title>${xml} · CordPlay</title>`);
+    expect(html).toContain(`<title>${xml} · HypePlay</title>`);
   }
 });

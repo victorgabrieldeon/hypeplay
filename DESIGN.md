@@ -1,9 +1,9 @@
-# CordPlay — design system
+# HypePlay — design system
 
 Direção: **"console à noite"**. Escuro, roxo, com cara de produto: a cor serve a ação, as capas dos jogos são o
 que tem cor de verdade. Tudo vira CSS variables em `page/` (`--nome`); as páginas usam nomes, nunca valores.
 
-> Direção tirada do CordPlay atual e das regras do skill de design, **sem comparação com sites reais** (o
+> Direção tirada do HypePlay atual e das regras do skill de design, **sem comparação com sites reais** (o
 > UXKIN não estava conectado).
 
 ## Cor
@@ -111,10 +111,10 @@ Escala de 4: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32, `--
 
 ## Imagens e ícones
 
-- **Logo** (`page/icon.svg`): um "C" que é ao mesmo tempo um fio dando a volta e a borda de um disco (com uma trilha
-  fina por dentro), em volta de um botão play; branco sobre o quadrado roxo (degradê `#9579ff` → `#6a4af5` →
-  `#4222c4`, brilho no canto de cima e contorno branco a 16%). Lê bem de 16 px a 1024 px.
-- **Nome:** "Cord" em `--ink` e "Play" em `--accent`, Unbounded 700 (na entrada, antes do passe, a fonte do sistema).
+- **Logo** (`page/icon.svg`): um **H** cuja barra do meio é um botão play (Hype + Play), branco sobre o quadrado roxo
+  (degradê `#9579ff` → `#6a4af5` → `#4222c4`, brilho no canto de cima e contorno branco a 16%). Lê bem de 16 px a
+  1024 px.
+- **Nome:** "Hype" em `--ink` e "Play" em `--accent`, Unbounded 700 (na entrada, antes do passe, a fonte do sistema).
 
 - **Ícones:** traço de 2 px, 24×24, cantos redondos (mesmo estilo dos de hoje, em `<symbol>` no SVG da página).
   Nada de emoji como ícone.

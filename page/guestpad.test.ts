@@ -43,7 +43,7 @@ test("the guest comes after the host's pads, so it's player 2; a neutral stand-i
   expect(withHost[1]!.buttons[3]!.pressed).toBe(true);
 
   const keyboardOnly = g.list([null, null]);
-  expect(keyboardOnly.map((p) => p?.id)).toEqual(["CordPlay (host)", GUEST_ID]);
+  expect(keyboardOnly.map((p) => p?.id)).toEqual(["HypePlay (host)", GUEST_ID]);
   expect(keyboardOnly[0]!.buttons.every((b) => !b.pressed)).toBe(true);
 
   g.leave();

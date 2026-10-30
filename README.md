@@ -1,4 +1,4 @@
-# CordPlay (atividade do Discord)
+# HypePlay (atividade do Discord)
 
 Uma central de jogos como atividade do Discord (o 🚀 do canal de voz): quem abre escolhe o jogo na biblioteca,
 envia a ISO uma vez e o servidor compila o jogo para o navegador. Depois disso o jogo fica na biblioteca para todo
@@ -73,7 +73,7 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
 
 ## Configurar o app no Discord
 
-Um app para o CordPlay (não o do HypeMeet; o nome que aparece no Discord é o do app), em https://discord.com/developers/applications:
+Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o do app), em https://discord.com/developers/applications:
 
 1. **OAuth2**: copie o *Client ID* e o *Client Secret* (vão nas variáveis abaixo). Em **Redirects**
    adicione `https://127.0.0.1`: o Discord exige um redirect cadastrado, mesmo sem usar.

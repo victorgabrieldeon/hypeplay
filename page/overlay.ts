@@ -1,6 +1,7 @@
-// overlay.js (bundled at startup, server/index.ts; slipped into every game's page after pad.js): the game's volume and
-// a screen filter for old games. A small button in the top right corner (faint until the pointer comes near) opens a
-// panel with a volume slider and the filter; the choice is kept on the server per person (../prefs, relative to here).
+// overlay.js (bundled at startup, server/index.ts; slipped into every game's page after pad.js): a small button in the
+// top right corner (shown while the pointer moves, gone after a few still seconds, like a video player's controls)
+// opens a panel with the way back to the library, the game's volume, a screen filter for old games, and how to play
+// it online. The volume and filter are kept on the server per person (prefs, next to this script).
 import { installVolume } from "./volume";
 
 type Filter = "off" | "crt" | "scan";
@@ -9,8 +10,15 @@ interface Prefs {
   filter: Filter;
 }
 
+/** What a game's page adds to the panel: its online (ps2play.ts: the room it opens). */
+export interface OverlayApi {
+  online(hint: string, control?: HTMLElement): void;
+}
+
 const here = (document.currentScript as HTMLScriptElement | null)?.src ?? location.href;
 const prefsUrl = new URL("prefs", here);
+/** The library: overlay.js sits at its root. */
+const home = new URL(".", here);
 const prefs: Prefs = { volume: 0.7, filter: "off" };
 // Before the game's scripts run: everything they play goes through our gain from the start.
 const volume = installVolume(
@@ -28,8 +36,19 @@ const CSS = `
 #cp-ov button { font: inherit; color: inherit; }
 #cp-ov .cp-btn { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; cursor: pointer;
   background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
-  opacity: 0.25; transition: opacity 120ms cubic-bezier(0.2, 0.8, 0.2, 1), background 120ms; }
-#cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible, #cp-ov.open .cp-btn, #cp-ov.near .cp-btn { opacity: 1; }
+  opacity: 0; transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1), background 120ms; }
+html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible, #cp-ov.open .cp-btn { opacity: 1; }
+#cp-ov .cp-home { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 9px; background: #242040;
+  color: #f3f2fb; text-decoration: none; font-weight: 700; transition: background 120ms; }
+#cp-ov .cp-home:hover { background: #2c2750; }
+#cp-ov .cp-home:focus-visible, #cp-ov .cp-online button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
+#cp-ov .cp-online { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid rgb(255 255 255 / 0.08); }
+#cp-ov .cp-online[hidden] { display: none; }
+#cp-ov .cp-hint { margin: 0; color: #a3a1bd; font-size: 12px; line-height: 18px; }
+#cp-ov .cp-hint b { color: #f3f2fb; }
+#cp-ov .cp-online button { height: 36px; border: 0; border-radius: 9px; background: #7655ff; color: #fff; font-weight: 700; cursor: pointer;
+  box-shadow: 0 8px 20px -8px rgb(118 85 255 / 0.6); }
+#cp-ov .cp-online button:disabled { background: #242040; box-shadow: none; cursor: default; }
 #cp-ov .cp-btn:focus-visible, #cp-ov input:focus-visible, #cp-ov .cp-seg button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
 #cp-ov svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #cp-ov .cp-panel { position: absolute; top: 44px; right: 0; width: 288px; padding: 14px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
@@ -60,7 +79,8 @@ html[data-cp-filter=crt] canvas, html[data-cp-filter=crt] video { filter: contra
 
 const ICON_ON = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
 const ICON_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>';
-const ICON_TUNE = '<svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>';
+const ICON_BACK = '<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>';
+const ICON_TUNE ='<svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>';
 
 let saveTimer = 0;
 function save() {
@@ -100,10 +120,12 @@ function build() {
   ov.id = "cp-ov";
   ov.innerHTML = `<button class="cp-btn" type="button" aria-expanded="false" aria-controls="cp-panel" aria-label="Som e imagem">${ICON_TUNE}</button>
     <div class="cp-panel" id="cp-panel" role="dialog" aria-label="Som e imagem">
+      <a class="cp-home" href="${home.href}">${ICON_BACK}Voltar para a biblioteca</a>
       <div class="cp-label"><span>Volume</span><span class="cp-pct"></span></div>
       <div class="cp-vol"><button class="cp-mute" type="button"></button><input type="range" min="0" max="100" step="1" aria-label="Volume do jogo"></div>
       <div class="cp-label"><span>Filtro de imagem</span></div>
       <div class="cp-seg" role="group" aria-label="Filtro de imagem">${FILTERS.map(([f, name]) => `<button type="button" data-filter="${f}">${name}</button>`).join("")}</div>
+      <div class="cp-online" hidden><div class="cp-label"><span>Jogar online</span></div><p class="cp-hint"></p></div>
     </div>`;
   document.body.append(crt, ov);
   const btn = ov.querySelector<HTMLButtonElement>(".cp-btn")!;
@@ -138,10 +160,37 @@ function build() {
   });
   for (const t of ["keyup", "keypress"]) ov.addEventListener(t, (e) => e.stopPropagation());
   document.addEventListener("pointerdown", (e) => { if (!ov.contains(e.target as Node)) toggle(false); }, true);
-  // The button shows up when the pointer comes near the corner, and fades away again.
-  document.addEventListener("pointermove", (e) => ov.classList.toggle("near", innerWidth - e.clientX < 120 && e.clientY < 90), { passive: true });
   apply();
+  if (pending) showOnline(...pending);
+  else if (document.querySelector('meta[name="hypeplay-online"]')?.getAttribute("content") === "menu")
+    showOnline("No <b>menu principal</b> do jogo, escolha <b>Dragon Net Battle</b>: crie uma sala ou entre com o código de um amigo.");
 }
+
+// The page's controls (this button, ps2play.ts's bar) show while the pointer moves and hide a few seconds after.
+let sleep = 0;
+function wake() {
+  document.documentElement.classList.add("cp-awake");
+  clearTimeout(sleep);
+  sleep = window.setTimeout(() => document.documentElement.classList.remove("cp-awake"), 3_000);
+}
+document.addEventListener("pointermove", wake, { passive: true });
+wake();
+
+/** `hint` is our own markup (never a page's text). */
+function showOnline(hint: string, control?: HTMLElement) {
+  const box = document.querySelector<HTMLElement>("#cp-ov .cp-online");
+  if (!box) return;
+  box.querySelector(".cp-hint")!.innerHTML = hint;
+  if (control) box.append(control);
+  box.hidden = false;
+}
+let pending: [string, HTMLElement?] | null = null;
+(window as unknown as { hypeplayOverlay: OverlayApi }).hypeplayOverlay = {
+  online(hint, control) {
+    if (document.getElementById("cp-ov")) showOnline(hint, control);
+    else pending = [hint, control];
+  },
+};
 
 fetch(prefsUrl, { cache: "no-store" })
   .then((r) => (r.ok ? r.json() : null))

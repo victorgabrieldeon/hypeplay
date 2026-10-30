@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- CordPlay: a "C" that is both a cord looping round and a disc's rim, around a play button -->
+  <!-- HypePlay: an "H" whose crossbar is a play button -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#9579ff"/>
@@ -10,17 +10,17 @@
       <stop offset="0" stop-color="#fff" stop-opacity="0.34"/>
       <stop offset="1" stop-color="#fff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="ring" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="0" y1="14" x2="0" y2="50">
       <stop offset="0" stop-color="#fff"/>
-      <stop offset="1" stop-color="#ddd4ff"/>
+      <stop offset="1" stop-color="#e2daff"/>
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="16" fill="url(#bg)"/>
   <rect width="64" height="64" rx="16" fill="url(#shine)"/>
   <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="15.25" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="1.5"/>
-  <g fill="none" stroke-linecap="round">
-    <path d="M45.6 20.2A18 18 0 1 0 45.6 43.8" stroke="url(#ring)" stroke-width="7"/>
-    <path d="M39.2 23.8A11 11 0 0 0 21.2 29.6" stroke="#fff" stroke-opacity="0.4" stroke-width="2"/>
+  <g fill="url(#ink)">
+    <rect x="14" y="14" width="10" height="36" rx="5"/>
+    <rect x="40" y="14" width="10" height="36" rx="5"/>
+    <path d="M22 20v24l20-12z"/>
   </g>
-  <path d="M28.6 25.4v13.2c0 1.3 1.4 2 2.4 1.3l10-6.6c.9-.6.9-2 0-2.6l-10-6.6c-1-.7-2.4 0-2.4 1.3z" fill="#fff"/>
 </svg>

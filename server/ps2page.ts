@@ -14,7 +14,7 @@ const xml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const LICENSE = `<p id="cp-license">Emulador: <a href="https://github.com/TabStationToo/TabStationToo" target="_blank" rel="noopener">TabStationToo</a> (PCSX2, GPL-3.0) · <a href="COPYING.GPLv3" target="_blank">licença</a></p>`;
 
 export const SWAPS: Swap[] = [
-  { from: "<title>TabStationToo</title>", to: "<title>{name} · CordPlay</title>" },
+  { from: "<title>TabStationToo</title>", to: "<title>{name} · HypePlay</title>" },
   { from: '<script src="coi-serviceworker.js"></script>', to: "" },
   // ps2play.js loads it once the card and the boot address are in place
   { from: /<script src="(app\.js\?v=\w+)" defer><\/script>/, to: '<script src="../../../ps2play.js"></script>\n<script data-cp-app="$1"></script>' },

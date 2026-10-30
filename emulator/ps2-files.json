@@ -1,0 +1,82 @@
+{
+  "base": "https://tabstationtoo.github.io/TabStationToo/",
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "f75cfbd6ff257d6d866e0b586ada20ee6d4204d9e5c58554a567caed2858de8e"
+    },
+    {
+      "path": "app.js",
+      "sha256": "5c160f49b7309c6cc557bf8bcada24c478e8bc6cc84b7986494c17241716da94"
+    },
+    {
+      "path": "isolation.js",
+      "sha256": "c8706912b77b2504496f39d4a335646ecf57638aa11671a74aceb756c27d1e74"
+    },
+    {
+      "path": "coi-serviceworker.js",
+      "sha256": "d12bd536e27e39a773d7dc7adb1a1167d24002293e97ac81c995fb00cf8d4d5a"
+    },
+    {
+      "path": "favicon.svg",
+      "sha256": "c03aa5365b4ea4cd29710772321fc44d62b8664811dfb731bfa00149d03ff16b"
+    },
+    {
+      "path": "icons.svg",
+      "sha256": "b88ae2f5b2779bd9c2d163c8d7b7afcb05358f47d1ae5b77dc7e4f0bd905f729"
+    },
+    {
+      "path": "fonts/archivo.woff2",
+      "sha256": "e3a28eade21a900c7155a247757f4b2834c07bb7ef07ad7efa55cebaac1e8f5e"
+    },
+    {
+      "path": "library/console-bar.css",
+      "sha256": "15bcb13ee579ec0ddf930e8e3058555f371bcdca9d302d590c66f609bc9fe4f6"
+    },
+    {
+      "path": "library/console-pads.css",
+      "sha256": "85ab10317ee0d219ba3ad950159a32846bbaa388e82ba8f05c33758ed71d5361"
+    },
+    {
+      "path": "library/console-tv.css",
+      "sha256": "ea430e9ddc595f502863c5032904568fdecf79e296e7e71ece2233b6391b77a2"
+    },
+    {
+      "path": "library/player-library.js",
+      "sha256": "b64fc66afc5d2e158b526bf948ec92e6da2d03172d7649d349a7b78ddc8dcef2"
+    },
+    {
+      "path": "library/disc-library.js",
+      "sha256": "a5137611b3f3f58afbd739f20121cd4148923aba0f420909d96eedf3d8d7b55b"
+    },
+    {
+      "path": "pcsx2-wasm.js",
+      "sha256": "4ccb50af5119f7ba1b34d7f4c98a41b54217e41c04c3e995b84d17f0ccb3c5db"
+    },
+    {
+      "path": "pcsx2-wasm.wasm",
+      "sha256": "9d704873d183d09d86d5e626bc4253ecb2a08dd85fccbd95edb0222f3d30ccd3"
+    },
+    {
+      "path": "pcsx2-wasm.data",
+      "sha256": "de43d8f755d88eb56041f9bf172318a37ce074e93a7f710cede8903842aacba0"
+    },
+    {
+      "path": "disc-worker.js",
+      "sha256": "4ab427b1383240143ec8508889363d5ea4c6150304d4b87d52461928fb174432"
+    },
+    {
+      "path": "audio-tap.js",
+      "sha256": "20fc936714aaf61fb922280e372bf246de973a90fbd55635b01f8369003a386b"
+    },
+    {
+      "path": "cable-worker.js",
+      "sha256": "53211325425eb420c744523774f6632227ce959f5de01566a4d6d922f265299f"
+    },
+    {
+      "path": "COPYING.GPLv3",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
+      "url": "https://raw.githubusercontent.com/TabStationToo/TabStationToo/5a9a7b489e428f3cea87d52621429f749c969f41/COPYING.GPLv3"
+    }
+  ]
+}

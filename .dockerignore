@@ -5,6 +5,8 @@ data
 builder
 ps2-builder
 emulator/data
+emulator/ps2
+emulator/ps2.tmp
 .superpowers
 **/*.test.ts
 server/testing

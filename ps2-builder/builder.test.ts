@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,9 @@ import type { Runner } from "../builder/builder";
 import { PS2_STEPS } from "../server/games";
 import { createPs2Builder } from "./builder";
 import { MARK } from "./patch";
+
+// Real folders, links and copies: slower than a unit test, on Windows above all.
+setDefaultTimeout(20_000);
 
 const fixture = join(import.meta.dir, "fixtures", "shell.html");
 const exists = (path: string) => stat(path).then(() => true, () => false);

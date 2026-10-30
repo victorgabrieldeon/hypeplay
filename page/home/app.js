@@ -216,3 +216,5 @@ document.addEventListener('drop', (e) => {
 poll();
 loadHomebrew(() => state.expired);
 setInterval(() => { if (!state.expired) poll(); }, 2000);
+// The add-a-game wizard, the controller screen and the intro set their hooks once loaded.
+for (const m of ['./wizard.js', './controller.js', './intro.js']) import(m).catch((e) => console.warn('home:', m, e));

@@ -12,6 +12,18 @@ para wasm, WebGPU, threads): roda a ISO direto, sem compilar, com a compatibilid
 (2026-10-30) rodou o BT3 do dono, servido pelo nosso servidor com os nossos cabeçalhos, a **100–102% da velocidade,
 ~60 VPS, WebGPU, zero quadros perdidos**, lendo a BIOS e o disco pelas nossas rotas.
 
+## Como fica para quem usa
+
+1. **Só na primeira vez do servidor:** quem adicionar o primeiro jogo de PS2 envia também a **BIOS do PS2** (o
+   arquivo de 4 MB do console dele). Ela fica guardada no servidor e **nunca mais é pedida** a ninguém.
+2. **Uma vez por jogo:** alguém envia a **ISO** do jogo (com capa, se quiser). Ela fica **guardada no servidor**,
+   e o jogo entra na biblioteca **para todo mundo, para sempre**: ninguém precisa enviar de novo.
+3. **Daí em diante:** abriu a atividade, escolheu o jogo na biblioteca, clicou em **Jogar**: a intro toca e o jogo
+   liga direto, quando quiser, sem esperar compilação e sem enviar nada. O save de cada pessoa fica no servidor e
+   volta na próxima vez.
+4. **Com um amigo:** quem está jogando clica em "Abrir sala"; o amigo clica em "Entrar como jogador 2" na
+   biblioteca.
+
 ## Decisões
 
 | Pergunta | Decisão |

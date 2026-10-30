@@ -22,13 +22,17 @@ async function start() {
     throw new Error("Abra o HypePlay pelo 🚀 de um canal de voz do Discord.");
   }
   await sdk.ready();
-  // "Abrir no navegador" from a page Discord holds back (a PS2 game's isolation, player 2's WebRTC, the controller);
-  // without PUBLIC_URL there's nowhere to send it, and the page is told so.
+  // "Abrir no navegador" from a page Discord holds back (a PS2 game's isolation, player 2's WebRTC, the controller).
+  // When it can't go (no PUBLIC_URL, or Discord didn't open it), the page is told why, with the link to copy.
   window.addEventListener("message", (e) => {
-    if (e.source !== game.contentWindow) return;
+    if (e.source !== game.contentWindow || (e.data as { t?: unknown } | null)?.t !== "cordplay:open") return;
+    const tell = (why: string, url?: string) => game.contentWindow?.postMessage({ t: "cordplay:cant-open", why, url }, "*");
     const url = openRequest(e.data, process.env.PUBLIC_URL ?? "");
-    if (url) sdk.commands.openExternalLink({ url }).catch(() => {});
-    else if ((e.data as { t?: unknown } | null)?.t === "cordplay:open") game.contentWindow?.postMessage({ t: "cordplay:cant-open" }, "*");
+    if (!url) return tell(process.env.PUBLIC_URL ? "Essa página não abre fora do Discord." : "Este servidor não tem o PUBLIC_URL configurado.");
+    sdk.commands
+      .openExternalLink({ url })
+      .then((r) => r?.opened === false && tell("O Discord não abriu o link.", url))
+      .catch((err: unknown) => tell(`O Discord recusou abrir o link (${err instanceof Error ? err.message : JSON.stringify(err)}).`, url));
   });
   // Asks for consent the first time only; after that it's silent.
   const { code } = await sdk.commands.authorize({
@@ -39,8 +43,10 @@ async function start() {
     scope: ["identify"],
   });
   const res = await fetch("token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
-  const body = (await res.json().catch(() => ({}))) as { pass?: string; error?: string };
+  const body = (await res.json().catch(() => ({}))) as { pass?: string; error?: string; access_token?: string };
   if (!res.ok || !body.pass) throw new Error(body.error ?? `Erro ${res.status}`);
+  // (the SDK's own sign-in: some commands, opening a link outside Discord among them, want it; the games don't)
+  if (body.access_token) await sdk.commands.authenticate({ access_token: body.access_token }).catch((err) => console.warn("HypePlay: authenticate", err));
   game.src = `p/${body.pass}/`;
   game.hidden = false;
   msg.hidden = true;

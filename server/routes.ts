@@ -499,7 +499,10 @@ export function createApp({
     const code = ((await req.json().catch(() => null)) as { code?: unknown } | null)?.code;
     if (typeof code !== "string" || !code || code.length > 200) return json({ error: "Pedido inválido" }, 400);
     try {
-      return json({ pass: passes.issue(await discord.signIn(code)) });
+      const user = await discord.signIn(code);
+      // (the access token goes back to the entry page, which authenticates the Discord SDK with it: opening a link
+      // outside Discord, for one, needs that)
+      return json({ pass: passes.issue(user), access_token: user.accessToken });
     } catch (err) {
       console.error("discord sign-in failed:", err);
       return json({ error: "Não deu para entrar pelo Discord. Feche e abra a atividade de novo." }, 502);

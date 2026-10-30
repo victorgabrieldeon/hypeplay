@@ -17,7 +17,7 @@ const passes: Passes = {
 const discord = {
   signIn: async (code: string) => {
     if (code !== "ana") throw new Error("discord refused the code");
-    return { id: "42", name: "Ana" };
+    return { id: "42", name: "Ana", accessToken: "tok-ana" };
   },
 };
 let root: string;
@@ -87,7 +87,8 @@ test("token: a Discord code for a pass", async () => {
   const post = (body: unknown) => get("/token", { method: "POST", body: JSON.stringify(body) });
   const ok = await post({ code: "ana" });
   expect(ok.status).toBe(200);
-  expect(await ok.json()).toEqual({ pass });
+  // (the access token goes back too: the entry page authenticates the Discord SDK with it, which opening links needs)
+  expect(await ok.json()).toEqual({ pass, access_token: "tok-ana" });
   expect((await post({ code: "forged" })).status).toBe(502);
   for (const bad of [{}, { code: 1 }, { code: "" }, { code: "x".repeat(201) }]) expect((await post(bad)).status).toBe(400);
   expect((await get("/token")).status).toBe(405);
@@ -196,7 +197,7 @@ test("in a browser: Entrar com o Discord goes to Discord, and back here with a p
       signIn: async (code: string, redirectUri?: string) => {
         codes.push([code, redirectUri]);
         if (code !== "ana") throw new Error("discord refused the code");
-        return { id: "42", name: "Ana" };
+        return { id: "42", name: "Ana", accessToken: "tok-ana" };
       },
     },
   });

@@ -22,7 +22,7 @@ const passes: Passes = {
   issue: () => ANA,
   verify: async (p) => (p === ANA ? { id: "42", name: "Ana", exp: Infinity } : p === BIA ? { id: "43", name: "Bia", exp: Infinity } : null),
 };
-const discord = { signIn: async () => ({ id: "42", name: "Ana" }) };
+const discord = { signIn: async () => ({ id: "42", name: "Ana", accessToken: "tok" }) };
 
 let root: string;
 let app: ReturnType<typeof createApp>;

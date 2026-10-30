@@ -22,10 +22,11 @@ export interface DiscordOptions {
 export function createDiscord({ clientId, clientSecret, fetch = globalThis.fetch }: DiscordOptions) {
   return {
     /**
-     * The user behind an `authorize` code. `redirectUri`: the browser's sign-in (Discord wants the same address the
-     * code went to). Throws when the code is bad or Discord fails.
+     * The user behind an `authorize` code, and their access token (the entry page authenticates the SDK with it).
+     * `redirectUri`: the browser's sign-in (Discord wants the same address the code went to). Throws when the code is
+     * bad or Discord fails.
      */
-    async signIn(code: string, redirectUri?: string): Promise<{ id: string; name: string }> {
+    async signIn(code: string, redirectUri?: string): Promise<{ id: string; name: string; accessToken: string }> {
       const form = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: "authorization_code", code });
       if (redirectUri) form.set("redirect_uri", redirectUri);
       const res = await fetch(`${API}/oauth2/token`, {
@@ -42,7 +43,7 @@ export function createDiscord({ clientId, clientSecret, fetch = globalThis.fetch
       const me = await fetch(`${API}/users/@me`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
       if (!me.ok) throw new Error(`discord user lookup failed (${me.status})`);
       const u = (await me.json()) as { id: string; username: string; global_name?: string | null };
-      return { id: u.id, name: u.global_name || u.username };
+      return { id: u.id, name: u.global_name || u.username, accessToken: token };
     },
   };
 }

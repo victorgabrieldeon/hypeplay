@@ -33,3 +33,10 @@ test("BT3's port and a homebrew game open outside too (to play smoother than in 
   for (const path of ["/p/abc/play/?g=<x>", "/p/abc/play/?g=a b", "/p/abc/play//evil.com"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
+
+test("the library opened straight into a game (where to play: the browser), with a friend's room or a new one", () => {
+  for (const path of ["/p/abc/?play=bt3", "/p/abc/?play=ps2%2Fslus-21678", "/p/abc/?play=bt3&join=QRST", "/p/abc/?play=ps2%2Fslus-21678&join=XC7WWC", "/p/abc/?play=ps2%2Fslus-21678&online=1"])
+    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
+  for (const path of ["/p/abc/?play=evil", "/p/abc/?play=ps2%2F..%2Fx", "/p/abc/?play=bt3&join=<x>", "/p/abc/?play=bt3&next=//evil.com"])
+    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
+});

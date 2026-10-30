@@ -52,6 +52,9 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
 #cp-ov .cp-online button:disabled { background: #242040; box-shadow: none; cursor: default; }
 .cp-code { font: 700 13px/18px ui-monospace, monospace; letter-spacing: 0.14em; color: #c9bdff; padding: 1px 6px; border-radius: 6px; background: #242040; }
 #cp-gpu { top: auto !important; bottom: 16px; align-items: center; }
+#cp-top .cp-copy { display: flex; gap: 6px; margin-top: 8px; }
+#cp-top .cp-copy input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 0.12); border-radius: 8px; background: #1b1830; color: #f3f2fb; font: 500 12px/32px ui-monospace, monospace; }
+#cp-top .cp-copy button { width: auto; height: 32px; padding: 0 12px; border-radius: 8px; background: #7655ff; color: #fff; font-weight: 700; }
 #cp-gpu .cp-browser { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 700 13px/32px Manrope, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
 #cp-top, #cp-gpu { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
   width: max-content; max-width: min(520px, calc(100% - 120px)); padding: 12px 10px 12px 16px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
@@ -188,15 +191,37 @@ function build() {
 /** Inside Discord (the entry page frames us): the same page in the browser, where games run smoother. */
 const framed = window.parent !== window;
 function openInBrowser() {
-  parent.postMessage({ t: "cordplay:open", path: location.pathname + location.search }, "*");
+  // (only what says which page it is: a PS2 game's ?bios=&disc=… are the engine's, and the browser makes its own)
+  const q = new URLSearchParams(location.search);
+  const keep = new URLSearchParams([...q].filter(([k]) => ["room", "g", "p", "t"].includes(k)));
+  parent.postMessage({ t: "cordplay:open", path: location.pathname + (keep.size ? `?${keep}` : "") }, "*");
 }
-// (the entry page had nowhere to open it: the server has no PUBLIC_URL)
+// It didn't open (no PUBLIC_URL, or Discord didn't): why, and the link to copy into the browser.
 window.addEventListener("message", (e) => {
-  if (e.source !== parent || (e.data as { t?: unknown } | null)?.t !== "cordplay:cant-open") return;
-  for (const b of document.querySelectorAll<HTMLButtonElement>(".cp-browser")) {
-    b.textContent = "Este servidor não tem o PUBLIC_URL";
-    b.disabled = true;
+  const m = e.data as { t?: unknown; why?: unknown; url?: unknown } | null;
+  if (e.source !== parent || m?.t !== "cordplay:cant-open") return;
+  document.getElementById("cp-top")?.remove();
+  const note = document.createElement("div");
+  note.id = "cp-top";
+  note.setAttribute("role", "alert");
+  note.innerHTML = `<p><b>Não deu para abrir no navegador.</b><br><span class="why"></span></p><button type="button" aria-label="Fechar">${ICON_CLOSE}</button>`;
+  note.querySelector(".why")!.textContent = typeof m.why === "string" ? m.why : "";
+  if (typeof m.url === "string" && /^https?:\/\//.test(m.url)) {
+    const copy = document.createElement("div");
+    copy.className = "cp-copy";
+    copy.innerHTML = `<input readonly aria-label="Link para abrir no navegador"><button type="button">Copiar</button>`;
+    const input = copy.querySelector("input")!;
+    input.value = m.url;
+    copy.querySelector("button")!.addEventListener("click", async (ev) => {
+      const b = ev.currentTarget as HTMLButtonElement;
+      input.select();
+      // (Discord's frame may not allow the clipboard: then the link stays selected for Ctrl+C)
+      b.textContent = await navigator.clipboard?.writeText(m.url as string).then(() => "Copiado", () => "Ctrl+C").catch(() => "Ctrl+C") ?? "Ctrl+C";
+    });
+    note.querySelector("p")!.append(copy);
   }
+  note.querySelector("button[aria-label]")!.addEventListener("click", () => note.remove());
+  document.body.append(note);
 });
 
 /**

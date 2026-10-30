@@ -18,7 +18,7 @@ const fake = (overrides: Record<string, Response> = {}) =>
 const discord = (fetch = fake()) => createDiscord({ clientId: "app", clientSecret: "s", fetch });
 
 test("signIn: the user behind the code", async () => {
-  expect(await discord().signIn("good")).toEqual({ id: "42", name: "Ana" });
+  expect(await discord().signIn("good")).toEqual({ id: "42", name: "Ana", accessToken: "tok" });
 });
 
 test("signIn: a bad code or Discord failing throws", async () => {

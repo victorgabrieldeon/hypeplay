@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { createBios } from "./bios";
 import { createDiscord } from "./discord";
 import { createLibrary } from "./library";
 import { createPasses } from "./pass";
@@ -47,6 +48,7 @@ const app = createApp({
   saves: createSaves(dir),
   people: createPeople(dir),
   ps2Rooms: new Ps2Rooms(),
+  bios: createBios(dir),
   publicUrl: PUBLIC_URL,
   turn: TURN,
   scripts: {

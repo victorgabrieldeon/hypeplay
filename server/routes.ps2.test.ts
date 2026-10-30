@@ -9,6 +9,8 @@ import type { Passes } from "./pass";
 import { createPeople } from "./people";
 import { Ps2Rooms } from "./ps2rooms";
 import { createApp } from "./routes";
+import { createBios } from "./bios";
+import { fakeBios } from "./testing/bios";
 import { CARD_BYTES, CARD_MAGIC, createSaves } from "./saves";
 import { makeIso } from "./testing/iso";
 
@@ -41,6 +43,7 @@ beforeAll(async () => {
     saves: createSaves(root),
     people: createPeople(root),
     ps2Rooms: new Ps2Rooms(),
+    bios: createBios(root),
   });
 });
 afterAll(() => rm(root, { recursive: true, force: true }));
@@ -87,7 +90,8 @@ test("reserve, upload in pieces and the disc is checked when complete", async ()
   expect((await bia(`ps2/sles-22222/upload?offset=${half}&size=${disc.length}`, { method: "PUT", body: disc.slice(half) })).status).toBe(409);
   const done = await ana(`ps2/sles-22222/upload?offset=${half}&size=${disc.length}`, { method: "PUT", body: disc.slice(half) });
   expect(await done.json()).toEqual({ received: disc.length, done: true });
-  expect(await (await ana("ps2/sles-22222/status")).json()).toEqual({ state: "offline" });
+  // (no BIOS on this server yet)
+  expect(await (await ana("ps2/sles-22222/status")).json()).toEqual({ state: "needs-bios" });
   expect(await exists(library.paths("sles-22222").iso)).toBe(true);
 });
 
@@ -197,10 +201,25 @@ test("a PS2 game is served isolated, from its fixed list, gzipped when asked", a
   for (const f of ["segredo.txt", "ps2web.html", "shots/1.webp", "../game.json", "status.json"]) expect((await ana(`ps2/${id}/game/${f}`)).status).toBe(404);
 });
 
-test("a built PS2 game is ready (its page is ps2web.html, not index.html)", async () => {
+test("a PS2 game whose disc is in plays once the server has the BIOS, which is sent once and served isolated", async () => {
   const id = await built("SLES-12121", "SLES_121.21");
+  expect(await (await ana(`ps2/${id}/status`)).json()).toEqual({ state: "needs-bios" });
+  expect(await (await ana("bios")).json()).toEqual({ present: false });
+  expect((await ana("bios.bin")).status).toBe(404);
+  expect((await ana("bios", { method: "PUT", body: new Uint8Array(10) })).status).toBe(400);
+  expect((await ana("bios", { method: "PUT", body: fakeBios(1) })).status).toBe(204);
+  expect(await (await ana("bios")).json()).toMatchObject({ present: true, by: "Ana" });
+  expect((await bia("bios", { method: "PUT", body: fakeBios(2) })).status).toBe(409);
+  expect((await bia("bios?replace=1", { method: "PUT", body: fakeBios(2) })).status).toBe(204);
   expect(await (await ana(`ps2/${id}/status`)).json()).toEqual({ state: "ready" });
   expect((await catalog()).games.find((g) => g.id === id)!.status).toEqual({ state: "ready" });
+  const head = await ana("bios.bin", { method: "HEAD" });
+  expect(head.headers.get("content-length")).toBe(String(4 * 1024 * 1024));
+  expect(head.headers.get("document-isolation-policy")).toBe("isolate-and-require-corp");
+  const part = await ana("bios.bin", { headers: { range: "bytes=0-3" } });
+  expect(part.status).toBe(206);
+  expect([...new Uint8Array(await part.arrayBuffer())]).toEqual([2, 2, 2, 2]);
+  expect((await req("/p/forged.mac/bios.bin")).status).toBe(403);
 });
 
 test("the disc of a PS2 game answers Range and HEAD", async () => {

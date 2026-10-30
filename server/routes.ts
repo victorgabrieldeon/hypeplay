@@ -26,6 +26,7 @@
 import type { Server, WebSocketHandler } from "bun";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { Bios } from "./bios";
 import { COVER_MAX, generatedCover, normalizeCover } from "./cover";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { iceServers } from "./ice";
@@ -113,6 +114,8 @@ export interface AppOptions {
   ps2Rooms?: Ps2Rooms;
   /** The app's public address (PUBLIC_URL), for "Abrir no navegador". */
   publicUrl?: string;
+  /** The PS2 BIOS, sent once for the whole server (bios.ts); without it the PS2 games wait for one. */
+  bios?: Bios;
   /** A TURN relay for the PS2 games' online (TURN_URL, TURN_SECRET). */
   turn?: { url: string; secret: string };
   /** The page's bundled scripts by name (iso.js, pad.js…), served under /p/<pass>/. */
@@ -163,6 +166,7 @@ export function createApp({
   publicUrl = "",
   turn,
   scripts = {},
+  bios,
 }: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
@@ -258,9 +262,17 @@ export function createApp({
     return (await req.json().catch(() => null)) as T | null;
   }
 
+  /** A PS2 game plays as soon as its disc is in and checked, once the server has the BIOS: nothing is compiled. */
+  async function ps2Status(id: string, pass: Pass): Promise<Status> {
+    const s = await library!.disc(id).status(pass);
+    if (s.state === "empty" || s.state === "uploading" || (s.state === "failed" && s.refused)) return s;
+    if (!(await Bun.file(library!.paths(id).iso).exists())) return s;
+    return (await bios?.info())?.present ? { state: "ready" } : { state: "needs-bios" };
+  }
+
   async function ps2Entry(g: Ps2Game, pass: Pass): Promise<CatalogEntry> {
     const disc = library!.disc(g.id);
-    const [status, builder] = await Promise.all([disc.status(pass), disc.builder()]);
+    const [status, builder] = await Promise.all([ps2Status(g.id, pass), disc.builder()]);
     const open = ps2Rooms?.list(g.id) ?? [];
     return {
       key: `ps2/${g.id}`,
@@ -388,7 +400,7 @@ export function createApp({
         }
         return text("Método não permitido", 405);
       case "status":
-        return json(await disc.status(pass));
+        return json(await ps2Status(id, pass));
       case "upload":
         return upload(disc, req, pass, () => lib.verify(id));
       case "retry":
@@ -484,6 +496,17 @@ export function createApp({
       if (req.method === "GET") return json(await people.pads(pass.id));
       if (req.method !== "PUT") return text("Método não permitido", 405);
       return (await people.setPads(pass.id, await body(req))) ? respond(null, 204) : text("Pedido inválido", 400);
+    }
+    if (path === "/bios" && bios) {
+      if (req.method === "GET") return json(await bios.info());
+      if (req.method !== "PUT") return text("Método não permitido", 405);
+      if (Number(req.headers.get("content-length") ?? 0) > 4 * 1024 * 1024) return json({ error: "Isso não parece a BIOS de um PS2 (arquivo de 4 MB)" }, 400);
+      const r = await bios.put(pass, new Uint8Array(await req.arrayBuffer()), new URL(req.url).searchParams.get("replace") === "1");
+      return r.ok ? respond(null, 204) : json({ error: r.error }, r.status);
+    }
+    if (path === "/bios.bin" && bios) {
+      const f = Bun.file(bios.path);
+      return (await f.exists()) ? rangeResponse(req, f, { ...ISOLATED, "Content-Type": TYPES.bin! }) : text("Sem BIOS", 404);
     }
     if (path === "/prefs" && people) {
       if (req.method === "GET") return json(await people.prefs(pass.id));

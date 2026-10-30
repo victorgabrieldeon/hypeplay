@@ -55,7 +55,9 @@ export type Status =
   | { state: "building"; step: number; total: number; label: string; elapsed: number }
   | { state: "failed"; message: string; refused: boolean; reason?: string }
   | { state: "ready" }
-  | { state: "offline" };
+  | { state: "offline" }
+  /** (PS2 games) the disc is in; the server still needs the PS2 BIOS */
+  | { state: "needs-bios" };
 
 export type PutResult =
   | { ok: true; received: number; done: boolean }

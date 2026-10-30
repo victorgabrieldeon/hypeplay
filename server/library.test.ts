@@ -65,7 +65,7 @@ test("verify keeps a matching disc and drops a wrong or foreign one", async () =
   expect(await library.get("slpm-66666")).toBeNull();
 });
 
-test("rename, cover flag, rebuild and remove (saves stay)", async () => {
+test("rename, cover flag and remove (saves stay)", async () => {
   const { dir, library } = await setup();
   await library.reserve(ana, "SLES-12345", "A");
   expect(await library.rename("sles-12345", "Novo nome")).toBe(true);
@@ -76,11 +76,6 @@ test("rename, cover flag, rebuild and remove (saves stay)", async () => {
   expect((await library.get("sles-12345"))?.cover).toBe(true);
 
   const p = library.paths("sles-12345");
-  await mkdir(p.build, { recursive: true });
-  await writeFile(join(p.build, "ps2web.html"), "game");
-  await library.rebuild("sles-12345");
-  expect(await exists(p.build)).toBe(false);
-  expect(await exists(join(p.root, "retry"))).toBe(true);
 
   await mkdir(join(dir, "saves", "sles-12345"), { recursive: true });
   await writeFile(join(dir, "saves", "sles-12345", "42.ps2"), "card");

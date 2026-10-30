@@ -1,13 +1,15 @@
-// "Adicionar jogo": a PS2 game into the library in three steps. The warning first (only with "Entendi"), then the
-// disc image, whose serial is read here (iso.js) so a game already in the library is never sent again, then its name
-// and cover. Sending is the library's own upload, in the game's drawer.
+// "Adicionar jogo": a PS2 game into the library, once, for everyone. The warning first (only with "Entendi"); the
+// PS2 BIOS when the server has none yet (once for the whole server); then the disc image, whose serial is read here
+// (iso.js) so a game already in the library is never sent again; then its name and cover. Sending is the library's
+// own upload, in the game's drawer; once the image is in, the game plays.
 import { gameOf, hooks, poll, send, state } from './app.js';
-import { esc, gb, icon } from './library.js';
+import { esc, gb, icon, sendBios } from './library.js';
 
 const layer = document.getElementById('layer');
 const BT3_SERIAL = 'SLUS-21678';
+const NAMES = { warn: 'Aviso', bios: 'BIOS', iso: 'ISO', name: 'Nome e capa' };
 
-let w = null; // { step, file, serial, name, cover, coverUrl, error, busy }
+let w = null; // { step, steps, ok, file, serial, name, cover, coverUrl, error, busy, exists }
 let returnFocus = null;
 
 function close() {
@@ -17,30 +19,46 @@ function close() {
   returnFocus?.focus?.({ preventScroll: true });
 }
 
-const steps = (n) => `<ol class="chips" aria-label="Passos">${['Aviso', 'ISO', 'Nome e capa']
-  .map((t, i) => `<li class="chip" ${i + 1 === n ? 'aria-current="step" style="background:var(--primary);color:#fff"' : ''}>${i + 1}. ${t}</li>`).join('')}</ol>`;
+const steps = () => `<ol class="chips" aria-label="Passos">${w.steps
+  .map((s, i) => `<li class="chip" ${s === w.step ? 'aria-current="step" style="background:var(--primary);color:#fff"' : ''}>${i + 1}. ${NAMES[s]}</li>`).join('')}</ol>`;
+
+function go(delta) {
+  const i = w.steps.indexOf(w.step) + delta;
+  Object.assign(w, { step: w.steps[Math.max(0, Math.min(i, w.steps.length - 1))], error: '', exists: null });
+  render();
+}
 
 function body() {
-  if (w.step === 1)
-    return `${steps(1)}
-      <p style="display:flex;gap:var(--s3)"><span style="color:var(--warn)">${icon('warn')}</span><span>Esse jogo vai ser compilado por um projeto
-      experimental. Só 2 jogos foram testados do começo ao fim. O seu pode não abrir, travar, ficar com gráficos quebrados ou sem som.
-      A compilação roda uma vez só e leva de 10 a 30 minutos. Use só a ISO de um jogo que você tem.</span></p>
+  if (w.step === 'warn')
+    return `${steps()}
+      <p style="display:flex;gap:var(--s3)"><span style="color:var(--warn)">${icon('warn')}</span><span>Os jogos de PS2 rodam no
+      TabStationToo, o emulador PCSX2 no navegador, ainda em teste. A maioria dos jogos roda; alguns podem travar, ficar lentos ou
+      com gráficos errados. Precisa de um Chrome ou Edge atualizado e de um PC razoável. A ISO fica guardada no servidor: você
+      envia uma vez e todo mundo joga quando quiser. Use só a ISO de um jogo que você tem.</span></p>
       <label style="display:flex;gap:var(--s2);align-items:center;cursor:pointer"><input type="checkbox" id="w-ok"${w.ok ? ' checked' : ''}> Entendi</label>
       <footer><button class="btn quiet" data-w="cancel">Cancelar</button><button class="btn" data-w="next"${w.ok ? '' : ' disabled'}>Continuar</button></footer>`;
-  if (w.step === 2) {
+  if (w.step === 'bios')
+    return `${steps()}
+      <p>Este servidor ainda não tem a <strong>BIOS do PS2</strong>. É o arquivo de 4 MB tirado do seu console (<code>.bin</code> ou
+      <code>.ROM0</code>). Basta uma vez: depois ninguém mais precisa enviar.</p>
+      <div class="drop" data-wdrop="bios">${icon('upload')}<p><strong>Arraste a BIOS aqui</strong> ou</p>
+        <button class="btn" data-w="pickbios">Escolher a BIOS</button></div>
+      ${w.busy ? '<div class="busy"><div class="spin"></div><p>Enviando a BIOS…</p></div>' : ''}
+      ${w.error ? `<p class="error">${esc(w.error)}</p>` : ''}
+      <footer><button class="btn quiet" data-w="back">Voltar</button></footer>`;
+  if (w.step === 'iso') {
     const existing = w.exists && gameOf(w.exists);
-    return `${steps(2)}
-      <div class="drop" data-wdrop>${icon('upload')}<p><strong>Arraste a ISO aqui</strong> ou</p>
-        <button class="btn" data-w="pick">Escolher a ISO</button><p>Um disco de PS2 (.iso). Basta uma vez: vale para todo mundo.</p></div>
+    return `${steps()}
+      <div class="drop" data-wdrop="iso">${icon('upload')}<p><strong>Arraste a ISO aqui</strong> ou</p>
+        <button class="btn" data-w="pick">Escolher a ISO</button><p>Um disco de PS2 (.iso). Fica no servidor para todo mundo.</p></div>
       ${w.busy ? '<div class="busy"><div class="spin"></div><p>Lendo o disco…</p></div>' : ''}
       ${w.error ? `<p class="error">${esc(w.error)}</p>` : ''}
       ${existing ? `<p><strong>${esc(existing.name)}</strong> já está na biblioteca. Não precisa enviar de novo.</p>
         <button class="btn" data-w="play">${icon('play')}Jogar</button>` : ''}
       <footer><button class="btn quiet" data-w="back">Voltar</button></footer>`;
   }
-  return `${steps(3)}
-    <div class="game-head"><img src="${esc(w.coverUrl || `cover/bt3`)}" alt="" style="${w.coverUrl ? '' : 'opacity:.35'}">
+  return `${steps()}
+    <div class="game-head"><img src="${esc(w.coverUrl || 'cover/bt3')}" alt="" style="${w.coverUrl ? '' : 'opacity:.35'}">
       <div class="block">
         <label for="w-name">Nome do jogo</label>
         <input class="field" id="w-name" maxlength="80" value="${esc(w.name)}">
@@ -63,6 +81,18 @@ function render() {
   (keep || layer.querySelector('.dialog button:not([disabled]):not([aria-label]), .dialog input, .dialog button'))?.focus();
 }
 
+async function chooseBios(file) {
+  Object.assign(w, { error: '', busy: true });
+  render();
+  const error = await sendBios(file);
+  Object.assign(w, { busy: false, error });
+  if (!error) {
+    w.steps = w.steps.filter((s) => s !== 'bios');
+    w.step = 'iso';
+  }
+  render();
+}
+
 async function chooseDisc(file) {
   Object.assign(w, { error: '', exists: null, busy: true });
   render();
@@ -77,7 +107,7 @@ async function chooseDisc(file) {
     w.exists = exists;
     return render();
   }
-  Object.assign(w, { file, serial: id.serial, name: w.name || id.serial, step: 3 });
+  Object.assign(w, { file, serial: id.serial, name: w.name || id.serial, step: 'name' });
   render();
 }
 
@@ -97,7 +127,7 @@ async function submit() {
   const res = await r.json().catch(() => ({}));
   if (r.status === 409) {
     await poll();
-    Object.assign(w, { step: 2, busy: false, exists: res.exists });
+    Object.assign(w, { step: 'iso', busy: false, exists: res.exists });
     return render();
   }
   if (!r.ok) {
@@ -117,8 +147,9 @@ layer.addEventListener('click', (e) => {
   const a = el?.dataset.w;
   if (!a || (a === 'scrim' && e.target !== el)) return;
   if (a === 'cancel' || a === 'scrim') return close();
-  if (a === 'next') { w.step = 2; return render(); }
-  if (a === 'back') { Object.assign(w, { step: w.step - 1, error: '', exists: null }); return render(); }
+  if (a === 'next') return go(1);
+  if (a === 'back') return go(-1);
+  if (a === 'pickbios') return pick('.bin,.rom0,.ROM0,application/octet-stream', chooseBios);
   if (a === 'pick') return pick('.iso,.bin,.img', chooseDisc);
   if (a === 'play') { const g = gameOf(w.exists); close(); if (g) hooks.play(g); return; }
   if (a === 'cover') return pick('image/png,image/jpeg,image/webp', (f) => {
@@ -133,13 +164,14 @@ layer.addEventListener('click', (e) => {
 layer.addEventListener('change', (e) => {
   if (w && e.target.id === 'w-ok') { w.ok = e.target.checked; render(); }
 });
-layer.addEventListener('dragover', (e) => { if (w && e.target.closest('[data-wdrop]')) { e.preventDefault(); e.target.closest('[data-wdrop]').classList.add('over'); } });
+layer.addEventListener('dragover', (e) => { const d = w && e.target.closest('[data-wdrop]'); if (d) { e.preventDefault(); d.classList.add('over'); } });
 layer.addEventListener('drop', (e) => {
   const d = w && e.target.closest('[data-wdrop]');
   if (!d) return;
   e.preventDefault();
   e.stopPropagation();
-  if (e.dataTransfer.files[0]) chooseDisc(e.dataTransfer.files[0]);
+  const f = e.dataTransfer.files[0];
+  if (f) (d.dataset.wdrop === 'bios' ? chooseBios : chooseDisc)(f);
 });
 document.addEventListener('keydown', (e) => {
   if (!w) return;
@@ -153,8 +185,10 @@ document.addEventListener('keydown', (e) => {
   }
 }, true);
 
-hooks.add = () => {
+hooks.add = async () => {
   returnFocus = document.activeElement;
-  w = { step: 1, ok: false, file: null, serial: '', name: '', cover: null, coverUrl: null, error: '', busy: false, exists: null };
+  const bios = await fetch('bios', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : { present: true })).catch(() => ({ present: true }));
+  const flow = bios.present ? ['warn', 'iso', 'name'] : ['warn', 'bios', 'iso', 'name'];
+  w = { step: 'warn', steps: flow, ok: false, file: null, serial: '', name: '', cover: null, coverUrl: null, error: '', busy: false, exists: null };
   render();
 };

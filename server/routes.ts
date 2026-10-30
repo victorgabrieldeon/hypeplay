@@ -12,7 +12,7 @@
  *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
  *             pad, played                  the person's controller maps and last game (people.ts)
  *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
- *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, rebuild, cover, save
+ *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
  *             homebrew                     the homebrew shelf (homebrew.ts): Homebrew Hub's games
@@ -32,7 +32,7 @@ import { COVER_MAX, generatedCover, normalizeCover } from "./cover";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { iceServers } from "./ice";
 import type { Discord } from "./discord";
-import { GAMES, PS2_STEPS, type Game } from "./games";
+import { GAMES, type Game } from "./games";
 import { BT3_SERIAL } from "./iso9660";
 import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
 import type { Pass, Passes } from "./pass";
@@ -151,11 +151,9 @@ export interface CatalogEntry {
   rooms: number;
   open: { code: string; host: string; since: number; busy: boolean }[];
   by?: string;
-  note?: string;
-  shots: number;
 }
 
-const PS2_DISC = "Um disco de PS2 que você tem. Jogos fora do BT3 são experimentais.";
+const PS2_DISC = "Um disco de PS2 que você tem. Roda no TabStationToo (PCSX2 no navegador), em teste.";
 
 export function createApp({
   dir,
@@ -286,8 +284,7 @@ export function createApp({
   }
 
   async function ps2Entry(g: Ps2Game, pass: Pass): Promise<CatalogEntry> {
-    const disc = library!.disc(g.id);
-    const [status, builder] = await Promise.all([ps2Status(g.id, pass), disc.builder()]);
+    const status = await ps2Status(g.id, pass);
     const open = ps2Rooms?.list(g.id) ?? [];
     return {
       key: `ps2/${g.id}`,
@@ -298,7 +295,7 @@ export function createApp({
       platform: "PlayStation 2",
       tags: ["Experimental"],
       disc: PS2_DISC,
-      steps: PS2_STEPS,
+      steps: [],
       minIso: PS2_MIN,
       maxIso: PS2_MAX,
       cover: `cover/ps2/${g.id}?v=${g.cover ? `${g.at}-c` : g.at}`,
@@ -306,8 +303,6 @@ export function createApp({
       rooms: open.length,
       open,
       by: g.by.name,
-      ...(builder?.note ? { note: builder.note } : {}),
-      shots: status.state === "ready" ? (builder?.shots ?? 0) : 0,
     };
   }
 
@@ -321,7 +316,6 @@ export function createApp({
         status: await disc.status(pass),
         rooms: rooms.size,
         open: [],
-        shots: 0,
       })),
     );
     const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
@@ -418,10 +412,6 @@ export function createApp({
       case "retry":
         if (req.method !== "POST") return text("Método não permitido", 405);
         await disc.retry();
-        return respond(null, 204);
-      case "rebuild":
-        if (req.method !== "POST") return text("Método não permitido", 405);
-        await lib.rebuild(id);
         return respond(null, 204);
       case "cover": {
         if (req.method === "DELETE") {

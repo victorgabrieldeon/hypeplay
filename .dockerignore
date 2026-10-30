@@ -3,7 +3,6 @@ node_modules
 .env
 data
 builder
-ps2-builder
 emulator/data
 emulator/ps2
 emulator/ps2.tmp

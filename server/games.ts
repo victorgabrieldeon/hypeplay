@@ -24,9 +24,6 @@ export interface Game {
   colors: [string, string];
 }
 
-/** The PS2 games' builder steps (ps2-builder/), one per stage of the ps2-web-recomp's port.sh. */
-export const PS2_STEPS = ["Lendo o disco", "Executável", "Traduzindo para C++", "Explorando o jogo", "Unidades vetoriais", "Compilando a página"];
-
 export const GAMES: Game[] = [
   {
     id: "bt3",

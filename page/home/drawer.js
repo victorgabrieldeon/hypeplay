@@ -1,5 +1,5 @@
-// A game's drawer: its cover and name (editable for the PS2 library), what's happening to it (the disc's upload, the
-// build's steps, a failure), the screenshots of the builder's test runs, its open rooms, and what can be done with it.
+// A game's drawer: its cover and name (editable for the PS2 library), what's happening to it (the disc's upload, BT3's
+// build, a missing BIOS, a failure), its open rooms, and what can be done with it.
 import { clock, esc, icon, needsDisc, pct, progress, seal, stateBadge } from './library.js';
 
 function steps(g, s) {
@@ -47,9 +47,11 @@ function situation(g, ctx) {
         <p class="num">Uma vez só. Já passou ${clock(s.elapsed)}.</p>`;
     case 'failed':
       return `<p class="error">${s.refused ? 'O servidor recusou essa ISO.' : 'A compilação falhou.'}</p>
-        ${s.reason ? `<p>O jogo parou em: <strong>${esc(s.reason)}</strong></p>` : ''}
         <pre>${esc(s.message || 'Erro desconhecido')}</pre>
         ${s.refused ? pick(g, 'Enviar outra ISO') : `<button class="btn" data-retry="${esc(g.key)}">Tentar de novo</button>`}`;
+    case 'needs-bios':
+      return `<p>A ISO já está no servidor. Falta só a <strong>BIOS do PS2</strong>: o arquivo de 4 MB do seu console, enviado uma vez para o servidor todo.</p>
+        <button class="btn" data-bios>${icon('upload')}Enviar a BIOS</button>`;
     default:
       return '<p class="error">O compilador deste jogo não está rodando no servidor.</p><p>Quem cuida do servidor precisa subir o serviço dele.</p>';
   }
@@ -75,21 +77,15 @@ export function drawer(g, ctx) {
         ${r.busy ? '<span class="state">Cheia</span>' : `<button class="btn small" data-play="${esc(g.key)}" data-join="${esc(r.code)}">${icon('users')}Entrar como jogador 2</button>`}
       </div>`).join('')}</div></div>`
     : '';
-  const shots = g.shots
-    ? `<div class="block"><h3>Até onde o servidor chegou no jogo</h3>
-        <div class="shots">${Array.from({ length: g.shots }, (_, i) => `<img src="${esc(g.key)}/shots/${String(i + 1).padStart(2, '0')}.webp" alt="Captura ${i + 1} dos testes" loading="lazy">`).join('')}</div>
-        ${g.note ? `<p>Os testes pararam em: ${esc(g.note)}</p>` : ''}</div>`
-    : '';
   const manage = recomp
     ? `<div class="block"><h3>Jogo</h3><div class="row-actions">
         <button class="btn second small" data-cover="${esc(g.key)}">${icon('image')}Trocar capa</button>
         ${g.cover.includes('-c') ? `<button class="btn quiet small" data-cover-remove="${esc(g.key)}">Tirar capa</button>` : ''}
-        ${['ready', 'failed'].includes(g.status.state) ? `<button class="btn second small" data-rebuild="${esc(g.key)}">Recompilar</button>` : ''}
         <button class="btn danger small" data-remove="${esc(g.key)}">Remover</button>
       </div><p>Qualquer pessoa pode editar. Remover tira o jogo para todo mundo; os saves ficam guardados.</p></div>`
     : '';
   const warning = recomp
-    ? `<p class="note">${icon('warn')} Experimental: compilado a partir da ISO por um projeto que só levou 2 jogos até o fim. Pode travar ou ficar com gráficos quebrados.</p>`
+    ? `<p class="note">${icon('warn')} Em teste: roda no TabStationToo, o PCSX2 no navegador. A maioria dos jogos roda; alguns podem travar, ficar lentos ou com gráficos errados.</p>`
     : '';
-  return `${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${rooms}${shots}${manage}${warning}`;
+  return `${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${rooms}${manage}${warning}`;
 }

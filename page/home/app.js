@@ -1,9 +1,9 @@
 // The home's state and wiring: reads `games` every 2 s, draws the spotlight, the library and the open drawer, and
-// handles every button (play, send a disc, retry, rebuild, remove, rename, cover). The add-a-game wizard, the
+// handles every button (play, send a disc or the BIOS, retry, remove, rename, cover). The add-a-game wizard, the
 // controller screen and the intro live in their own modules.
 import { drawer } from './drawer.js';
 import { loadHomebrew } from './homebrew.js';
-import { addCard, card, esc, hero, initials, meter, needsDisc, upload } from './library.js';
+import { addCard, card, esc, hero, initials, meter, needsDisc, sendBios, upload } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -131,11 +131,11 @@ export function closeDrawer() {
 
 const api = (path, init) => fetch(path, init).then((r) => { if (r.status === 403) state.expired = true; return r; });
 
-let picking = null; // what the file picker is for: { key, kind: 'disc' | 'cover' }
+let picking = null; // what the file picker is for: { key, kind: 'disc' | 'cover' | 'bios' }
 function pickFile(key, kind) {
   picking = { key, kind };
   const input = $('file');
-  input.accept = kind === 'cover' ? 'image/png,image/jpeg,image/webp' : '.iso,.bin,.img';
+  input.accept = kind === 'cover' ? 'image/png,image/jpeg,image/webp' : kind === 'bios' ? '.bin,.rom0,.ROM0,application/octet-stream' : '.iso,.bin,.img';
   input.click();
 }
 
@@ -146,13 +146,17 @@ $('file').addEventListener('change', async (e) => {
   const { key, kind } = picking;
   picking = null;
   if (kind === 'disc') return send(key, file);
+  if (kind === 'bios') {
+    state.uploadError = { key, text: await sendBios(file) };
+    return poll();
+  }
   const r = await api(`${key}/cover`, { method: 'PUT', body: file });
   state.uploadError = { key, text: r.ok ? '' : ((await r.json().catch(() => ({}))).error ?? `Erro ${r.status}`) };
   await poll();
 });
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-retry],[data-rebuild],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-nav]');
+  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-nav]');
   if (!el) {
     if (e.target === $('scrim')) closeDrawer();
     return;
@@ -169,9 +173,9 @@ document.addEventListener('click', async (e) => {
   if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join); return; }
   if (d.pick) return pickFile(d.pick, 'disc');
   if (d.cover) return pickFile(d.cover, 'cover');
+  if ('bios' in d) return pickFile(state.open, 'bios');
   el.disabled = true;
   if (d.retry) await api(`${d.retry}/retry`, { method: 'POST' });
-  if (d.rebuild) await api(`${d.rebuild}/rebuild`, { method: 'POST' });
   if (d.coverRemove) await api(`${d.coverRemove}/cover`, { method: 'DELETE' });
   if (d.remove) {
     const g = gameOf(d.remove);

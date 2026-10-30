@@ -5,9 +5,9 @@ envia a ISO uma vez e o servidor compila o jogo para o navegador. Depois disso o
 mundo, sem enviar nem compilar de novo. Há dois tipos de jogo:
 
 - **Ports testados**, cada um com o próprio compilador (por enquanto, só o BT3, abaixo).
-- **Qualquer jogo de PS2** (experimental): quem tiver a ISO adiciona o jogo, com capa se quiser, e o serviço
-  `ps2-builder` compila com o [ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) (ver
-  [Jogos de PS2](#jogos-de-ps2)).
+- **Qualquer jogo de PS2** (em teste): quem tiver a ISO adiciona o jogo, com capa se quiser. Ela fica guardada no
+  servidor e roda direto no [TabStationToo](https://github.com/TabStationToo/TabStationToo), o PCSX2 compilado para
+  WebAssembly, sem compilar nada (ver [Jogos de PS2](#jogos-de-ps2)).
 
 O port testado de hoje:
 
@@ -45,13 +45,16 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
 
 ## Jogos de PS2
 
-- **Adicionar:** "Adicionar jogo" na biblioteca. Antes do envio vem o aviso: o ps2-web-recomp só levou dois jogos do
-  começo ao fim (Gran Turismo 4 e God of War II), então o seu pode não abrir, travar, ficar com gráficos quebrados
-  ou sem som. A página lê o serial da ISO (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é
-  enviado. O servidor confere o serial de novo com a ISO inteira.
-- **Compilar:** o `ps2-builder` roda o `scripts/port.sh` do ps2-web-recomp, um jogo por vez, uma vez por jogo (de
-  10 a 30 minutos com 2 CPUs, estimado). As capturas das rodadas de teste aparecem no jogo ("até onde o servidor
-  chegou"). "Recompilar" refaz; "Remover" tira o jogo para todo mundo (os saves ficam guardados).
+- **BIOS, uma vez:** quem adiciona o primeiro jogo de PS2 envia também a BIOS do PS2 (o arquivo de 4 MB do próprio
+  console, `.bin` ou `.ROM0`). Ela fica no servidor (`/app/data/bios/`) e nunca mais é pedida. A página e o servidor
+  conferem que é uma BIOS de PS2 (4 MiB com a tabela ROMDIR).
+- **ISO, uma vez por jogo:** "Adicionar jogo" na biblioteca. Antes do envio vem o aviso: o TabStationToo ainda está
+  em teste, a maioria dos jogos roda e alguns podem travar ou ficar lentos. A página lê o serial da ISO
+  (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. O servidor confere o serial de
+  novo com a ISO inteira e guarda a ISO.
+- **Jogar:** assim que a ISO entra (e o servidor tem a BIOS), o jogo está pronto para todo mundo, para sempre. A
+  página do jogo é a do TabStationToo no nosso design: só o jogo na tela, a nossa barra e o painel de som e imagem.
+  "Remover" tira o jogo para todo mundo (os saves ficam guardados).
 - **Capa e nome:** qualquer um pode trocar. Capa PNG, JPG ou WebP até 5 MB, guardada em WebP 600×900; sem capa, o
   servidor desenha uma a partir do serial.
 - **Saves:** o memory card de cada pessoa fica no servidor (por jogo e por usuário do Discord), então vale em
@@ -88,7 +91,6 @@ Um app para o CordPlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | --- | --- | --- |
 | `app` | `bt3.exemplo.com` → 3003 | Entrada pelo Discord, página do jogo, arquivos do jogo, pedaços da ISO, envio, salas do online (WebSocket) |
 | `builder` | — (só o volume) | Confere a ISO, extrai, compila, ajusta os caminhos (`builder/patch.ts`) e publica |
-| `ps2-builder` | — (só o volume) | Compila os jogos de PS2 da biblioteca com o ps2-web-recomp (`ps2-builder/`), um por vez |
 
 | Variável | Para quê |
 | --- | --- |
@@ -96,7 +98,6 @@ Um app para o CordPlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
 | `PUBLIC_URL` | Opcional. O endereço `https://` do app, para "Abrir no navegador" quando o Discord não roda um jogo de PS2 na janela dele |
 | `TURN_URL`, `TURN_SECRET` | Opcionais. Um TURN (coturn com `--use-auth-secret`) para o online dos jogos de PS2 entre redes que não se alcançam |
-| `PS2_ROUNDS`, `PS2_FRAMES` | Opcionais (`ps2-builder`). Rodadas de teste por jogo (padrão 4) e quadros por rodada (padrão 3600) |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
@@ -115,13 +116,11 @@ Tudo fica no volume, em `/app/data/bt3/`: `disc.iso`, `work/` com o que a compil
 jogo e `build.log`. Nada disso vai para o git nem para imagem nenhuma (`data/` está no `.gitignore`). Só a
 lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
 
-Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, `build/`,
-`status.json`, `build.log`) e os intermediários da compilação em `/app/data/ps2-work/<serial>/` (uns 300 MB por
-jogo). O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
+Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`) e a BIOS em
+`/app/data/bios/`. O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
 controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4`.
 
-**Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Recompilar" na
-biblioteca, ou pare o `ps2-builder` e apague `ps2-work/<serial>/` e `ps2/<serial>/build/`.
+**Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Remover" na biblioteca.
 
 O homebrew fica em `/app/data/homebrew/`: `catalog.json` (a lista, buscada na API do Homebrew Hub ao subir
 quando tem mais de um dia, e depois a cada dia) e, por jogo, o ROM e a capa, baixados do GitHub dos bancos
@@ -144,8 +143,6 @@ suba o builder apontando para a mesma pasta:
 ```sh
 docker build -t bt3-builder builder
 docker run --rm -v "$PWD/data:/app/data" bt3-builder
-docker build -t ps2-builder -f ps2-builder/Dockerfile .
-docker run --rm -v "$PWD/data:/app/data" ps2-builder
 ```
 
 Para abrir a biblioteca sem o Discord, gere um passe com o mesmo segredo e abra `http://localhost:3003/p/<passe>/`:
@@ -169,9 +166,10 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   dependências do `package.json` porque o pacote puxa as ferramentas de build e, opcional, todos os cores (300 MB).
 - `builder/`: a imagem e o laço do compilador do BT3. O `patch.ts` troca os caminhos absolutos do jogo por
   relativos e falha alto se o fork mudar.
-- `ps2-builder/`: a imagem e o laço do compilador dos jogos de PS2 (o `port.sh` do ps2-web-recomp num commit fixo).
-  O `patch.ts` ajusta a página do ps2-web-recomp (saves no servidor, salas, "Abrir no navegador") e falha alto se
-  ela mudar.
+- `emulator/ps2-fetch.ts` e `ps2-files.json`: baixam o TabStationToo (GPL-3.0) e conferem cada arquivo por SHA-256;
+  `--update` pega a versão publicada agora e regrava os hashes (depois revise `server/ps2page.ts`).
+- `server/ps2page.ts` e `page/ps2play.ts`: a página do TabStationToo no nosso design (BIOS e disco do servidor,
+  memory card do servidor no slot 1, o console dele escondido, a nossa barra e o rodapé da licença).
 
 ## Adicionar um port testado
 

@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["server", "builder", "ps2-builder", "page", "emulator"]
+  "include": ["server", "builder", "page", "emulator"]
 }

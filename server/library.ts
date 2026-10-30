@@ -148,14 +148,6 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     rename: (id: string, name: string) => update(id, (g) => ({ ...g, name: nameOr(name, g.serial) })),
     setCover: (id: string, has: boolean) => update(id, (g) => ({ ...g, cover: has })),
 
-    /** "Recompilar": the builder sees a disc without a build and starts over. */
-    async rebuild(id: string) {
-      if (!(await get(id))) return false;
-      const p = paths(id);
-      await rm(p.build, { recursive: true, force: true });
-      await writeFile(join(p.root, "retry"), "");
-      return true;
-    },
   };
 }
 

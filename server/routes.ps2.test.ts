@@ -130,7 +130,7 @@ test("rename, cover (webp, generated, too big) and remove", async () => {
   expect((await ana("ps2/sles-44444/cover", { method: "DELETE" })).status).toBe(204);
   expect((await ana("cover/ps2/sles-44444")).headers.get("content-type")).toBe("image/svg+xml");
 
-  expect((await ana("ps2/sles-44444/rebuild", { method: "POST" })).status).toBe(204);
+  expect((await ana("ps2/sles-44444/rebuild", { method: "POST" })).status).toBe(404);
   expect((await ana("ps2/sles-44444", { method: "DELETE" })).status).toBe(204);
   expect((await ana("ps2/sles-44444/status")).status).toBe(404);
   expect((await catalog()).games.some((g) => g.id === "sles-44444")).toBe(false);

@@ -23,6 +23,79 @@ export interface Mapping {
   axes: (AxisSource | null)[];
 }
 
+/** The W3C standard gamepad's buttons, in order: what the games read (PS2 names). */
+export const STANDARD = ["cross", "circle", "square", "triangle", "l1", "r1", "l2", "r2", "select", "start", "l3", "r3", "up", "down", "left", "right"] as const;
+
+export interface PadButton {
+  pressed: boolean;
+  touched: boolean;
+  value: number;
+}
+
+/** What games read of a Gamepad (a real one, or the one remap makes). */
+export interface PadLike {
+  id: string;
+  index: number;
+  connected: boolean;
+  timestamp: number;
+  mapping: string;
+  buttons: readonly PadButton[];
+  axes: readonly number[];
+  vibrationActuator?: unknown;
+}
+
+/** An axis used as a button counts as pressed past this. */
+const AXIS_PRESS = 0.5;
+/** A hat's value matches a direction within this. */
+const HAT_SLACK = 0.1;
+const released: PadButton = { pressed: false, touched: false, value: 0 };
+
+function read(raw: PadLike, s: Source | null): PadButton {
+  if (!s) return released;
+  if ("button" in s) {
+    const b = raw.buttons[s.button];
+    return b ? { pressed: b.pressed, touched: b.touched, value: b.value } : released;
+  }
+  if ("hat" in s) {
+    const v = raw.axes[s.hat];
+    return v !== undefined && Math.abs(v - s.value) < HAT_SLACK ? { pressed: true, touched: true, value: 1 } : released;
+  }
+  const v = raw.axes[s.axis];
+  if (v === undefined) return released;
+  const value = Math.max(0, v * s.dir);
+  return value > AXIS_PRESS ? { pressed: true, touched: true, value } : released;
+}
+
+/** The raw pad seen through its mapping: the standard layout, 16 buttons and 4 axes. */
+export function remap(raw: PadLike, m: Mapping): PadLike {
+  return {
+    id: raw.id,
+    index: raw.index,
+    connected: raw.connected,
+    timestamp: raw.timestamp,
+    mapping: "standard",
+    buttons: m.buttons.map((s) => read(raw, s)),
+    axes: m.axes.map((a) => {
+      const v = a ? raw.axes[a.axis] : undefined;
+      return v === undefined ? 0 : a!.invert ? -v : v;
+    }),
+    vibrationActuator: raw.vibrationActuator,
+  };
+}
+
+/**
+ * Puts the mappings in front of `nav.getGamepads()`: a pad with a valid mapping (by its id) comes back remapped, any
+ * other as it is. `maps` is read on every call, so filling it in later (once fetched) takes effect at once.
+ */
+export function install(nav: { getGamepads(): (PadLike | null)[] }, maps: Record<string, Mapping>) {
+  const real = nav.getGamepads.bind(nav);
+  nav.getGamepads = () =>
+    [...real()].map((pad) => {
+      const m = pad && Object.hasOwn(maps, pad.id) ? maps[pad.id] : undefined;
+      return pad && m && validMapping(m) ? remap(pad, m) : pad;
+    });
+}
+
 const index = (n: unknown) => Number.isInteger(n) && (n as number) >= 0 && (n as number) < 64;
 
 function validSource(s: unknown): boolean {

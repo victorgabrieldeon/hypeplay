@@ -46,7 +46,7 @@ const app = createApp({
   ps2Rooms: new Ps2Rooms(),
   publicUrl: PUBLIC_URL,
   turn: TURN,
-  scripts: { "iso.js": await bundle("iso.ts") },
+  scripts: { "iso.js": await bundle("iso.ts"), "pad.js": await bundle("pad.ts") },
 });
 
 Bun.serve<NetData>({

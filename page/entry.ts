@@ -1,6 +1,7 @@
 // The entry page's script (page/entry.html), bundled with the Discord SDK at startup (server/index.ts), which also
-// fills in DISCORD_CLIENT_ID.
+// fills in DISCORD_CLIENT_ID and PUBLIC_URL.
 import { DiscordSDK } from "@discord/embedded-app-sdk";
+import { openRequest } from "./open";
 
 const msg = document.getElementById("msg")!;
 const game = document.getElementById("game") as HTMLIFrameElement;
@@ -13,6 +14,11 @@ async function start() {
     throw new Error("Abra o CordPlay pelo 🚀 de um canal de voz do Discord.");
   }
   await sdk.ready();
+  // "Abrir no navegador" from a game Discord can't isolate (or whose controller it holds back).
+  window.addEventListener("message", (e) => {
+    const url = e.source === game.contentWindow ? openRequest(e.data, process.env.PUBLIC_URL ?? "") : null;
+    if (url) sdk.commands.openExternalLink({ url }).catch(() => {});
+  });
   // Asks for consent the first time only; after that it's silent.
   const { code } = await sdk.commands.authorize({
     client_id: sdk.clientId,

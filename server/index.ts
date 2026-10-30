@@ -36,7 +36,10 @@ const app = createApp({
   // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/, the PS2 games live in /app/data/ps2/.
   dir,
   pageDir,
-  entryJs: await bundle("entry.ts", { "process.env.DISCORD_CLIENT_ID": JSON.stringify(DISCORD_CLIENT_ID) }),
+  entryJs: await bundle("entry.ts", {
+    "process.env.DISCORD_CLIENT_ID": JSON.stringify(DISCORD_CLIENT_ID),
+    "process.env.PUBLIC_URL": JSON.stringify(PUBLIC_URL),
+  }),
   // The client secret signs the passes too: resetting it in the portal also ends every open session.
   passes: createPasses(DISCORD_CLIENT_SECRET),
   discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET }),

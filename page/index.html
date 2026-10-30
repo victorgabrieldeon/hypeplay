@@ -5,657 +5,448 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CordPlay</title>
 <!--
-  CordPlay's home (server/routes.ts serves it at /p/<pass>/, framed by page/entry.html). Reads `games` every 2 s: the
-  catalog with each game's state (its disc image's upload, its builder's progress). A built game opens at <id>/game/.
-  Runs as an opaque origin: every address here is relative, and nothing is kept in this browser.
+  CordPlay's home (server/routes.ts serves it at /p/<pass>/, framed by page/entry.html): the library, each game's
+  drawer, adding a game, the controller screen, the intro and the homebrew shelf (home/homebrew.js). home/app.js reads `games` every 2 s. Runs as an opaque
+  origin: every address here is relative, and nothing is kept in this browser. Tokens: DESIGN.md.
 -->
 <style>
-  :root { --bg: #0d0d18; --side: #10101d; --panel: #161627; --surface: #1d1d32; --surface-hi: #26263f;
-    --line: rgb(255 255 255 / 0.06); --accent: #7655ff; --accent-hi: #a08cff; --ink: #f4f4fb; --soft: #9a9bb7;
-    --ok: #3ddc84; --warn: #f5a524; --danger: #f0384c; }
+  @font-face { font-family: "Unbounded"; font-weight: 200 900; font-display: swap; src: url("fonts/unbounded-latin-wght-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Manrope"; font-weight: 200 800; font-display: swap; src: url("fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-display: swap; src: url("fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2"); }
+
+  :root {
+    --bg: #0b0a14; --side: #0f0d1a; --surface: #13111f; --surface-hi: #1b1830; --surface-top: #242040;
+    --line: rgb(255 255 255 / 0.06); --line-hi: rgb(255 255 255 / 0.1); --ink: #f3f2fb; --soft: #a3a1bd; --faint: #6f6c8c;
+    --primary: #7655ff; --primary-hi: #6a4af5; --accent: #a08cff; --ok: #3ddc84; --warn: #f5a524; --danger: #f0384c;
+    --glow: rgb(118 85 255 / 0.45);
+    --display: "Unbounded", ui-sans-serif, system-ui, sans-serif; --body: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --t-xs: 700 11px/16px var(--body); --t-sm: 500 13px/20px var(--body); --t-md: 500 15px/24px var(--body);
+    --t-lg: 700 17px/26px var(--body); --t-xl: 600 20px/28px var(--display); --t-2xl: 600 30px/36px var(--display);
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+    --r-sm: 8px; --r-md: 12px; --r-lg: 18px;
+    --lift: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.06);
+    --fast: 120ms; --base: 220ms; --slow: 600ms; --ease: cubic-bezier(0.2, 0.8, 0.2, 1); --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --gutter: 32px;
+  }
   * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
-    font: 14px/1.5 "Inter Variable", ui-sans-serif, system-ui, sans-serif; }
+  html { background: var(--bg); }
+  html, body { margin: 0; min-height: 100%; color: var(--ink); font: var(--t-md); -webkit-font-smoothing: antialiased; }
+  /* the night sky behind everything: two soft purple glows, fixed while the page scrolls */
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(900px 520px at 80% -10%, rgb(118 85 255 / 0.2), transparent 65%),
+      radial-gradient(700px 480px at 15% 110%, rgb(160 140 255 / 0.08), transparent 70%); }
   h1, h2, h3, p { margin: 0; }
-  a { color: inherit; text-decoration: none; }
-  button { font: inherit; color: inherit; }
-  :focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: rgb(118 85 255 / 0.5); }
   [hidden] { display: none !important; }
   input[type=file] { display: none; }
   svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .num { font-variant-numeric: tabular-nums; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .eyebrow { font: var(--t-xs); text-transform: uppercase; letter-spacing: 0.14em; color: var(--accent); }
+  .serial { font: 500 12px/16px var(--mono); letter-spacing: 0.04em; color: var(--soft); }
 
-  .app { display: grid; grid-template-columns: 228px minmax(0, 1fr) 340px; min-height: 100vh; }
-  .side { background: var(--side); border-right: 1px solid var(--line); padding: 20px 14px; display: flex; flex-direction: column; gap: 24px;
-    position: sticky; top: 0; height: 100vh; }
-  .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
-  .brand img { width: 38px; height: 38px; }
-  .brand b { font-size: 19px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 6px; }
-  .brand small { display: block; color: var(--soft); font-size: 12px; }
-  .beta { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: rgb(118 85 255 / 0.25); color: var(--accent-hi); }
+  /* layout */
+  .app { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+  .side { background: rgb(15 13 26 / 0.94); border-right: 1px solid var(--line); padding: var(--s5) var(--s3); display: flex; flex-direction: column;
+    gap: var(--s6); position: sticky; top: 0; height: 100vh; }
+  .brand { display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s2); }
+  .brand img { width: 38px; height: 38px; filter: drop-shadow(0 6px 14px var(--glow)); }
+  .brand b { font: 700 16px/1 var(--display); letter-spacing: -0.01em; display: flex; align-items: center; gap: 6px; }
+  .brand .hi { color: var(--accent); margin-left: -6px; }
+  .brand small { display: block; color: var(--soft); font: var(--t-sm); font-size: 12px; margin-top: 4px; }
+  .beta { font: 800 9px/1 var(--body); letter-spacing: 0.08em; padding: 3px 5px; border-radius: 4px; background: rgb(118 85 255 / 0.25); color: var(--accent); }
   nav { display: flex; flex-direction: column; gap: 2px; }
-  nav .label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--soft); padding: 14px 10px 6px; }
-  nav a { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px; color: var(--soft); font-weight: 500; }
-  nav a:hover { background: var(--surface); color: var(--ink); }
-  nav a.on { background: linear-gradient(90deg, rgb(118 85 255 / 0.35), rgb(118 85 255 / 0.12)); color: var(--ink); }
-  nav a .count { margin-left: auto; font-size: 12px; }
-  .tip { margin-top: auto; padding: 16px; border-radius: 14px; background: linear-gradient(160deg, #262048, var(--panel)); }
-  .tip h3 { font-size: 15px; margin-bottom: 4px; }
-  .tip p { color: var(--soft); font-size: 13px; }
+  nav button { display: flex; align-items: center; gap: var(--s3); height: 42px; padding: 0 var(--s3); border: 0; border-radius: var(--r-sm);
+    background: none; color: var(--soft); font-weight: 600; font-size: 14px; cursor: pointer; text-align: left; position: relative;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+  nav button svg { transition: transform var(--base) var(--spring), color var(--fast) var(--ease); }
+  nav button:hover { background: var(--surface); color: var(--ink); }
+  nav button:hover svg { transform: scale(1.12); color: var(--accent); }
+  nav button.on { background: rgb(118 85 255 / 0.16); color: var(--ink); }
+  nav button.on svg { color: var(--accent); }
+  nav button.on::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--primary);
+    box-shadow: 0 0 10px var(--glow); animation: grow var(--base) var(--ease); }
+  @keyframes grow { from { transform: scaleY(0); } }
+  nav .count { margin-left: auto; font: 600 12px/1 var(--mono); color: var(--soft); padding: 4px 7px; border-radius: 99px; background: var(--surface-hi); }
+  nav .count:empty { display: none; }
+  .tip { margin-top: auto; padding: var(--s4); border-radius: var(--r-md); border: 1px solid var(--line);
+    background: linear-gradient(160deg, rgb(118 85 255 / 0.14), transparent 60%), var(--surface); display: flex; flex-direction: column; gap: var(--s2); }
+  .tip .badge { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: rgb(118 85 255 / 0.22); color: var(--accent); }
+  .tip h3 { font: var(--t-lg); font-size: 14px; }
+  .tip p { color: var(--soft); font: var(--t-sm); }
 
-  main { padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 28px; min-width: 0; }
-  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .top h1 { font-size: 22px; letter-spacing: -0.02em; }
-  .me { display: flex; align-items: center; gap: 10px; color: var(--soft); }
-  .avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff;
-    background: linear-gradient(135deg, var(--accent-hi), var(--accent)); }
+  main { padding: var(--s6) var(--gutter) var(--s7); display: flex; flex-direction: column; gap: 40px; min-width: 0; }
+  .top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s4); }
+  .top h1 { font: 600 26px/1.2 var(--display); letter-spacing: -0.02em; margin: 6px 0 4px; }
+  .top .sub { color: var(--soft); font: var(--t-sm); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
+  .me { display: flex; align-items: center; gap: var(--s2); padding: 4px 4px 4px 14px; border-radius: 99px; background: var(--surface);
+    border: 1px solid var(--line); color: var(--soft); font: var(--t-sm); font-weight: 600; }
+  .me:empty { display: none; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font: 700 12px/1 var(--display); color: #fff;
+    background: var(--primary); box-shadow: 0 0 0 2px var(--side), 0 0 0 3px rgb(160 140 255 / 0.5); }
 
-  .hero { position: relative; overflow: hidden; border-radius: 18px; min-height: 300px; padding: 36px; display: flex; flex-direction: column;
-    justify-content: flex-end; gap: 14px; box-shadow: 0 0 0 1px var(--line); }
-  .hero .mark { position: absolute; right: -10px; top: 50%; transform: translateY(-50%); font-size: 170px; font-weight: 900;
-    letter-spacing: -0.06em; color: rgb(255 255 255 / 0.08); pointer-events: none; }
-  .hero h2 { font-size: clamp(26px, 4vw, 40px); line-height: 1.1; letter-spacing: -0.02em; max-width: 26ch; }
-  .hero p { color: #d6d6e6; max-width: 52ch; font-size: 15px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 6px;
-    background: rgb(255 255 255 / 0.08); color: #d6d6e6; }
-  .chip.hot { background: var(--danger); color: #fff; }
-  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 6px; }
-  .live { display: inline-flex; align-items: center; gap: 8px; color: #d6d6e6; font-size: 13px; padding: 8px 12px; border-radius: 10px;
-    background: rgb(0 0 0 / 0.3); }
-  .live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 42px; padding: 0 20px; border: 0;
-    border-radius: 10px; background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; transition: filter .15s, transform .15s; }
-  .btn:hover { filter: brightness(1.12); }
-  .btn:active { transform: translateY(1px); }
-  .btn:disabled { opacity: .6; cursor: default; }
-  .btn.ghost { background: var(--surface-hi); }
-  .btn.small { height: 34px; padding: 0 14px; font-size: 13px; }
+  /* buttons */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); height: 42px; padding: 0 18px; border: 0;
+    border-radius: var(--r-sm); background: var(--primary); color: #fff; font-weight: 700; font-size: 14px; cursor: pointer; white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 8px 20px -8px var(--glow);
+    transition: background var(--fast) var(--ease), transform var(--fast) var(--ease), box-shadow var(--base) var(--ease); }
+  .btn:hover { background: var(--primary-hi); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), 0 12px 28px -8px var(--glow); }
+  .btn:active { transform: translateY(0) scale(0.98); }
+  .btn:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+  .btn.second { background: var(--surface-top); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .btn.second:hover { background: #2c2750; }
+  .btn.quiet { background: none; color: var(--soft); padding: 0 var(--s2); box-shadow: none; }
+  .btn.quiet:hover { color: var(--ink); background: none; transform: none; }
+  .btn.danger { background: var(--surface-top); color: var(--danger); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .btn.small { height: 32px; padding: 0 var(--s3); font-size: 13px; }
   .btn.wide { width: 100%; }
+  .btn svg.i { transition: transform var(--base) var(--spring); }
+  .btn:hover svg.i { transform: scale(1.15); }
 
-  .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
-  .section-head h2 { font-size: 20px; letter-spacing: -0.01em; }
-  .section-head span { color: var(--soft); font-size: 13px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
-  .card { border-radius: 14px; background: var(--panel); box-shadow: 0 0 0 1px var(--line); overflow: hidden; display: flex; flex-direction: column;
-    transition: transform .15s, box-shadow .15s; }
-  .card:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgb(118 85 255 / 0.5), 0 12px 30px rgb(0 0 0 / 0.35); }
-  .card.on { box-shadow: 0 0 0 2px var(--accent); }
-  .cover { position: relative; height: 140px; border: 0; padding: 0; cursor: pointer; display: grid; place-items: center; overflow: hidden; }
-  .cover b { font-size: 54px; font-weight: 900; letter-spacing: -0.05em; color: rgb(255 255 255 / 0.9); text-shadow: 0 4px 24px rgb(0 0 0 / 0.4); }
-  .cover small { position: absolute; left: 10px; top: 10px; background: rgb(0 0 0 / 0.6); color: #fff; }
-  .card .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
-  .card h3 { font-size: 15px; line-height: 1.3; }
-  .card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
-  .soon { border: 1px dashed rgb(255 255 255 / 0.12); background: transparent; box-shadow: none; display: grid; place-items: center;
-    text-align: center; padding: 24px; color: var(--soft); font-size: 13px; min-height: 240px; }
-  .soon:hover { transform: none; box-shadow: none; }
-  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
-  .filters input { flex: 1; min-width: 200px; height: 38px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--surface);
-    color: var(--ink); font: inherit; box-shadow: 0 0 0 1px var(--line); }
-  .filters .chip { border: 0; cursor: pointer; padding: 7px 12px; }
-  .filters .chip[aria-pressed=true] { background: var(--accent); color: #fff; }
-  .cover img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
-  .card .by { color: var(--soft); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .more { margin: 16px auto 0; display: flex; }
+  /* chips, badges, states */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 6px; background: rgb(255 255 255 / 0.08); color: #d9d8ea; }
+  .seal { font: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 6px; }
+  .seal.tested { background: rgb(61 220 132 / 0.14); color: var(--ok); }
+  .seal.experimental { background: rgb(245 165 36 / 0.14); color: var(--warn); }
+  .state { display: inline-flex; align-items: center; gap: 7px; font: var(--t-sm); font-weight: 700; color: var(--soft); }
+  .state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .state.ok { color: var(--ok); } .state.warn { color: var(--warn); } .state.busy { color: var(--accent); } .state.bad { color: var(--danger); }
+  .state.busy::before, .state.live::before { animation: ping 1.6s var(--ease) infinite; }
+  @keyframes ping { from { box-shadow: 0 0 0 0 currentColor; } to { box-shadow: 0 0 0 7px transparent; } }
 
-  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--soft); }
-  .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .badge.ok { color: var(--ok); } .badge.warn { color: var(--warn); } .badge.busy { color: var(--accent-hi); } .badge.bad { color: var(--danger); }
+  /* loading: shapes of what's coming, shimmering */
+  .sk { border-radius: var(--r-sm); background: linear-gradient(100deg, var(--surface) 30%, var(--surface-top) 50%, var(--surface) 70%);
+    background-size: 300% 100%; animation: shimmer 1.4s linear infinite; }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+  .sk.l1 { width: 120px; height: 14px; } .sk.l2 { width: min(420px, 70%); height: 40px; } .sk.l3 { width: min(300px, 50%); height: 16px; }
+  .sk.l4 { width: 150px; height: 42px; } .sk.cover-sk { aspect-ratio: 2 / 3; border-radius: var(--r-md); } .sk.name { width: 70%; height: 14px; }
 
-  .panel { border-left: 1px solid var(--line); padding: 20px 18px; display: flex; flex-direction: column; gap: 16px; background: var(--side); }
-  .box { border-radius: 16px; background: var(--panel); box-shadow: 0 0 0 1px var(--line); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
-  .box h2 { font-size: 16px; display: flex; align-items: center; gap: 8px; }
-  .box .game { display: flex; gap: 12px; align-items: center; }
-  .thumb { width: 46px; height: 46px; border-radius: 10px; flex: none; display: grid; place-items: center; font-weight: 900; font-size: 15px; }
-  .box .game p { color: var(--soft); font-size: 12px; }
-  .box .game b { display: block; font-size: 14px; line-height: 1.3; }
-  .box p { color: var(--soft); }
-  .box p strong { color: var(--ink); }
-  .note { font-size: 12px; }
+  /* spotlight */
+  .hero { position: relative; overflow: hidden; border-radius: var(--r-lg); min-height: 340px; padding: 40px; display: grid;
+    grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--s6); isolation: isolate; background: var(--surface);
+    box-shadow: 0 0 0 1px var(--line), 0 30px 60px -30px rgb(0 0 0 / 0.8); }
+  .hero .backdrop { position: absolute; inset: -60px; z-index: -2; background-size: cover; background-position: center;
+    filter: blur(44px) saturate(1.4); opacity: 0.6; animation: drift 26s ease-in-out infinite alternate; }
+  @keyframes drift { from { transform: scale(1.05) translate3d(-2%, -1%, 0); } to { transform: scale(1.2) translate3d(2%, 2%, 0); } }
+  .hero::after { content: ""; position: absolute; inset: 0; z-index: -1;
+    background: radial-gradient(520px 260px at 0% 100%, rgb(118 85 255 / 0.28), transparent 70%),
+      linear-gradient(90deg, rgb(11 10 20 / 0.95) 28%, rgb(11 10 20 / 0.55) 66%, rgb(11 10 20 / 0.25)); }
+  .hero .text { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); max-width: 62ch; }
+  .hero h2 { font: 700 clamp(28px, 3.4vw, 44px)/1.1 var(--display); letter-spacing: -0.03em; max-width: 18ch; text-wrap: balance; }
+  .hero p { color: #d9d8ea; }
+  .hero .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-top: var(--s3); }
+  .hero .case { width: 172px; aspect-ratio: 2 / 3; border-radius: var(--r-md); object-fit: cover; transform: rotate(4deg);
+    box-shadow: 0 30px 60px -15px rgb(0 0 0 / 0.85), 0 0 0 1px rgb(255 255 255 / 0.12), 0 0 70px -12px var(--glow);
+    animation: float 7s ease-in-out infinite; transition: transform var(--slow) var(--ease); }
+  .hero:hover .case { transform: rotate(0deg) scale(1.04); }
+  @keyframes float { 50% { translate: 0 -10px; } }
+  .hero.loading { align-items: end; }
+  .hero.loading .text { gap: var(--s4); }
+  .live { display: inline-flex; align-items: center; gap: var(--s2); font: var(--t-sm); color: #d9d8ea; }
+  .live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: ping 1.6s var(--ease) infinite; color: var(--ok); }
+
+  /* the first look: the spotlight, then the cards one after another */
+  .entering .hero .text > * { animation: rise 600ms var(--ease) both; }
+  .entering .hero .text > :nth-child(2) { animation-delay: 60ms; } .entering .hero .text > :nth-child(3) { animation-delay: 120ms; }
+  .entering .hero .text > :nth-child(4) { animation-delay: 180ms; } .entering .hero .text > :nth-child(5) { animation-delay: 240ms; }
+  .entering .hero .case { animation: case-in 900ms var(--ease) both, float 7s 900ms ease-in-out infinite; }
+  .entering .card, .entering .add { animation: rise 520ms var(--ease) both; animation-delay: calc(160ms + min(var(--i, 0), 12) * 45ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } }
+  @keyframes case-in { from { opacity: 0; transform: translateY(40px) rotate(14deg) scale(0.9); } }
+
+  /* library */
+  .section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s1) var(--s3); margin-bottom: var(--s5); }
+  .section-head h2 { font: var(--t-xl); letter-spacing: -0.02em; white-space: nowrap; }
+  .section-head span { color: var(--soft); font: var(--t-sm); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(164px, 1fr)); gap: 28px 20px; }
+  .grid > .busy, .grid > .note { grid-column: 1 / -1; }
+  .card { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .cover { position: relative; display: block; width: 100%; aspect-ratio: 2 / 3; padding: 0; border: 0; border-radius: var(--r-md); overflow: hidden;
+    background: var(--surface); cursor: pointer; box-shadow: 0 0 0 1px var(--line-hi), 0 12px 24px -14px rgb(0 0 0 / 0.9);
+    transition: transform var(--base) var(--ease), box-shadow var(--base) var(--ease); }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform var(--slow) var(--ease); }
+  .cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 35%, rgb(255 255 255 / 0.22) 50%, transparent 65%);
+    transform: translateX(-120%); pointer-events: none; }
+  .cover:hover, .cover:focus-visible { transform: translateY(-6px);
+    box-shadow: 0 0 0 1px rgb(160 140 255 / 0.55), 0 24px 40px -14px var(--glow), 0 12px 24px -14px rgb(0 0 0 / 0.9); }
+  .cover:hover img, .cover:focus-visible img { transform: scale(1.06); }
+  .cover:hover::after { transform: translateX(120%); transition: transform var(--slow) var(--ease); }
+  .cover:active { transform: translateY(-3px) scale(0.98); }
+  .card.on .cover { box-shadow: 0 0 0 2px var(--primary), 0 24px 40px -14px var(--glow); }
+  .cover .pill { position: absolute; left: var(--s2); top: var(--s2); max-width: calc(100% - 16px); padding: 5px 9px; border-radius: 99px;
+    background: rgb(11 10 20 / 0.82); backdrop-filter: blur(8px); box-shadow: inset 0 0 0 1px var(--line-hi); text-align: left; }
+  .cover .pill .state { font-size: 12px; line-height: 16px; }
+  .card h3 { font: 700 14px/1.35 var(--body); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .card .meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); color: var(--soft); font: var(--t-sm); min-height: 20px; }
+  .add { aspect-ratio: 2 / 3; border: 1.5px dashed rgb(160 140 255 / 0.35); border-radius: var(--r-md); background: rgb(118 85 255 / 0.05);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s3); padding: var(--s4); text-align: center;
+    color: var(--soft); font: var(--t-sm); cursor: pointer; transition: background var(--base) var(--ease), border-color var(--base) var(--ease), transform var(--base) var(--ease); }
+  .add:hover { background: rgb(118 85 255 / 0.12); border-color: var(--accent); color: var(--ink); transform: translateY(-4px); }
+  .add svg { width: 72px; height: 72px; color: var(--faint); overflow: visible; }
+  .add svg rect, .add svg path { transform-box: fill-box; transform-origin: 50% 100%; transition: transform 420ms var(--spring); }
+  .add:hover .back { transform: rotate(-14deg) translateX(-4px); }
+  .add:hover .front { transform: rotate(10deg) translateX(4px); }
+  .add:hover .plus { transform: translate(4px, -2px) rotate(90deg); transform-origin: 50% 50%; }
+  .add b { color: var(--ink); font: 700 14px/1.3 var(--body); }
+
+  /* homebrew shelf: screenshots, not cases */
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-bottom: var(--s5); }
+  .filters .field { flex: 1; min-width: 200px; width: auto; }
+  .filters .chip { border: 0; cursor: pointer; padding: 8px 13px; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+  .filters .chip:hover { background: rgb(255 255 255 / 0.14); }
+  .filters .chip[aria-pressed=true] { background: var(--primary); color: #fff; box-shadow: 0 6px 16px -6px var(--glow); }
+  .grid.hb { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .grid.hb .cover { aspect-ratio: 10 / 9; background: #000; }
+  .grid.hb .cover img { object-fit: contain; image-rendering: pixelated; }
+  .grid.hb .cover:hover img { transform: scale(1.04); }
+  .grid.hb .cover .ph { display: grid; place-items: center; height: 100%; font: var(--t-xl); color: var(--faint); }
+  .grid.hb .cover .tag { position: absolute; left: var(--s2); top: var(--s2); background: rgb(11 10 20 / 0.82); }
+  .card .by { color: var(--soft); font: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .more { margin: var(--s5) auto 0; display: flex; }
+  .note { color: var(--soft); font: var(--t-sm); }
+  .note svg.i { vertical-align: -4px; color: var(--warn); }
+
+  /* drawer */
+  .scrim { position: fixed; inset: 0; background: rgb(5 4 10 / 0.6); backdrop-filter: blur(4px); z-index: 20; opacity: 0; pointer-events: none;
+    transition: opacity var(--base) var(--ease); }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); z-index: 21; background: var(--side);
+    box-shadow: -30px 0 60px -20px rgb(0 0 0 / 0.7), 0 0 0 1px var(--line); display: flex; flex-direction: column; transform: translateX(100%);
+    visibility: hidden; transition: transform 320ms var(--ease), visibility 0s linear 320ms; }
+  .drawer.open { transform: none; visibility: visible; transition: transform 320ms var(--ease); }
+  .drawer header { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
+    padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line); }
+  .drawer header h2 { font: var(--t-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drawer .body { position: relative; isolation: isolate; overflow-y: auto; padding: var(--s5); display: flex; flex-direction: column; gap: var(--s5); }
+  /* the game's cover, blurred, behind the top of the drawer */
+  .drawer .art { position: absolute; left: 0; right: 0; top: 0; height: 300px; z-index: -1; background-size: cover; background-position: center;
+    filter: blur(40px) saturate(1.3); opacity: 0.4; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent); pointer-events: none; }
+  .game-head { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: var(--s4); align-items: start; }
+  .game-head img { width: 112px; aspect-ratio: 2 / 3; border-radius: var(--r-sm); object-fit: cover;
+    box-shadow: 0 0 0 1px var(--line-hi), 0 16px 30px -12px rgb(0 0 0 / 0.9); }
+  .game-head img.ghost { opacity: 0.35; }
+  .game-head > div { display: flex; flex-direction: column; gap: 6px; }
+  .game-head .name { font: 600 18px/1.3 var(--display); letter-spacing: -0.01em; }
+  .game-head p { color: var(--soft); font: var(--t-sm); }
+  .game-head .chips { margin-top: var(--s1); align-items: center; }
+  .field { width: 100%; height: 42px; padding: 0 var(--s3); border-radius: var(--r-sm); border: 1px solid var(--line-hi); background: var(--surface-hi);
+    color: var(--ink); transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease); }
+  .field::placeholder { color: var(--soft); }
+  .field:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px rgb(160 140 255 / 0.2); }
+  .block { display: flex; flex-direction: column; gap: var(--s3); }
+  .block h3 { font: var(--t-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--soft); }
+  .block p { color: var(--soft); font: var(--t-sm); }
+  .block p strong { color: var(--ink); }
+  .row-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+  pre { margin: 0; max-height: 10rem; overflow: auto; padding: var(--s3); border-radius: var(--r-sm); background: var(--surface); color: var(--soft);
+    font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
   .error { color: var(--danger) !important; }
-  .drop { border: 1.5px dashed rgb(160 140 255 / 0.4); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; align-items: center;
-    gap: 10px; text-align: center; background: rgb(118 85 255 / 0.06); }
-  .drop.over { border-color: var(--accent-hi); background: rgb(118 85 255 / 0.16); }
-  .drop svg.i { width: 28px; height: 28px; color: var(--accent-hi); }
-  .bar { height: 10px; border-radius: 99px; background: var(--surface-hi); overflow: hidden; }
-  .bar > div { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent-hi)); transition: width .25s linear; }
-  .bar.moving > div { background-size: 28px 28px; animation: stripes 1s linear infinite;
-    background-image: linear-gradient(45deg, rgb(255 255 255 / 0.14) 25%, transparent 25%, transparent 50%, rgb(255 255 255 / 0.14) 50%,
-      rgb(255 255 255 / 0.14) 75%, transparent 75%), linear-gradient(90deg, var(--accent), var(--accent-hi)); }
-  @keyframes stripes { to { background-position: 28px 0; } }
-  .big { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--soft); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .big b { font-size: 26px; color: var(--ink); letter-spacing: -0.02em; }
-  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .stats div { background: var(--surface); border-radius: 10px; padding: 8px 10px; min-width: 0; }
-  .stats b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .stats span { font-size: 11px; color: var(--soft); }
-  .row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--soft); font-variant-numeric: tabular-nums; }
-  .busy { display: flex; align-items: center; gap: 10px; }
-  .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--surface-hi); border-top-color: var(--accent-hi);
-    animation: spin .8s linear infinite; flex: none; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--soft); }
-  .steps li { display: flex; align-items: center; gap: 8px; }
-  .steps li.done { color: var(--ok); } .steps li.now { color: var(--ink); font-weight: 600; }
-  pre { margin: 0; max-height: 9rem; overflow: auto; padding: 10px; border-radius: 8px; background: var(--surface); color: var(--soft);
-    font-size: 12px; white-space: pre-wrap; word-break: break-word; }
-  .how ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-  .how li { display: flex; gap: 12px; color: var(--soft); font-size: 13px; }
-  .how li svg.i { color: var(--accent-hi); margin-top: 1px; }
-  .expired { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(8 8 14 / 0.85); padding: 24px; text-align: center; z-index: 9; }
+  .rooms { display: flex; flex-direction: column; gap: var(--s2); }
+  .room { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3); border-radius: var(--r-sm);
+    background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
 
-  @media (max-width: 1180px) {
-    .app { grid-template-columns: 228px minmax(0, 1fr); }
-    .panel { grid-column: 2; border-left: 0; background: none; padding: 0 24px 32px; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
-  }
+  /* progress */
+  .big { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); color: var(--soft); font: var(--t-sm); }
+  .big b { font: var(--t-2xl); color: var(--ink); letter-spacing: -0.02em; }
+  .bar { height: 8px; border-radius: 99px; background: var(--surface-hi); overflow: hidden; }
+  .bar > div { height: 100%; border-radius: inherit; background: var(--primary); box-shadow: 0 0 12px var(--glow); transition: width 250ms linear; }
+  .bar.moving > div { background-size: 24px 24px; animation: stripes 1s linear infinite;
+    background-image: linear-gradient(45deg, rgb(255 255 255 / 0.16) 25%, transparent 25%, transparent 50%, rgb(255 255 255 / 0.16) 50%,
+      rgb(255 255 255 / 0.16) 75%, transparent 75%), linear-gradient(var(--primary), var(--primary)); }
+  @keyframes stripes { to { background-position: 24px 0; } }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s2); }
+  .stats div { background: var(--surface); border-radius: var(--r-sm); padding: var(--s2) var(--s3); min-width: 0; box-shadow: inset 0 0 0 1px var(--line); }
+  .stats b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats span { font: var(--t-xs); color: var(--soft); }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font: var(--t-sm); color: var(--soft); }
+  .steps li { display: flex; align-items: center; gap: var(--s2); }
+  .steps li.done { color: var(--ok); }
+  .steps li.now { color: var(--ink); font-weight: 700; }
+  .steps li.now::before { content: ""; width: 8px; height: 8px; margin: 0 5px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s var(--ease) infinite; }
+  @keyframes pulse { 50% { transform: scale(0.5); opacity: 0.5; } }
+  .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--surface-hi); border-top-color: var(--accent); animation: spin 0.8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .busy { display: flex; align-items: center; gap: var(--s3); color: var(--soft); }
+  .drop { border: 1.5px dashed rgb(160 140 255 / 0.4); border-radius: var(--r-md); padding: var(--s5) var(--s4); display: flex; flex-direction: column;
+    align-items: center; gap: var(--s3); text-align: center; background: rgb(118 85 255 / 0.05); transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+  .drop.over { border-color: var(--accent); background: rgb(118 85 255 / 0.14); }
+  .drop > svg.i { width: 30px; height: 30px; color: var(--accent); animation: bob 2.4s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(-4px); } }
+
+  /* modal (wizard, controller) */
+  .modal { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: var(--s4); background: rgb(5 4 10 / 0.72); backdrop-filter: blur(6px); }
+  .dialog { width: min(560px, 100%); max-height: calc(100vh - 32px); overflow-y: auto; background: var(--side); border-radius: var(--r-lg);
+    box-shadow: 0 40px 80px -20px rgb(0 0 0 / 0.8), 0 0 0 1px var(--line-hi); padding: 28px; display: flex; flex-direction: column; gap: var(--s4);
+    animation: pop 260ms var(--ease); }
+  .dialog.wide { width: min(760px, 100%); }
+  @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
+  .dialog header { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+  .dialog header h2 { font: var(--t-xl); letter-spacing: -0.02em; }
+  .dialog > p { color: #d9d8ea; }
+  .dialog footer { display: flex; justify-content: flex-end; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
+  .stepper { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; }
+  .stepper li { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); font: var(--t-xs); text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stepper li::before { content: ""; height: 4px; border-radius: 99px; background: var(--surface-top); transition: background var(--base) var(--ease); }
+  .stepper li.done::before { background: var(--accent); }
+  .stepper li[aria-current=step] { color: var(--ink); }
+  .stepper li[aria-current=step]::before { background: var(--primary); box-shadow: 0 0 12px var(--glow); }
+  .callout { display: flex; gap: var(--s3); padding: var(--s4); border-radius: var(--r-md); background: rgb(245 165 36 / 0.08);
+    box-shadow: inset 0 0 0 1px rgb(245 165 36 / 0.2); color: #d9d8ea; font: var(--t-sm); }
+  .callout svg.i { color: var(--warn); margin-top: 1px; }
+  .check { display: flex; gap: var(--s2); align-items: center; cursor: pointer; font-weight: 700; }
+  .check input { width: 18px; height: 18px; accent-color: var(--primary); }
+
+  /* controller screen */
+  .pads { display: flex; flex-direction: column; gap: var(--s2); }
+  .pad-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3); border-radius: var(--r-sm);
+    background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+  .pad-row b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch; }
+  .pad-row .chip { margin: 0 var(--s2); }
+  /* the pad drawings (home/pads.js): PS2, PS5, Xbox */
+  .padart { width: 100%; max-width: 520px; margin: 0 auto; display: block; filter: drop-shadow(0 20px 30px rgb(0 0 0 / 0.5)); animation: fade var(--base) var(--ease); }
+  .padart .k { fill: var(--surface-top); stroke: rgb(255 255 255 / 0.12); stroke-width: 2; transition: fill var(--fast) var(--ease); }
+  .padart .k.want { fill: var(--primary); animation: pulse 1.2s var(--ease) infinite; transform-box: fill-box; transform-origin: center; }
+  .padart .k.lit { fill: var(--accent); }
+  .padart .body { fill: var(--surface); stroke: rgb(255 255 255 / 0.1); stroke-width: 2; }
+  .padart .plate { fill: var(--surface-hi); stroke: rgb(255 255 255 / 0.08); stroke-width: 2; }
+  .padart text { fill: var(--ink); font: 700 15px var(--body); text-anchor: middle; pointer-events: none; }
+  .padart text.sm { font: 800 11px var(--body); letter-spacing: 0.06em; }
+  .padart text.out { fill: var(--soft); font-size: 10px; }
+  .padart .mark { fill: none; stroke: var(--ink); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+  /* Xbox's own face colors */
+  .padart .c-a { fill: #3ddc84; } .padart .c-b { fill: #ff5d6c; } .padart .c-x { fill: #5aa9ff; } .padart .c-y { fill: #f5c524; }
+  .family { display: inline-flex; align-self: center; gap: 2px; padding: 3px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .family button { border: 0; border-radius: 7px; padding: 8px 16px; background: none; color: var(--soft); font: 700 13px/1 var(--body); cursor: pointer;
+    transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+  .family button:hover { color: var(--ink); }
+  .family button[aria-pressed=true] { background: var(--primary); color: #fff; box-shadow: 0 6px 16px -6px var(--glow); }
+  .waiting { display: flex; flex-direction: column; align-items: center; gap: var(--s4); padding: var(--s3) 0 var(--s2); }
+  .waiting .padart { max-width: 360px; opacity: 0.7; animation: fade var(--base) var(--ease), float 6s ease-in-out infinite; }
+  .ask { text-align: center; font: 600 18px/1.4 var(--display); letter-spacing: -0.01em; }
+  .ask small { display: block; font: var(--t-sm); color: var(--soft); margin-top: 4px; }
+
+  /* intro */
+  .intro { position: fixed; inset: 0; z-index: 40; background: #000; display: grid; place-items: center; cursor: pointer; animation: fade var(--base) var(--ease); }
+  .intro video { width: 100%; height: 100%; object-fit: contain; }
+  .intro small { position: absolute; right: var(--s5); bottom: var(--s5); color: rgb(255 255 255 / 0.6); font: var(--t-sm); }
+  @keyframes fade { from { opacity: 0; } }
+
+  .expired { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(8 8 14 / 0.9); padding: var(--s5); text-align: center; z-index: 50; }
+
   @media (max-width: 760px) {
+    :root { --gutter: 16px; }
     .app { grid-template-columns: minmax(0, 1fr); }
-    .side { position: static; height: auto; flex-direction: row; align-items: center; justify-content: space-between; padding: 12px 16px; gap: 12px;
-      border-right: 0; border-bottom: 1px solid var(--line); }
-    .brand small, .tip, nav .label, nav a .count { display: none; }
-    nav a span.t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .side { position: sticky; top: 0; z-index: 10; height: auto; flex-direction: row; align-items: center; justify-content: space-between;
+      padding: var(--s2) var(--gutter); gap: var(--s2); border-right: 0; border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
+    .brand small, .tip, nav .count, nav .label { display: none; }
     nav { flex-direction: row; }
-    .panel { grid-column: 1; padding: 0 16px 24px; }
-    main { padding: 16px; }
-    .hero { padding: 22px; min-height: 240px; }
-    .hero .mark { font-size: 110px; }
+    nav button { width: 40px; padding: 0; justify-content: center; }
+    nav button span.t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    nav button.on::before { display: none; }
+    main { padding-top: var(--s5); gap: var(--s6); }
+    .top { align-items: center; }
+    .top h1 { font-size: 20px; }
+    .me span { display: none; }
+    .me { padding: 3px; }
+    .hero { padding: var(--s5); min-height: 0; grid-template-columns: minmax(0, 1fr); }
+    .hero .case { display: none; }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--s5) var(--s3); }
+    .dialog { padding: var(--s5); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .cover:hover, .cover:focus-visible, .add:hover, .btn:hover { transform: none; }
+    .cover:hover img, .cover:focus-visible img { transform: none; }
+    .cover::after { display: none; }
   }
 </style>
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
-  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M6.5 8h11a4.5 4.5 0 0 1 4.3 5.8l-1.1 3.7a2.5 2.5 0 0 1-4.4.8L15 16H9l-1.3 2.3a2.5 2.5 0 0 1-4.4-.8l-1.1-3.7A4.5 4.5 0 0 1 6.5 8z"/><path d="M8 11v3M6.5 12.5h3"/><circle cx="16" cy="11.5" r=".6"/><circle cx="17.5" cy="13.5" r=".6"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
-  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6"/></symbol>
-  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 1.5v3M15 1.5v3M9 19.5v3M15 19.5v3M1.5 9h3M1.5 15h3M19.5 9h3M19.5 15h3"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
-  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5" fill="currentColor"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3 2 20h20zM12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+  <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2.1-.1-2.9a2.2 2.2 0 0 0-2.9-.1z"/><path d="m12 15-3-3a22 22 0 0 1 2-4A12.9 12.9 0 0 1 22 2c0 2.7-.8 7.5-6 11a22.4 22.4 0 0 1-4 2z"/><path d="M9 12H4s.6-3 2-4c1.6-1.1 5 0 5 0M12 15v5s3-.6 4-2c1.1-1.6 0-5 0-5"/></symbol>
 </svg>
 
 <div class="app">
   <aside class="side">
     <div class="brand">
       <img src="../../icon.svg" alt="">
-      <div><b>CordPlay <span class="beta">BETA</span></b><small>Jogue junto no Discord</small></div>
+      <div><b>Cord<span class="hi">Play</span> <span class="beta">BETA</span></b><small>Jogue junto no Discord</small></div>
     </div>
     <nav aria-label="Seções">
-      <a href="#explorar" class="on"><svg class="i"><use href="#i-home"/></svg><span class="t">Explorar</span></a>
-      <a href="#catalogo"><svg class="i"><use href="#i-grid"/></svg><span class="t">Catálogo</span><span class="count" id="n-games"></span></a>
-      <a href="#homebrew"><svg class="i"><use href="#i-play"/></svg><span class="t">Homebrew</span><span class="count" id="n-hb"></span></a>
-      <a href="#enviar"><svg class="i"><use href="#i-upload"/></svg><span class="t">Enviar ISO</span></a>
-      <span class="label">Biblioteca</span>
-      <a href="#catalogo"><svg class="i"><use href="#i-play"/></svg><span class="t">Prontos para jogar</span><span class="count" id="n-ready"></span></a>
+      <button type="button" class="on" data-nav="library"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>
+      <button type="button" data-nav="homebrew"><svg class="i"><use href="#i-play"/></svg><span class="t">Homebrew</span><span class="count num" id="n-hb"></span></button>
+      <button type="button" data-add><svg class="i"><use href="#i-plus"/></svg><span class="t">Adicionar jogo</span></button>
+      <button type="button" data-controller><svg class="i"><use href="#i-pad"/></svg><span class="t">Controle</span></button>
     </nav>
     <div class="tip">
-      <h3>Jogue direto no Discord</h3>
-      <p>Abra o CordPlay pelo 🚀 do canal de voz: quem estiver na call entra na mesma hora.</p>
+      <span class="badge"><svg class="i"><use href="#i-rocket"/></svg></span>
+      <h3>Jogue com a call</h3>
+      <p>Quem está no canal de voz abre o CordPlay pelo botão de atividades e entra na mesma biblioteca.</p>
     </div>
   </aside>
 
-  <main id="explorar">
-    <div class="top">
-      <h1>Explorar</h1>
+  <main id="library">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Biblioteca</p>
+        <h1 id="hello">Olá</h1>
+        <p class="sub" id="sub"><span class="sk l3"></span></p>
+      </div>
       <div class="me" id="me"></div>
-    </div>
-    <section class="hero" id="hero"><div class="busy"><div class="spin"></div><p>Carregando…</p></div></section>
-    <section id="catalogo">
-      <div class="section-head"><h2>Catálogo</h2><span>Jogos que este servidor sabe compilar</span></div>
-      <div class="grid" id="grid"></div>
+    </header>
+    <section class="hero loading" id="hero" aria-label="Em destaque" aria-busy="true">
+      <div class="text"><span class="sk l1"></span><span class="sk l2"></span><span class="sk l3"></span><span class="sk l4"></span></div>
     </section>
-    <section id="homebrew">
-      <div class="section-head"><h2>Homebrew</h2><span id="hb-count">Jogos livres do Homebrew Hub, prontos para jogar</span></div>
+    <section aria-labelledby="games-title">
+      <div class="section-head"><h2 id="games-title">Seus jogos</h2><span>Enviados uma vez, para todo mundo</span></div>
+      <div class="grid" id="grid">
+        <div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div><div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div>
+        <div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div><div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div>
+        <div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div>
+      </div>
+    </section>
+    <section id="homebrew" aria-labelledby="hb-title">
+      <div class="section-head"><h2 id="hb-title">Homebrew</h2><span id="hb-count">Jogos livres do Homebrew Hub, prontos para jogar</span></div>
       <div class="filters">
-        <input id="hb-q" type="search" placeholder="Buscar por nome, autor ou tag" aria-label="Buscar homebrew">
+        <input class="field" id="hb-q" type="search" placeholder="Buscar por nome, autor ou tag" aria-label="Buscar homebrew">
         <div class="chips" id="hb-plat" role="group" aria-label="Plataforma">
-          <button class="chip" data-plat="" aria-pressed="true">Todos</button><button class="chip" data-plat="GB" aria-pressed="false">Game Boy</button><button class="chip" data-plat="GBC" aria-pressed="false">Game Boy Color</button><button class="chip" data-plat="GBA" aria-pressed="false">GBA</button><button class="chip" data-plat="NES" aria-pressed="false">NES</button>
+          <button type="button" class="chip" data-plat="" aria-pressed="true">Todos</button><button type="button" class="chip" data-plat="GB" aria-pressed="false">Game Boy</button><button type="button" class="chip" data-plat="GBC" aria-pressed="false">Game Boy Color</button><button type="button" class="chip" data-plat="GBA" aria-pressed="false">GBA</button><button type="button" class="chip" data-plat="NES" aria-pressed="false">NES</button>
         </div>
       </div>
-      <div class="grid" id="hb-grid"><div class="busy"><div class="spin"></div><p>Carregando a lista do Homebrew Hub…</p></div></div>
-      <button class="btn ghost more" id="hb-more" hidden>Mostrar mais</button>
+      <div class="grid hb" id="hb-grid"><div class="busy"><div class="spin"></div><p>Carregando a lista do Homebrew Hub…</p></div></div>
+      <button type="button" class="btn second more" id="hb-more" hidden>Mostrar mais</button>
     </section>
   </main>
-
-  <aside class="panel" id="enviar">
-    <section class="box" id="upload"></section>
-    <section class="box how">
-      <h2>Como funciona</h2>
-      <ul>
-        <li><svg class="i"><use href="#i-upload"/></svg><span>Alguém envia a ISO do jogo uma vez. O envio retoma se a conexão cair.</span></li>
-        <li><svg class="i"><use href="#i-cpu"/></svg><span>O servidor confere a ISO e compila o jogo sozinho (alguns minutos).</span></li>
-        <li><svg class="i"><use href="#i-users"/></svg><span>Pronto: todo mundo do servidor joga, online com os amigos ou contra a CPU.</span></li>
-      </ul>
-      <p class="note">Use só com amigos que têm, cada um, a própria cópia do jogo.</p>
-    </section>
-  </aside>
 </div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-labelledby="drawer-title" role="dialog" aria-modal="true">
+  <header><h2 id="drawer-title">Jogo</h2><button type="button" class="btn quiet" data-close aria-label="Fechar"><svg class="i"><use href="#i-close"/></svg></button></header>
+  <div class="body" id="drawer-body"></div>
+</aside>
+
+<div id="layer"></div>
 <div class="expired" id="expired" hidden><p class="error">O acesso venceu. Feche a atividade e abra de novo.</p></div>
-<input id="iso" type="file" accept=".iso">
+<input id="file" type="file">
 
-<script>
-'use strict';
-const $ = (id) => document.getElementById(id);
-const PIECE = 32 * 1024 * 1024; // under the 100 MB that proxies like Cloudflare take in one request
-
-let me = '';
-let games = null;
-let selected = null; // the game the side panel shows
-let expired = false;
-// While this page uploads: { game, size, received (taken by the server), inflight (of the piece on its way), meter, retrying }
-let sending = null;
-let uploadError = { game: null, text: '' };
-// Someone else's upload, seen through the polls: its speed per game.
-const watching = new Map();
-
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const num = (n, d = 1) => n.toLocaleString('pt-BR', { maximumFractionDigits: d, minimumFractionDigits: d });
-const gb = (n) => num(n / 1024 ** 3, 2) + ' GB';
-const speed = (bps) => (bps >= 1024 ** 2 ? num(bps / 1024 ** 2) + ' MB/s' : num(bps / 1024, 0) + ' KB/s');
-const pct = (a, b) => (b ? Math.min(100, (a / b) * 100) : 0);
-const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
-const initials = (name) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
-const short = (g) => g.id.toUpperCase();
-const art = (g) => `background: radial-gradient(circle at 70% 30%, ${g.colors[0]}, ${g.colors[1]} 45%, #1a1030 85%)`;
-
-function duration(s) {
-  if (s < 10) return 'segundos';
-  if (s < 60) return `${Math.ceil(s / 5) * 5} s`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m} min`;
-  return `${Math.floor(m / 60)} h ${m % 60} min`;
-}
-
-/** Bytes over time: the speed over the last `span` ms, and how long the rest takes at it. */
-function meter(span) {
-  const samples = [];
-  return {
-    add(bytes) {
-      const t = performance.now();
-      samples.push({ t, bytes });
-      while (samples.length > 2 && t - samples[0].t > span) samples.shift();
-    },
-    reset() { samples.length = 0; },
-    rate() {
-      if (samples.length < 2) return 0;
-      const a = samples[0], b = samples[samples.length - 1];
-      const dt = (b.t - a.t) / 1000;
-      return dt >= 1 ? Math.max(0, b.bytes - a.bytes) / dt : 0;
-    },
-  };
-}
-
-/** The bar, then how much, how fast and how long. `rate` 0: still measuring (`live`) or not moving. */
-function progress(received, size, rate, live) {
-  const p = pct(received, size);
-  const left = rate > 0 ? (size - received) / rate : 0;
-  const at = rate > 0 ? new Date(Date.now() + left * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
-  return `<div class="big"><b>${num(p, 1)}%</b><span>${gb(received)} de ${gb(size)}</span></div>
-    <div class="bar${live ? ' moving' : ''}" role="progressbar" aria-label="Envio da ISO" aria-valuemin="0" aria-valuemax="100"
-      aria-valuenow="${Math.floor(p)}"><div style="width:${p.toFixed(2)}%"></div></div>
-    <div class="stats">
-      <div><b>${rate > 0 ? speed(rate) : '—'}</b><span>velocidade</span></div>
-      <div><b>${rate > 0 ? '~' + duration(left) : live ? 'medindo…' : '—'}</b><span>${at ? 'termina ~' + at : 'falta'}</span></div>
-    </div>`;
-}
-
-function badge(g) {
-  const s = g.status;
-  if (sending?.game === g.id) return `<span class="badge busy">Enviando ${Math.floor(pct(sending.received + sending.inflight, sending.size))}%</span>`;
-  switch (s.state) {
-    case 'ready': return '<span class="badge ok">Pronto para jogar</span>';
-    case 'empty': return '<span class="badge warn">Precisa da ISO</span>';
-    case 'uploading': return s.mine || s.stale
-      ? `<span class="badge warn">Envio parado em ${Math.floor(pct(s.received, s.size))}%</span>`
-      : `<span class="badge busy">Recebendo ${Math.floor(pct(s.received, s.size))}%</span>`;
-    case 'queued': return '<span class="badge busy">Na fila</span>';
-    case 'building': return `<span class="badge busy">Compilando ${s.step}/${s.total}</span>`;
-    case 'failed': return '<span class="badge bad">' + (s.refused ? 'ISO recusada' : 'Falhou') + '</span>';
-    default: return '<span class="badge bad">Compilador parado</span>';
-  }
-}
-
-/** The main thing to do with a game. */
-function action(g, big) {
-  const cls = big ? 'btn' : 'btn small';
-  const s = g.status;
-  if (s.state === 'ready') return `<button class="${cls}" data-play="${esc(g.id)}"><svg class="i"><use href="#i-play"/></svg>Jogar agora</button>`;
-  if (!sending && (s.state === 'empty' || (s.state === 'failed' && s.refused) || (s.state === 'uploading' && (s.mine || s.stale))))
-    return `<button class="${cls}" data-pick="${esc(g.id)}"><svg class="i"><use href="#i-upload"/></svg>${s.state === 'uploading' ? 'Continuar envio' : 'Enviar a ISO'}</button>`;
-  return `<button class="${cls} ghost" data-select="${esc(g.id)}">Ver progresso</button>`;
-}
-
-function hero(g) {
-  const live = g.rooms ? `<span class="live">${g.rooms} ${g.rooms === 1 ? 'sala aberta' : 'salas abertas'} agora</span>` : '';
-  return `<div style="position:absolute;inset:0;${art(g)}"></div>
-    <div style="position:absolute;inset:0;background:linear-gradient(100deg, rgb(13 13 24 / .96) 25%, rgb(13 13 24 / .55) 60%, rgb(13 13 24 / .1))"></div>
-    <span class="mark" aria-hidden="true">${esc(short(g))}</span>
-    <div class="chips" style="position:relative"><span class="chip hot">Em destaque</span><span class="chip">${esc(g.platform)}</span>
-      ${g.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
-    <h2 style="position:relative">${esc(g.name)}</h2>
-    <p style="position:relative">${esc(g.blurb)}</p>
-    <div class="actions" style="position:relative">${action(g, true)}${badge(g)}${live}</div>`;
-}
-
-function card(g) {
-  return `<article class="card${g.id === selected ? ' on' : ''}">
-    <button class="cover" style="${art(g)}" data-select="${esc(g.id)}" aria-label="Ver ${esc(g.name)}">
-      <small class="chip">${esc(g.platform)}</small><b>${esc(short(g))}</b></button>
-    <div class="body">
-      <h3>${esc(g.name)}</h3>
-      <div class="chips">${g.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
-      <div class="foot">${badge(g)}</div>
-      ${action(g, false)}
-    </div>
-  </article>`;
-}
-
-function steps(g, s) {
-  return `<ol class="steps">${Array.from({ length: s.total }, (_, i) => {
-    const n = i + 1;
-    const name = esc(g.steps[i] ?? `Passo ${n}`);
-    if (n < s.step) return `<li class="done"><svg class="i"><use href="#i-check"/></svg>${name}</li>`;
-    if (n === s.step) return `<li class="now"><div class="spin"></div>${esc(s.label)}</li>`;
-    return `<li><svg class="i"><use href="#i-dot"/></svg>${name}</li>`;
-  }).join('')}</ol>`;
-}
-
-function pick(g, label) {
-  return `<div class="drop" data-drop="${esc(g.id)}"><svg class="i"><use href="#i-upload"/></svg>
-    <p><strong>Arraste a ISO aqui</strong> ou</p>
-    <button class="btn" data-pick="${esc(g.id)}">${esc(label)}</button>
-    <p class="note">${esc(g.disc)} Basta uma vez: vale pra todo mundo deste servidor.</p></div>`;
-}
-
-function panel(g) {
-  const s = g.status;
-  let html = '';
-  if (sending?.game === g.id) {
-    const received = sending.received + sending.inflight;
-    html = `<p><strong>${sending.retrying ? 'A conexão caiu. Retomando…' : 'Enviando a ISO…'}</strong> Deixe esta janela aberta até terminar.</p>
-      ${progress(received, sending.size, sending.retrying ? 0 : sending.meter.rate(), !sending.retrying)}`;
-  } else if (sending) {
-    html = '<p>Outro envio está em andamento nesta janela. Espere ele terminar para enviar este jogo.</p>';
-  } else if (s.state === 'empty') {
-    html = `<p>Este servidor ainda não tem o jogo. Envie a ISO e ele confere e compila sozinho.</p>${pick(g, 'Escolher a ISO')}`;
-  } else if (s.state === 'uploading') {
-    html = s.mine || s.stale
-      ? `<p>O envio parou em ${Math.floor(pct(s.received, s.size))}%. Escolha o mesmo arquivo para continuar de onde parou.</p>
-         ${progress(s.received, s.size, 0, false)}${pick(g, 'Continuar o envio')}`
-      : `<p><strong>${esc(s.by)}</strong> está enviando a ISO.</p>${progress(s.received, s.size, watching.get(g.id)?.rate() ?? 0, true)}`;
-  } else if (s.state === 'queued') {
-    html = '<div class="busy"><div class="spin"></div><p>ISO recebida. Esperando o compilador começar…</p></div>';
-  } else if (s.state === 'building') {
-    html = `<p><strong>Compilando o jogo</strong> (passo ${s.step} de ${s.total})</p>
-      <div class="bar moving"><div style="width:${pct(s.step - 1, s.total)}%"></div></div>${steps(g, s)}
-      <div class="row"><span>Leva alguns minutos, uma vez só.</span><span>${clock(s.elapsed)}</span></div>`;
-  } else if (s.state === 'failed') {
-    html = `<p class="error">${s.refused ? 'O servidor recusou essa ISO.' : 'A compilação falhou.'}</p><pre>${esc(s.message || 'Erro desconhecido')}</pre>
-      ${s.refused ? pick(g, 'Enviar outra ISO') : `<button class="btn" data-retry="${esc(g.id)}">Tentar de novo</button>`}`;
-  } else if (s.state === 'offline') {
-    html = '<p class="error">O compilador deste jogo não está rodando no servidor.</p><p class="note">Quem cuida do servidor precisa subir o serviço dele.</p>';
-  } else if (s.state === 'ready') {
-    html = `<p>Tudo pronto: todo mundo deste servidor já pode jogar.</p>${action(g, true).replace('class="btn"', 'class="btn wide"')}`;
-  }
-  if (uploadError.game === g.id && uploadError.text) html += `<p class="error">${esc(uploadError.text)}</p>`;
-  const asks = sending?.game === g.id || ['empty', 'uploading'].includes(s.state) || (s.state === 'failed' && s.refused);
-  return `<h2><svg class="i"><use href="#i-${asks ? 'upload' : 'cpu'}"/></svg>${asks ? 'Enviar ISO' : 'Situação do jogo'}</h2>
-    <div class="game"><div class="thumb" style="${art(g)}">${esc(short(g))}</div>
-      <div><b>${esc(g.name)}</b><p>${esc(g.platform)} · ${g.year}</p></div></div>
-    ${html}`;
-}
-
-/** Only touches the page where something changed: keeps focus and hover where they are between polls. */
-function set(el, html) {
-  if (el._html === html) return;
-  el._html = html;
-  el.innerHTML = html;
-}
-
-function render() {
-  $('expired').hidden = !expired;
-  if (!games) return;
-  const g = games.find((x) => x.id === selected) ?? games[0];
-  if (!g) return;
-  selected = g.id;
-  set($('me'), me ? `<span>${esc(me)}</span><div class="avatar" aria-hidden="true">${esc(initials(me))}</div>` : '');
-  set($('n-games'), String(games.length));
-  set($('n-ready'), String(games.filter((x) => x.status.state === 'ready').length));
-  set($('hero'), hero(games[0]));
-  set($('grid'), games.map(card).join('') +
-    '<div class="card soon"><p><strong style="color:var(--ink)">Mais jogos em breve</strong><br>Cada jogo novo é um port feito a partir do jogo original.</p></div>');
-  set($('upload'), panel(g));
-}
-
-// Progress events come many times a second: one render per quarter second is enough.
-let later = 0;
-function soon() {
-  if (!later) later = setTimeout(() => { later = 0; render(); }, 250);
-}
-
-async function poll() {
-  try {
-    const r = await fetch('games', { cache: 'no-store' });
-    if (r.status === 403) { expired = true; render(); return; }
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const body = await r.json();
-    me = body.me;
-    games = body.games;
-    for (const g of games) {
-      const s = g.status;
-      if (s.state === 'uploading' && !s.mine && !s.stale) {
-        // The server takes 32 MB at a time: a minute of history smooths that out.
-        if (!watching.has(g.id)) watching.set(g.id, meter(60_000));
-        watching.get(g.id).add(s.received);
-      } else watching.delete(g.id);
-    }
-  } catch (e) {
-    // (no connection for a moment: the next look tries again)
-  }
-  render();
-}
-
-/** A PUT that reports its bytes as they go (fetch can't). */
-function put(url, body, onSent) {
-  return new Promise((ok, fail) => {
-    const x = new XMLHttpRequest();
-    x.open('PUT', url);
-    x.upload.onprogress = (e) => onSent(e.loaded);
-    x.onload = () => {
-      let json = {};
-      try { json = JSON.parse(x.responseText); } catch (e) { /* not JSON */ }
-      ok({ status: x.status, body: json });
-    };
-    x.onerror = x.onabort = x.ontimeout = () => fail(new Error('connection'));
-    x.send(body);
-  });
-}
-
-async function upload(g, file) {
-  uploadError = { game: g.id, text: '' };
-  if (file.size < g.minIso || file.size > g.maxIso) {
-    uploadError.text = 'Esse arquivo não parece a ISO do jogo (tamanho fora do esperado).';
-    render();
-    return;
-  }
-  const base = encodeURIComponent(g.id) + '/';
-  sending = { game: g.id, size: file.size, received: 0, inflight: 0, meter: meter(8000), retrying: false };
-  render();
-  // (on narrower windows the panel sits below the catalog)
-  $('enviar').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  try {
-    for (;;) {
-      // Where the server is: before starting and after every error.
-      let at;
-      try {
-        const r = await fetch(base + 'upload', { cache: 'no-store' });
-        if (r.status === 403) { expired = true; return; }
-        at = await r.json();
-      } catch (e) {
-        await wait(3000);
-        continue;
-      }
-      if (at.done) return;
-      let offset = at.size === file.size ? at.received : 0;
-      sending.received = offset;
-      sending.inflight = 0;
-      sending.retrying = false;
-      sending.meter.reset();
-      sending.meter.add(offset);
-      render();
-      let failed = false;
-      while (offset < file.size) {
-        let res;
-        try {
-          const from = offset;
-          res = await put(`${base}upload?offset=${offset}&size=${file.size}`, file.slice(offset, offset + PIECE), (n) => {
-            sending.inflight = n;
-            sending.meter.add(from + n);
-            soon();
-          });
-        } catch (e) {
-          failed = true; // the connection dropped: ask where it stopped and go on from there
-          sending.inflight = 0;
-          sending.retrying = true;
-          render();
-          await wait(3000);
-          break;
-        }
-        sending.inflight = 0;
-        const { status, body } = res;
-        if (status === 403) { expired = true; return; }
-        if (status >= 200 && status < 300) {
-          offset = body.received;
-          sending.received = offset;
-          soon();
-          if (body.done) return;
-          continue;
-        }
-        if (body.code === 'order') { failed = true; break; }
-        // someone else is sending, the server already has it, or it doesn't take this file
-        if (body.code !== 'done') uploadError.text = body.error || `Erro ${status}`;
-        return;
-      }
-      if (!failed) return;
-    }
-  } finally {
-    sending = null;
-    await poll();
-  }
-}
-
-let picking = null; // the game the file picker is for
-const gameOf = (id) => games?.find((g) => g.id === id);
-
-document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-play],[data-pick],[data-select],[data-retry]');
-  if (!el) return;
-  const { play, pick: pickId, select, retry } = el.dataset;
-  if (play) { location.href = encodeURIComponent(play) + '/game/'; return; }
-  if (pickId) { selected = picking = pickId; render(); $('iso').click(); return; }
-  if (select) {
-    selected = select;
-    render();
-    $('enviar').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    return;
-  }
-  if (retry) {
-    el.disabled = true;
-    await fetch(encodeURIComponent(retry) + '/retry', { method: 'POST' }).catch(() => {});
-    await poll();
-  }
-});
-
-$('iso').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
-  const g = gameOf(picking);
-  if (file && g && !sending) upload(g, file);
-});
-
-// Dropping the ISO on the upload box.
-const dropOf = (e) => e.target.closest?.('[data-drop]');
-// (anywhere else, a dropped file would open in place of the page)
-document.addEventListener('dragover', (e) => {
-  e.preventDefault();
-  dropOf(e)?.classList.add('over');
-});
-document.addEventListener('dragleave', (e) => dropOf(e)?.classList.remove('over'));
-document.addEventListener('drop', (e) => {
-  e.preventDefault();
-  const d = dropOf(e);
-  if (!d) return;
-  d.classList.remove('over');
-  const file = e.dataTransfer.files[0];
-  const g = gameOf(d.dataset.drop);
-  if (file && g && !sending) upload(g, file);
-});
-
-// The homebrew shelf: fetched once (the server keeps it a day), filtered here.
-const HB_PAGE = 48;
-let hb = null;
-let hbShown = HB_PAGE;
-let hbPlat = '';
-
-function hbCard(g) {
-  const cover = g.cover
-    ? `<img src="homebrew/${encodeURIComponent(g.slug)}/cover" loading="lazy" alt="">`
-    : `<b>${esc(g.platform)}</b>`;
-  return `<article class="card">
-    <button class="cover" style="background:var(--surface)" data-hb="${esc(g.slug)}" aria-label="Jogar ${esc(g.title)}">${cover}
-      <small class="chip">${esc(g.platform)}</small></button>
-    <div class="body">
-      <h3>${esc(g.title)}</h3>
-      ${g.developer ? `<p class="by">${esc(g.developer)}</p>` : ''}
-      <div class="chips">${g.tags.slice(0, 2).map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
-    </div>
-  </article>`;
-}
-
-function renderHomebrew() {
-  if (!hb) return;
-  const words = $('hb-q').value.toLowerCase().split(/\s+/).filter(Boolean);
-  const found = hb.filter((g) => (!hbPlat || g.platform === hbPlat) &&
-    words.every((w) => g.title.toLowerCase().includes(w) || g.developer.toLowerCase().includes(w) || g.tags.some((t) => t.toLowerCase().includes(w))));
-  set($('n-hb'), String(hb.length));
-  set($('hb-count'), `${found.length} de ${hb.length} jogos do Homebrew Hub, cada um com a licença do autor`);
-  set($('hb-grid'), found.length
-    ? found.slice(0, hbShown).map(hbCard).join('')
-    : `<p class="note">${hb.length ? 'Nenhum jogo encontrado.' : 'O servidor ainda está buscando a lista do Homebrew Hub…'}</p>`);
-  $('hb-more').hidden = found.length <= hbShown;
-}
-
-async function loadHomebrew() {
-  try {
-    const r = await fetch('homebrew', { cache: 'no-store' });
-    if (r.ok) hb = (await r.json()).games;
-  } catch (e) { /* tries again below */ }
-  renderHomebrew();
-  // The first time the server starts, the list takes a minute or two to come in.
-  if (!hb?.length) setTimeout(() => { if (!expired) loadHomebrew(); }, 15000);
-}
-
-$('hb-q').addEventListener('input', () => { hbShown = HB_PAGE; renderHomebrew(); });
-$('hb-plat').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-plat]');
-  if (!b) return;
-  hbPlat = b.dataset.plat;
-  hbShown = HB_PAGE;
-  for (const x of $('hb-plat').children) x.setAttribute('aria-pressed', String(x === b));
-  renderHomebrew();
-});
-$('hb-more').addEventListener('click', () => { hbShown += HB_PAGE; renderHomebrew(); });
-$('hb-grid').addEventListener('click', (e) => {
-  const slug = e.target.closest('[data-hb]')?.dataset.hb;
-  const g = slug && hb.find((x) => x.slug === slug);
-  if (g) location.href = 'play/?' + new URLSearchParams({ g: g.slug, p: g.platform, t: g.title });
-});
-
-poll();
-loadHomebrew();
-setInterval(() => { if (!expired) poll(); }, 2000);
-</script>
+<script src="iso.js"></script>
+<script src="padmap.js"></script>
+<script type="module" src="home/app.js"></script>
 </body>
 </html>

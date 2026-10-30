@@ -1,5 +1,5 @@
-# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET (README).
-# Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
+# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET; optional PUBLIC_URL, TURN_URL, TURN_SECRET
+# (README). Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
 services:
   app:
     build: .
@@ -7,10 +7,15 @@ services:
     environment:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      # The app's own https address, for "Abrir no navegador" when Discord can't run a PS2 game in its window.
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # A TURN relay for the PS2 games' online (the turn service below, or any coturn with --use-auth-secret).
+      TURN_URL: ${TURN_URL:-}
+      TURN_SECRET: ${TURN_SECRET:-}
     volumes:
       - bt3-data:/app/data
 
-  # Compiles the game from the disc image sent through the Activity (builder/).
+  # Compiles BT3 from the disc image sent through the Activity (builder/).
   # Idle, it only looks at the volume every 5 s; a build is once per disc image, held to 2 CPUs so calls don't suffer.
   builder:
     build: builder
@@ -18,6 +23,17 @@ services:
     cpus: "2"
     volumes:
       - bt3-data:/app/data
+
+  # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly.
+  # Uncomment, set TURN_SECRET, TURN_URL=turn:<this server's public name>:3478, and open 3478/udp, 3478/tcp and
+  # 49160-49200/udp in the firewall.
+  # turn:
+  #   image: coturn/coturn:4.6
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   command: >-
+  #     -n --listening-port=3478 --fingerprint --use-auth-secret --static-auth-secret=${TURN_SECRET}
+  #     --realm=cordplay --min-port=49160 --max-port=49200 --no-cli --no-tls --no-dtls
 
 volumes:
   bt3-data:

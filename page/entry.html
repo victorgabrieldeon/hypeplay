@@ -6,20 +6,39 @@
 <title>CordPlay</title>
 <!--
   Where the Activity opens (server/routes.ts serves it at /). entry.js signs in with Discord, trades the code for a
-  pass and frames the game's page, p/<pass>/. This page stays: it holds the Discord SDK's connection.
+  pass and frames the game's page, p/<pass>/. This page stays: it holds the Discord SDK's connection. Until the home
+  is in, it shows the brand and a moving bar (the fonts need the pass, so this one uses the system's).
 -->
 <style>
-  html, body { margin: 0; height: 100%; background: #07070c; color: #a0a2b8;
-    font: 15px/1.5 "Inter Variable", ui-sans-serif, system-ui, sans-serif; }
+  html, body { margin: 0; height: 100%; background: #0b0a14; color: #a3a1bd; font: 500 15px/1.5 ui-sans-serif, system-ui, sans-serif; }
   body { display: grid; place-items: center; }
-  #msg { margin: 0; padding: 16px; text-align: center; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(520px 380px at 50% 42%, rgb(118 85 255 / 0.22), transparent 70%); }
+  .splash { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; text-align: center; animation: in 500ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .splash img { width: 72px; height: 72px; margin-bottom: 4px; filter: drop-shadow(0 10px 28px rgb(118 85 255 / 0.6)); animation: breathe 2.4s ease-in-out infinite; }
+  .splash b { color: #f3f2fb; font: 800 24px/1 ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.02em; }
+  .splash b span { color: #a08cff; }
+  .load { width: 160px; height: 3px; border-radius: 99px; background: #1b1830; overflow: hidden; }
+  .load::after { content: ""; display: block; width: 40%; height: 100%; border-radius: inherit; background: #7655ff; box-shadow: 0 0 10px rgb(118 85 255 / 0.8);
+    animation: slide 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite; }
+  .splash:has(#msg.error) .load { display: none; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  @keyframes breathe { 50% { transform: scale(1.05); } }
+  @keyframes in { from { opacity: 0; transform: translateY(8px); } }
+  #msg { margin: 0; max-width: 40ch; }
   #msg.error { color: #f0384c; }
   iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
   [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
 </style>
 </head>
 <body>
-<p id="msg">Entrando pelo Discord…</p>
+<div class="splash">
+  <img src="icon.svg" alt="">
+  <b>Cord<span>Play</span></b>
+  <p id="msg">Entrando pelo Discord…</p>
+  <div class="load" aria-hidden="true"></div>
+</div>
 <!-- The home, then a game: games want controllers, sound without a click first, and full screen. -->
 <iframe id="game" title="CordPlay" allow="gamepad; autoplay; fullscreen" hidden></iframe>
 <script type="module" src="entry.js"></script>

@@ -9,16 +9,22 @@
   the home). The ROM is ../homebrew/<slug>/rom, the emulator ../emulator/ (emulator/fetch.ts).
 -->
 <style>
-  html, body { margin: 0; height: 100%; background: #0d0d18; color: #f4f4fb; font: 14px/1.5 "Inter Variable", ui-sans-serif, system-ui, sans-serif; }
+  /* the home's tokens (DESIGN.md) */
+  @font-face { font-family: "Manrope"; font-weight: 200 800; font-display: swap; src: url("../fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Unbounded"; font-weight: 200 900; font-display: swap; src: url("../fonts/unbounded-latin-wght-normal.woff2") format("woff2"); }
+  :root { --bg: #0b0a14; --side: #0f0d1a; --surface-top: #242040; --line: rgb(255 255 255 / 0.06); --ink: #f3f2fb; --soft: #a3a1bd;
+    --accent: #a08cff; --danger: #f0384c; --r-sm: 8px; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 500 15px/24px Manrope, ui-sans-serif, system-ui, sans-serif; }
   body { display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #10101d; border-bottom: 1px solid rgb(255 255 255 / 0.06); }
-  header a { color: #f4f4fb; text-decoration: none; font-weight: 600; padding: 6px 12px; border-radius: 8px; background: #26263f; }
-  header a:hover { filter: brightness(1.12); }
-  header a:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
-  header b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  header small { color: #9a9bb7; flex: none; }
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--side); border-bottom: 1px solid var(--line); }
+  header a { color: var(--ink); text-decoration: none; font-weight: 600; height: 32px; display: inline-flex; align-items: center; padding: 0 12px;
+    border-radius: var(--r-sm); background: var(--surface-top); transition: background 120ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  header a:hover { background: #2c2750; }
+  header a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  header b { font: 600 17px/26px Unbounded, ui-sans-serif, system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header small { color: var(--soft); flex: none; font-size: 13px; }
   #game { flex: 1; min-height: 0; }
-  .error { color: #f0384c; padding: 24px; text-align: center; }
+  .error { color: var(--danger); padding: 24px; text-align: center; }
 </style>
 </head>
 <body>
@@ -52,7 +58,7 @@ if (!slug || !core) {
   window.EJS_pathtodata = '../emulator/';
   window.EJS_language = 'pt-BR';
   window.EJS_color = '#7655ff';
-  window.EJS_backgroundColor = '#0d0d18';
+  window.EJS_backgroundColor = '#0b0a14';
   window.EJS_startOnLoaded = true;
   window.EJS_disableDatabases = true; // (its cache manager, with no IndexedDB to manage)
   const s = document.createElement('script');

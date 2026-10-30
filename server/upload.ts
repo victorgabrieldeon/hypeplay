@@ -50,11 +50,13 @@ export type Status =
   | { state: "building"; step: number; total: number; label: string; elapsed: number }
   | { state: "failed"; message: string; refused: boolean }
   | { state: "ready" }
-  | { state: "offline" };
+  | { state: "offline" }
+  /** (PS2 games) the disc is in; the server still needs the PS2 BIOS */
+  | { state: "needs-bios" };
 
 export type PutResult =
   | { ok: true; received: number; done: boolean }
-  | { ok: false; status: number; code: "done" | "size" | "busy" | "order"; error: string; received?: number };
+  | { ok: false; status: number; code: "done" | "size" | "busy" | "order" | "gone"; error: string; received?: number };
 
 async function readJsonFile<T>(path: string): Promise<T | null> {
   try {
@@ -72,9 +74,13 @@ export interface DiscStoreOptions {
   min?: number;
   max?: number;
   maxPiece?: number;
+  /** The file in build/ that means the game is built (BT3's index.html; the PS2 games' ps2web.html). */
+  page?: string;
+  /** Whether the game is still there when a piece has arrived (the PS2 library: it may be removed meanwhile). */
+  alive?: () => Promise<boolean>;
 }
 
-export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE }: DiscStoreOptions = {}) {
+export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE, page = "index.html", alive }: DiscStoreOptions = {}) {
   const paths = {
     part: join(dir, "upload", "disc.iso.part"),
     state: join(dir, "upload", "state.json"),
@@ -105,6 +111,8 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
 
     put(pass: Pass, offset: number, size: number, body: Uint8Array): Promise<PutResult> {
       return serial(async () => {
+        // (removed while this piece was on its way: don't bring its folder back)
+        if (alive && !(await alive())) return { ok: false, status: 404, code: "gone", error: "Esse jogo foi removido" };
         if (await exists(paths.iso)) return { ok: false, status: 409, code: "done", error: "O servidor já tem a ISO" };
         if (!Number.isSafeInteger(size) || size < min || size > max)
           return { ok: false, status: 400, code: "size", error: "Esse arquivo não parece a ISO do jogo (tamanho fora do esperado)" };
@@ -141,6 +149,9 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
       });
     },
 
+    /** The builder's own status.json, as it wrote it. */
+    builder: () => readJsonFile<BuilderStatus>(paths.status),
+
     /** "Tentar de novo": the builder picks it up on its next look. */
     async retry() {
       await mkdir(dir, { recursive: true });
@@ -150,7 +161,7 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
     async status(pass: Pass): Promise<Status> {
       const [iso, built, builder] = await Promise.all([
         exists(paths.iso),
-        exists(join(paths.build, "index.html")),
+        exists(join(paths.build, page)),
         readJsonFile<BuilderStatus>(paths.status),
       ]);
       const t = now();
@@ -179,7 +190,8 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
             label: builder.label ?? "",
             elapsed: Math.max(0, t - (builder.startedAt ?? t)),
           };
-        if (builder.state === "failed") return { state: "failed", message: builder.message ?? "", refused: false };
+        if (builder.state === "failed")
+          return { state: "failed", message: builder.message ?? "", refused: false };
       }
       return { state: "queued" };
     },

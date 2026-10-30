@@ -1,8 +1,15 @@
 # CordPlay (atividade do Discord)
 
-Uma central de jogos como atividade do Discord (o 🚀 do canal de voz): quem abre escolhe o jogo no catálogo,
-envia a ISO uma vez e o servidor compila o jogo para o navegador. Cada jogo é um port web de uma decompilação,
-com o próprio compilador (serviço `builder`). Por enquanto o catálogo tem um jogo:
+Uma central de jogos como atividade do Discord (o 🚀 do canal de voz): quem abre escolhe o jogo na biblioteca,
+envia a ISO uma vez e o servidor compila o jogo para o navegador. Depois disso o jogo fica na biblioteca para todo
+mundo, sem enviar nem compilar de novo. Há dois tipos de jogo:
+
+- **Ports testados**, cada um com o próprio compilador (por enquanto, só o BT3, abaixo).
+- **Qualquer jogo de PS2** (em teste): quem tiver a ISO adiciona o jogo, com capa se quiser. Ela fica guardada no
+  servidor e roda direto no [TabStationToo](https://github.com/TabStationToo/TabStationToo), o PCSX2 compilado para
+  WebAssembly, sem compilar nada (ver [Jogos de PS2](#jogos-de-ps2)).
+
+O port testado de hoje:
 
 - **Dragon Ball Z: Budokai Tenkaichi 3**, o port web do
 [Tenkaichi3Decomp](https://github.com/stufno102/Tenkaichi3Decomp) (fork do stufno102, commit `81507cde`),
@@ -32,10 +39,37 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
   ele (F1 abre as configurações do jogo).
 - **Isolamento:** o jogo roda sempre em origem opaca (sandbox no cabeçalho CSP), sem `localStorage`. Por isso
   saves e configurações do jogo não ficam guardados entre sessões.
-
-- **Homebrew:** a seção abaixo do catálogo, com busca (nome, autor, tag) e filtro por plataforma. Clicar
-  numa capa abre o jogo no emulador; "Voltar" volta para a home. Teclado ou controle; os controles do
+- **Homebrew:** a prateleira "Homebrew" da biblioteca, com busca (nome, autor, tag) e filtro por plataforma. Clicar
+  numa capa abre o jogo no emulador; "Voltar" volta para a biblioteca. Teclado ou controle (o controle de PS2 mapeado em "Controle" vale aqui também); os controles do
   EmulatorJS ficam na barra de baixo. Saves e save states duram só a sessão (a mesma origem opaca).
+
+## Jogos de PS2
+
+- **BIOS, uma vez:** quem adiciona o primeiro jogo de PS2 envia também a BIOS do PS2 (o arquivo de 4 MB do próprio
+  console, `.bin` ou `.ROM0`). Ela fica no servidor (`/app/data/bios/`) e nunca mais é pedida. A página e o servidor
+  conferem que é uma BIOS de PS2 (4 MiB com a tabela ROMDIR).
+- **ISO, uma vez por jogo:** "Adicionar jogo" na biblioteca. Antes do envio vem o aviso: o TabStationToo ainda está
+  em teste, a maioria dos jogos roda e alguns podem travar ou ficar lentos. A página lê o serial da ISO
+  (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. O servidor confere o serial de
+  novo com a ISO inteira e guarda a ISO.
+- **Jogar:** assim que a ISO entra (e o servidor tem a BIOS), o jogo está pronto para todo mundo, para sempre. A
+  página do jogo é a do TabStationToo no nosso design: só o jogo na tela, a nossa barra e o painel de som e imagem.
+  "Remover" tira o jogo para todo mundo (os saves ficam guardados).
+- **Capa e nome:** qualquer um pode trocar. Capa PNG, JPG ou WebP até 5 MB, guardada em WebP 600×900; sem capa, o
+  servidor desenha uma a partir do serial.
+- **Saves:** o memory card de cada pessoa fica no servidor (por jogo e por usuário do Discord), então vale em
+  qualquer computador.
+- **Controle:** sempre um controle de PS2. Se o navegador não reconhecer (adaptador USB genérico), "Controle" na
+  biblioteca mapeia os botões uma vez; o mapa fica no servidor e vale em todos os jogos, BT3 incluso.
+- **Intro:** ao abrir um jogo de PS2 (o BT3 incluso; homebrew não) toca `intro.mp4` do volume (`/app/data/intro.mp4`), se existir; clique ou
+  tecla pula. Não vai para o git: é material da Sony.
+- **Online:** dentro do jogo, "Abrir sala"; na biblioteca os amigos veem "Fulano está jogando — Entrar como
+  jogador 2". O host transmite o jogo por WebRTC e o controle do convidado vira o jogador 2 (vale para jogos que
+  aceitam um segundo controle). O convidado não precisa de nada além do navegador. Redes que não se alcançam
+  direto precisam de um TURN (`TURN_URL`, `TURN_SECRET`; o compose tem um coturn comentado).
+- **Isolamento e navegador:** o runtime usa threads, então a página do jogo é servida *cross-origin isolated*
+  (`Document-Isolation-Policy`, COOP/COEP), sem o sandbox das outras páginas. Se o Discord não isolar a janela, o
+  jogo mostra "Abrir no navegador" (precisa de `PUBLIC_URL`). Precisa de WebGPU e JSPI: Chrome ou Edge atualizado.
 
 ## Configurar o app no Discord
 
@@ -62,8 +96,10 @@ Um app para o CordPlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | --- | --- |
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
+| `PUBLIC_URL` | Opcional. O endereço `https://` do app, para "Abrir no navegador" quando o Discord não roda um jogo de PS2 na janela dele |
+| `TURN_URL`, `TURN_SECRET` | Opcionais. Um TURN (coturn com `--use-auth-secret`) para o online dos jogos de PS2 entre redes que não se alcançam |
 
-Sem qualquer uma das duas o servidor não sobe.
+Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
 ## Acesso
 
@@ -80,7 +116,11 @@ Tudo fica no volume, em `/app/data/bt3/`: `disc.iso`, `work/` com o que a compil
 jogo e `build.log`. Nada disso vai para o git nem para imagem nenhuma (`data/` está no `.gitignore`). Só a
 lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
 
-**Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume.
+Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`) e a BIOS em
+`/app/data/bios/`. O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
+controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4`.
+
+**Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Remover" na biblioteca.
 
 O homebrew fica em `/app/data/homebrew/`: `catalog.json` (a lista, buscada na API do Homebrew Hub ao subir
 quando tem mais de um dia, e depois a cada dia) e, por jogo, o ROM e a capa, baixados do GitHub dos bancos
@@ -105,18 +145,36 @@ docker build -t bt3-builder builder
 docker run --rm -v "$PWD/data:/app/data" bt3-builder
 ```
 
+Para abrir a biblioteca sem o Discord, gere um passe com o mesmo segredo e abra `http://localhost:3003/p/<passe>/`:
+
+```sh
+bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
+```
+
 ## Por dentro
 
 - `server/`: o catálogo (`games.ts`), a prateleira de homebrew (`homebrew.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
-  (`upload.ts`), salas do online em memória (`rooms.ts`, port do `room.js` do fork).
-- `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe) e a
-  home (`index.html`: catálogo, homebrew, envio, progresso, erros) e o emulador do homebrew (`play.html`).
+  (`upload.ts`), salas do online em memória (`rooms.ts`, port do `room.js` do fork). Para os jogos de PS2: a
+  biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
+  mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
+  Range e isolamento (`http.ts`).
+- `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
+  home (`index.html` e `home/`: biblioteca, homebrew, envio, progresso, controle, intro), o emulador do homebrew
+  (`play.html`) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos e do emulador, de
+  `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).
 - `emulator/fetch.ts`: baixa o EmulatorJS e os cores (gambatte, mgba, fceumm) dos tarballs do npm. Não são
   dependências do `package.json` porque o pacote puxa as ferramentas de build e, opcional, todos os cores (300 MB).
 - `builder/`: a imagem e o laço do compilador do BT3. O `patch.ts` troca os caminhos absolutos do jogo por
   relativos e falha alto se o fork mudar.
+- `emulator/ps2-fetch.ts` e `ps2-files.json`: baixam o TabStationToo (GPL-3.0) e conferem cada arquivo por SHA-256;
+  `--update` pega a versão publicada agora e regrava os hashes (depois revise `server/ps2page.ts`).
+- `server/ps2page.ts` e `page/ps2play.ts`: a página do TabStationToo no nosso design (BIOS e disco do servidor,
+  memory card do servidor no slot 1, o console dele escondido, a nossa barra e o rodapé da licença).
 
-## Adicionar um jogo
+## Adicionar um port testado
+
+Jogos de PS2 entram pela própria biblioteca (ver [Jogos de PS2](#jogos-de-ps2)). Um port com compilador próprio,
+como o do BT3, entra assim:
 
 1. Uma entrada em `server/games.ts`: o `id` vira a pasta no volume (`/app/data/<id>/`) e o caminho
    (`p/<passe>/<id>/`). Também vão a ISO aceita, os tamanhos, os passos e a lista fixa de arquivos servidos.

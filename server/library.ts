@@ -82,7 +82,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
 
   function disc(id: string): DiscStore {
     let s = stores.get(id);
-    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max })));
+    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max, page: "ps2web.html" })));
     return s;
   }
 

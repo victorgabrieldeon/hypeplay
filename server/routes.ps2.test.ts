@@ -197,6 +197,12 @@ test("a PS2 game is served isolated, from its fixed list, gzipped when asked", a
   for (const f of ["segredo.txt", "ps2web.html", "shots/1.webp", "../game.json", "status.json"]) expect((await ana(`ps2/${id}/game/${f}`)).status).toBe(404);
 });
 
+test("a built PS2 game is ready (its page is ps2web.html, not index.html)", async () => {
+  const id = await built("SLES-12121", "SLES_121.21");
+  expect(await (await ana(`ps2/${id}/status`)).json()).toEqual({ state: "ready" });
+  expect((await catalog()).games.find((g) => g.id === id)!.status).toEqual({ state: "ready" });
+});
+
 test("the disc of a PS2 game answers Range and HEAD", async () => {
   const id = await built("SLES-77777", "SLES_777.77");
   const size = (await stat(library.paths(id).iso)).size;

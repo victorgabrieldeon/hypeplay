@@ -77,9 +77,11 @@ export interface DiscStoreOptions {
   min?: number;
   max?: number;
   maxPiece?: number;
+  /** The file in build/ that means the game is built (BT3's index.html; the PS2 games' ps2web.html). */
+  page?: string;
 }
 
-export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE }: DiscStoreOptions = {}) {
+export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE, page = "index.html" }: DiscStoreOptions = {}) {
   const paths = {
     part: join(dir, "upload", "disc.iso.part"),
     state: join(dir, "upload", "state.json"),
@@ -158,7 +160,7 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
     async status(pass: Pass): Promise<Status> {
       const [iso, built, builder] = await Promise.all([
         exists(paths.iso),
-        exists(join(paths.build, "index.html")),
+        exists(join(paths.build, page)),
         readJsonFile<BuilderStatus>(paths.status),
       ]);
       const t = now();

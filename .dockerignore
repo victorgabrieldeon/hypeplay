@@ -3,3 +3,7 @@ node_modules
 .env
 data
 builder
+ps2-builder
+.superpowers
+**/*.test.ts
+server/testing

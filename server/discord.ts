@@ -21,8 +21,10 @@ export function createDiscord({ clientId, clientSecret, fetch = globalThis.fetch
         body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: "authorization_code", code }),
         signal: AbortSignal.timeout(5000),
       });
-      const token = ((await res.json().catch(() => null)) as { access_token?: string } | null)?.access_token;
-      if (!res.ok || !token) throw new Error(`discord token exchange failed (${res.status})`);
+      const body = (await res.json().catch(() => null)) as { access_token?: string; error?: string; error_description?: string } | null;
+      const token = body?.access_token;
+      // Discord's reason (invalid_grant, invalid_request…) says which portal setting is off; it never holds a secret.
+      if (!res.ok || !token) throw new Error(`discord token exchange failed (${res.status} ${body?.error ?? ""}: ${body?.error_description ?? ""})`);
 
       const me = await fetch(`${API}/users/@me`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
       if (!me.ok) throw new Error(`discord user lookup failed (${me.status})`);

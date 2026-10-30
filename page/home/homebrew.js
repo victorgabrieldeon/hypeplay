@@ -1,5 +1,6 @@
 // The homebrew shelf (server/homebrew.ts): Homebrew Hub's free GB, GBC, GBA and NES games, played in EmulatorJS
 // (page/play.html). The list is fetched once (the server keeps it a day) and filtered here.
+import { hooks } from './app.js';
 import { esc } from './library.js';
 
 const PAGE = 48;
@@ -54,5 +55,9 @@ $('hb-more').addEventListener('click', () => { shown += PAGE; render(); });
 $('hb-grid').addEventListener('click', (e) => {
   const slug = e.target.closest('[data-hb]')?.dataset.hb;
   const g = slug && games.find((x) => x.slug === slug);
-  if (g) location.href = 'play/?' + new URLSearchParams({ g: g.slug, p: g.platform, t: g.title });
+  if (!g) return;
+  const url = 'play/?' + new URLSearchParams({ g: g.slug, p: g.platform, t: g.title });
+  // (inside Discord: here or in the browser, intro.js asks)
+  if (hooks.where) hooks.where(g.title, () => (location.href = url), location.pathname + url);
+  else location.href = url;
 });

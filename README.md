@@ -61,7 +61,7 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
   qualquer computador.
 - **Controle:** sempre um controle de PS2. Se o navegador não reconhecer (adaptador USB genérico), "Controle" na
   biblioteca mapeia os botões uma vez; o mapa fica no servidor e vale em todos os jogos, BT3 incluso.
-- **Intro:** ao abrir um jogo de PS2 (o BT3 incluso; homebrew não) toca `intro.mp4` do volume (`/app/data/intro.mp4`), se existir; clique ou
+- **Intro:** ao abrir um jogo de PS2 (o BT3 incluso; homebrew não) toca a intro, se o servidor tiver uma (enviada uma vez pela tela **Servidor** da home, que também troca a BIOS; fica em `/app/data/intro.mp4`); clique ou
   tecla pula. Não vai para o git: é material da Sony.
 - **Online:** dentro do jogo, "Abrir sala"; na biblioteca os amigos veem "Fulano está jogando — Entrar como
   jogador 2". O host transmite o jogo por WebRTC e o controle do convidado vira o jogador 2 (vale para jogos que
@@ -96,7 +96,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | --- | --- |
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
-| `PUBLIC_URL` | Opcional. O endereço `https://` do app, para "Abrir no navegador" quando o Discord não roda um jogo de PS2 na janela dele |
+| `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_URL`, `TURN_SECRET` | Opcionais. Um TURN (coturn com `--use-auth-secret`) para o online dos jogos de PS2 entre redes que não se alcançam |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
@@ -118,7 +118,7 @@ lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
 
 Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`) e a BIOS em
 `/app/data/bios/`. O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
-controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4`.
+controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4` (enviada pela tela Servidor).
 
 **Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Remover" na biblioteca.
 
@@ -159,7 +159,7 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
   Range e isolamento (`http.ts`).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
-  home (`index.html` e `home/`: biblioteca, homebrew, envio, progresso, controle, intro), o emulador do homebrew
+  home (`index.html` e `home/`: biblioteca, homebrew, envio, progresso, controle, servidor, intro), o emulador do homebrew
   (`play.html`) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos e do emulador, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).
 - `emulator/fetch.ts`: baixa o EmulatorJS e os cores (gambatte, mgba, fceumm) dos tarballs do npm. Não são

@@ -9,6 +9,10 @@
  *             <id>/game/<file>             the compiled game, from its fixed list
  *             <id>/game/disc/...           the disc image in 1 MiB pieces, read straight from it
  *             <id>/game/net/ws, net/queue  online rooms (rooms.ts), one set per game
+ *             homebrew                     the homebrew shelf (homebrew.ts): Homebrew Hub's games
+ *             homebrew/<slug>/rom, cover   a homebrew game's ROM and cover, fetched the first time
+ *             play/                        the emulator's page (page/play.html), for a homebrew game
+ *             emulator/<file>              EmulatorJS and its cores (emulator/data/)
  *
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
@@ -17,6 +21,7 @@ import type { Server, WebSocketHandler } from "bun";
 import { join } from "node:path";
 import type { Discord } from "./discord";
 import { GAMES, type Game } from "./games";
+import { createHomebrew, type HomebrewShelf } from "./homebrew";
 import type { Passes } from "./pass";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { createDiscStore, MAX_PIECE } from "./upload";
@@ -29,6 +34,9 @@ const TYPES: Record<string, string> = {
   css: "text/css; charset=utf-8",
   wasm: "application/wasm",
   png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
   svg: "image/svg+xml",
   json: "application/json",
   webmanifest: "application/manifest+json",
@@ -45,6 +53,9 @@ export const HEADERS = {
   "Access-Control-Allow-Headers": "content-type",
   "Cache-Control": "no-cache",
 };
+
+/** Homebrew files and the emulator: a new version keeps the address, so a day, not forever like the disc pieces. */
+const DAY = { "Cache-Control": "private, max-age=86400" };
 
 const ENTRY_HEADERS = { "Content-Security-Policy": FRAME_ANCESTORS, "Cache-Control": "no-cache" };
 
@@ -64,10 +75,24 @@ export interface AppOptions {
   passes: Passes;
   discord: Pick<Discord, "signIn">;
   games?: Game[];
+  /** <dir>/homebrew/ by default; index.ts starts its refreshes. */
+  homebrew?: HomebrewShelf;
+  /** emulator/data/, filled by emulator/fetch.ts. */
+  emulatorDir?: string;
   now?: () => number;
 }
 
-export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAMES, now = () => Date.now() }: AppOptions) {
+export function createApp({
+  dir,
+  pageDir,
+  entryJs,
+  passes,
+  discord,
+  games = GAMES,
+  homebrew = createHomebrew({ dir: join(dir, "homebrew") }),
+  emulatorDir = join(import.meta.dir, "..", "emulator", "data"),
+  now = () => Date.now(),
+}: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
   );
@@ -120,6 +145,19 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     return text("Não encontrado", 404);
   }
 
+  async function homebrewFile(slug: string, which: "rom" | "cover") {
+    let path: string | null;
+    try {
+      path = await homebrew.file(slug, which);
+    } catch (err) {
+      console.error("homebrew download failed:", err);
+      return text("Não deu para baixar o jogo do Homebrew Hub. Tente de novo daqui a pouco.", 502);
+    }
+    if (!path) return text("Não encontrado", 404);
+    const name = which === "rom" ? "rom.bin" : homebrew.get(slug)!.cover!;
+    return file(path, typeOf(name), DAY);
+  }
+
   async function token(req: Request): Promise<Response> {
     if (req.method !== "POST") return text("Método não permitido", 405);
     const code = ((await req.json().catch(() => null)) as { code?: unknown } | null)?.code;
@@ -153,6 +191,13 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
           [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }) => ({ ...g, status: await disc.status(pass), rooms: rooms.size })),
         ),
       });
+    if (path === "/homebrew") return json({ games: homebrew.list() });
+    const hb = /^\/homebrew\/([\w.-]+)\/(rom|cover)$/.exec(path);
+    if (hb) return homebrewFile(hb[1]!, hb[2] as "rom" | "cover");
+    if (path === "/play/") return file(join(pageDir, "play.html"));
+    // (the URL parser already folded any "..": the pattern is the second lock)
+    const emu = /^\/emulator\/((?:[\w-][\w.-]*\/)*[\w-][\w.-]*)$/.exec(path);
+    if (emu) return file(join(emulatorDir, emu[1]!), undefined, DAY);
     const g = /^\/([\w-]+)(\/.*)?$/.exec(path);
     const on = g && shelf.get(g[1]!);
     if (!on) return text("Não encontrado", 404);
@@ -200,7 +245,7 @@ export function createApp({ dir, pageDir, entryJs, passes, discord, games = GAME
     },
   };
 
-  return { handle, websocket, shelf };
+  return { handle, websocket, shelf, homebrew };
 }
 
 export type App = ReturnType<typeof createApp>;

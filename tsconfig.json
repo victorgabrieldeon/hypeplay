@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["server", "builder", "page"]
+  "include": ["server", "builder", "page", "emulator"]
 }

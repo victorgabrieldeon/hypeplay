@@ -9,6 +9,10 @@ com o próprio compilador (serviço `builder`). Por enquanto o catálogo tem um 
 compilado no próprio servidor a partir da ISO do dono. Desenho original (da época em que era plugin do
 HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-design.md).
 
+E uma prateleira de **homebrew**: cerca de 1600 jogos livres de Game Boy, Game Boy Color, GBA e NES do
+[Homebrew Hub](https://hh.gbdev.io), prontos para jogar no [EmulatorJS](https://emulatorjs.org), sem ninguém
+enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma).
+
 > **Só para servidor privado.** O jogo é compilado a partir do jogo de verdade: use só com amigos que têm,
 > cada um, a própria cópia do jogo. Qualquer pessoa que abrir a atividade no Discord joga: o que segura o
 > acesso é o app não ser divulgado (deixe o *Public Bot* desligado e adicione o app só aos seus servidores).
@@ -28,6 +32,10 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   ele (F1 abre as configurações do jogo).
 - **Isolamento:** o jogo roda sempre em origem opaca (sandbox no cabeçalho CSP), sem `localStorage`. Por isso
   saves e configurações do jogo não ficam guardados entre sessões.
+
+- **Homebrew:** a seção abaixo do catálogo, com busca (nome, autor, tag) e filtro por plataforma. Clicar
+  numa capa abre o jogo no emulador; "Voltar" volta para a home. Teclado ou controle; os controles do
+  EmulatorJS ficam na barra de baixo. Saves e save states duram só a sessão (a mesma origem opaca).
 
 ## Configurar o app no Discord
 
@@ -74,10 +82,16 @@ lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
 
 **Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume.
 
+O homebrew fica em `/app/data/homebrew/`: `catalog.json` (a lista, buscada na API do Homebrew Hub ao subir
+quando tem mais de um dia, e depois a cada dia) e, por jogo, o ROM e a capa, baixados do GitHub dos bancos
+do Homebrew Hub na primeira vez que alguém pede. Apagar a pasta só faz baixar de novo. O EmulatorJS e os
+cores vão na imagem (`emulator/fetch.ts`, versão fixa e conferida pelo hash do npm).
+
 ## Local
 
 ```sh
 bun install
+bun emulator/fetch.ts   # EmulatorJS e os cores em emulator/data/ (uma vez)
 bun test
 DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… bun run start   # porta 3003; guarda tudo em data/bt3/
 ```
@@ -93,10 +107,12 @@ docker run --rm -v "$PWD/data:/app/data" bt3-builder
 
 ## Por dentro
 
-- `server/`: o catálogo (`games.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
+- `server/`: o catálogo (`games.ts`), a prateleira de homebrew (`homebrew.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), salas do online em memória (`rooms.ts`, port do `room.js` do fork).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe) e a
-  home (`index.html`: catálogo, envio, progresso, erros).
+  home (`index.html`: catálogo, homebrew, envio, progresso, erros) e o emulador do homebrew (`play.html`).
+- `emulator/fetch.ts`: baixa o EmulatorJS e os cores (gambatte, mgba, fceumm) dos tarballs do npm. Não são
+  dependências do `package.json` porque o pacote puxa as ferramentas de build e, opcional, todos os cores (300 MB).
 - `builder/`: a imagem e o laço do compilador do BT3. O `patch.ts` troca os caminhos absolutos do jogo por
   relativos e falha alto se o fork mudar.
 

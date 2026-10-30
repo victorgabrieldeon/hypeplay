@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CordPlay</title>
+<!--
+  A homebrew game in EmulatorJS (server/routes.ts serves it at /p/<pass>/play/?g=<slug>&p=<platform>&t=<title>, from
+  the home). The ROM is ../homebrew/<slug>/rom, the emulator ../emulator/ (emulator/fetch.ts).
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0d18; color: #f4f4fb; font: 14px/1.5 "Inter Variable", ui-sans-serif, system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #10101d; border-bottom: 1px solid rgb(255 255 255 / 0.06); }
+  header a { color: #f4f4fb; text-decoration: none; font-weight: 600; padding: 6px 12px; border-radius: 8px; background: #26263f; }
+  header a:hover { filter: brightness(1.12); }
+  header a:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
+  header b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header small { color: #9a9bb7; flex: none; }
+  #game { flex: 1; min-height: 0; }
+  .error { color: #f0384c; padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<header><a href="../">← Voltar</a><b id="title"></b><small id="platform"></small></header>
+<div id="game"></div>
+<script>
+'use strict';
+// Runs as an opaque origin (CSP sandbox): localStorage throws, and IndexedDB refuses to open, which EmulatorJS doesn't
+// survive. A throwaway localStorage, and no IndexedDB (EmulatorJS goes without its cache): saves last the session.
+try { localStorage; } catch (e) {
+  const m = new Map();
+  Object.defineProperty(window, 'localStorage', { value: {
+    getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k),
+  } });
+}
+try { indexedDB.open('cordplay').onsuccess = (e) => e.target.result.close(); } catch (e) { Object.defineProperty(window, 'indexedDB', { value: undefined }); }
+
+const CORES = { GB: 'gb', GBC: 'gb', GBA: 'gba', NES: 'nes' };
+const q = new URLSearchParams(location.search);
+const slug = q.get('g') || '';
+const core = CORES[q.get('p')];
+document.getElementById('title').textContent = q.get('t') || slug;
+document.getElementById('platform').textContent = q.get('p') || '';
+if (!slug || !core) {
+  document.getElementById('game').innerHTML = '<p class="error">Jogo não encontrado. Volte e escolha de novo.</p>';
+} else {
+  window.EJS_player = '#game';
+  window.EJS_core = core;
+  window.EJS_gameUrl = '../homebrew/' + encodeURIComponent(slug) + '/rom';
+  window.EJS_gameName = slug;
+  window.EJS_pathtodata = '../emulator/';
+  window.EJS_language = 'pt-BR';
+  window.EJS_color = '#7655ff';
+  window.EJS_backgroundColor = '#0d0d18';
+  window.EJS_startOnLoaded = true;
+  window.EJS_disableDatabases = true; // (its cache manager, with no IndexedDB to manage)
+  const s = document.createElement('script');
+  s.src = '../emulator/loader.js';
+  document.body.appendChild(s);
+}
+</script>
+</body>
+</html>

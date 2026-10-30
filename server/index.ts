@@ -32,6 +32,9 @@ const app = createApp({
   discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET }),
 });
 
+// Homebrew Hub's list: the saved one now, a fresh one in the background when it's a day old.
+await app.homebrew.start();
+
 Bun.serve<NetData>({
   port: PORT,
   fetch: (req, server) => app.handle(req, server),

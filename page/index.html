@@ -83,13 +83,21 @@
   .card.on { box-shadow: 0 0 0 2px var(--accent); }
   .cover { position: relative; height: 140px; border: 0; padding: 0; cursor: pointer; display: grid; place-items: center; overflow: hidden; }
   .cover b { font-size: 54px; font-weight: 900; letter-spacing: -0.05em; color: rgb(255 255 255 / 0.9); text-shadow: 0 4px 24px rgb(0 0 0 / 0.4); }
-  .cover small { position: absolute; left: 10px; top: 10px; }
+  .cover small { position: absolute; left: 10px; top: 10px; background: rgb(0 0 0 / 0.6); color: #fff; }
   .card .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
   .card h3 { font-size: 15px; line-height: 1.3; }
   .card .foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
   .soon { border: 1px dashed rgb(255 255 255 / 0.12); background: transparent; box-shadow: none; display: grid; place-items: center;
     text-align: center; padding: 24px; color: var(--soft); font-size: 13px; min-height: 240px; }
   .soon:hover { transform: none; box-shadow: none; }
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .filters input { flex: 1; min-width: 200px; height: 38px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--surface);
+    color: var(--ink); font: inherit; box-shadow: 0 0 0 1px var(--line); }
+  .filters .chip { border: 0; cursor: pointer; padding: 7px 12px; }
+  .filters .chip[aria-pressed=true] { background: var(--accent); color: #fff; }
+  .cover img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
+  .card .by { color: var(--soft); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .more { margin: 16px auto 0; display: flex; }
 
   .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--soft); }
   .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -176,6 +184,7 @@
     <nav aria-label="Seções">
       <a href="#explorar" class="on"><svg class="i"><use href="#i-home"/></svg><span class="t">Explorar</span></a>
       <a href="#catalogo"><svg class="i"><use href="#i-grid"/></svg><span class="t">Catálogo</span><span class="count" id="n-games"></span></a>
+      <a href="#homebrew"><svg class="i"><use href="#i-play"/></svg><span class="t">Homebrew</span><span class="count" id="n-hb"></span></a>
       <a href="#enviar"><svg class="i"><use href="#i-upload"/></svg><span class="t">Enviar ISO</span></a>
       <span class="label">Biblioteca</span>
       <a href="#catalogo"><svg class="i"><use href="#i-play"/></svg><span class="t">Prontos para jogar</span><span class="count" id="n-ready"></span></a>
@@ -195,6 +204,17 @@
     <section id="catalogo">
       <div class="section-head"><h2>Catálogo</h2><span>Jogos que este servidor sabe compilar</span></div>
       <div class="grid" id="grid"></div>
+    </section>
+    <section id="homebrew">
+      <div class="section-head"><h2>Homebrew</h2><span id="hb-count">Jogos livres do Homebrew Hub, prontos para jogar</span></div>
+      <div class="filters">
+        <input id="hb-q" type="search" placeholder="Buscar por nome, autor ou tag" aria-label="Buscar homebrew">
+        <div class="chips" id="hb-plat" role="group" aria-label="Plataforma">
+          <button class="chip" data-plat="" aria-pressed="true">Todos</button><button class="chip" data-plat="GB" aria-pressed="false">Game Boy</button><button class="chip" data-plat="GBC" aria-pressed="false">Game Boy Color</button><button class="chip" data-plat="GBA" aria-pressed="false">GBA</button><button class="chip" data-plat="NES" aria-pressed="false">NES</button>
+        </div>
+      </div>
+      <div class="grid" id="hb-grid"><div class="busy"><div class="spin"></div><p>Carregando a lista do Homebrew Hub…</p></div></div>
+      <button class="btn ghost more" id="hb-more" hidden>Mostrar mais</button>
     </section>
   </main>
 
@@ -573,7 +593,68 @@ document.addEventListener('drop', (e) => {
   if (file && g && !sending) upload(g, file);
 });
 
+// The homebrew shelf: fetched once (the server keeps it a day), filtered here.
+const HB_PAGE = 48;
+let hb = null;
+let hbShown = HB_PAGE;
+let hbPlat = '';
+
+function hbCard(g) {
+  const cover = g.cover
+    ? `<img src="homebrew/${encodeURIComponent(g.slug)}/cover" loading="lazy" alt="">`
+    : `<b>${esc(g.platform)}</b>`;
+  return `<article class="card">
+    <button class="cover" style="background:var(--surface)" data-hb="${esc(g.slug)}" aria-label="Jogar ${esc(g.title)}">${cover}
+      <small class="chip">${esc(g.platform)}</small></button>
+    <div class="body">
+      <h3>${esc(g.title)}</h3>
+      ${g.developer ? `<p class="by">${esc(g.developer)}</p>` : ''}
+      <div class="chips">${g.tags.slice(0, 2).map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
+    </div>
+  </article>`;
+}
+
+function renderHomebrew() {
+  if (!hb) return;
+  const words = $('hb-q').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const found = hb.filter((g) => (!hbPlat || g.platform === hbPlat) &&
+    words.every((w) => g.title.toLowerCase().includes(w) || g.developer.toLowerCase().includes(w) || g.tags.some((t) => t.toLowerCase().includes(w))));
+  set($('n-hb'), String(hb.length));
+  set($('hb-count'), `${found.length} de ${hb.length} jogos do Homebrew Hub, cada um com a licença do autor`);
+  set($('hb-grid'), found.length
+    ? found.slice(0, hbShown).map(hbCard).join('')
+    : `<p class="note">${hb.length ? 'Nenhum jogo encontrado.' : 'O servidor ainda está buscando a lista do Homebrew Hub…'}</p>`);
+  $('hb-more').hidden = found.length <= hbShown;
+}
+
+async function loadHomebrew() {
+  try {
+    const r = await fetch('homebrew', { cache: 'no-store' });
+    if (r.ok) hb = (await r.json()).games;
+  } catch (e) { /* tries again below */ }
+  renderHomebrew();
+  // The first time the server starts, the list takes a minute or two to come in.
+  if (!hb?.length) setTimeout(() => { if (!expired) loadHomebrew(); }, 15000);
+}
+
+$('hb-q').addEventListener('input', () => { hbShown = HB_PAGE; renderHomebrew(); });
+$('hb-plat').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-plat]');
+  if (!b) return;
+  hbPlat = b.dataset.plat;
+  hbShown = HB_PAGE;
+  for (const x of $('hb-plat').children) x.setAttribute('aria-pressed', String(x === b));
+  renderHomebrew();
+});
+$('hb-more').addEventListener('click', () => { hbShown += HB_PAGE; renderHomebrew(); });
+$('hb-grid').addEventListener('click', (e) => {
+  const slug = e.target.closest('[data-hb]')?.dataset.hb;
+  const g = slug && hb.find((x) => x.slug === slug);
+  if (g) location.href = 'play/?' + new URLSearchParams({ g: g.slug, p: g.platform, t: g.title });
+});
+
 poll();
+loadHomebrew();
 setInterval(() => { if (!expired) poll(); }, 2000);
 </script>
 </body>

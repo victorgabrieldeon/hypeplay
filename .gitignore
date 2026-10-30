@@ -3,3 +3,5 @@ node_modules
 .env
 # The disc image and everything made from it: never in git.
 data
+# EmulatorJS, downloaded by emulator/fetch.ts.
+emulator/data

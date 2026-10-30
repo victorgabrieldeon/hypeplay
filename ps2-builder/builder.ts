@@ -113,7 +113,17 @@ export function createPs2Builder({
       if (!s || !(await exists(p.json))) return;
       s.at = now();
       await writeFile(`${p.status}.tmp`, JSON.stringify(s));
-      await rename(`${p.status}.tmp`, p.status);
+      // (on Windows a reader holding status.json blocks the swap for a moment)
+      for (let tries = 0; ; tries++) {
+        try {
+          await rename(`${p.status}.tmp`, p.status);
+          break;
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (tries >= 20 || (code !== "EPERM" && code !== "EBUSY")) throw err;
+          await Bun.sleep(5);
+        }
+      }
     });
     writing = next.catch(() => undefined);
     return next;

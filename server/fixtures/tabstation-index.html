@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#121110">
+<meta name="description" content="TabStationToo runs PCSX2, the PlayStation 2 emulator, compiled to WebAssembly, in this browser tab with a BIOS from your own console and disc images of your own games.">
+<meta name="application-name" content="TabStationToo">
+<title>TabStationToo</title>
+<!-- Everything is same-origin: the page is cross-origin isolated (COEP require-corp), so any resource
+     from another origin would be blocked. No CDNs; same-origin, self-hosted fonts. -->
+<!-- First, before anything else loads: on hosts that cannot send the isolation headers (GitHub
+     Pages), coi-serviceworker.js (MIT) adds them from a service worker and reloads the page once.
+     isolation.js configures it. Both do nothing when the server sends the headers. -->
+<script src="isolation.js?v=385757d8e81d"></script>
+<script src="coi-serviceworker.js"></script>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css?v=385757d8e81d">
+<link rel="stylesheet" href="library/disc-library.css?v=385757d8e81d">
+<link rel="stylesheet" href="library/console-bar.css">
+<link rel="stylesheet" href="library/console-pads.css">
+<link rel="stylesheet" href="library/console-tv.css">
+<script src="app.js?v=385757d8e81d" defer></script>
+<!-- The disc library (UI-SPEC.md §15): a module, after app.js, which it talks to through
+     window.PCSX2WebLibrary. It is the one part of the page that reaches another origin (disc art). -->
+<script type="module" src="library/player-library.js?v=385757d8e81d"></script>
+</head>
+<body data-state="nobios" data-bios="none" data-disc="none" data-runtime="loading" data-lights="up" data-chrome="shown" data-capture="na" data-drag="" data-picture="none" data-subtitle="off" data-cards="loading">
+
+<!-- The room: the first screen, as tall as the window. The controllers lie on the floor below it, then the credits. -->
+<div class="room" id="room">
+<header class="marquee">
+  <h1 class="wordmark"><svg class="mark" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-mark"/></svg><span class="wm">TabStation<span class="wm-too">Too</span></span></h1>
+  <button type="button" class="btn-quiet" id="about-btn" aria-haspopup="dialog">About</button>
+</header>
+
+<main class="theatre" id="theatre">
+  <div class="stage-box" id="stage-box">
+  <!-- An old CRT television around the screen, drawn as a wireframe like the console (1080 × 952 units, the
+       screen 1000 × 750 at 40, 64): cabinet, the tube's surround, and under it the speaker grille, a blank plate,
+       the power button and its light, the channel dial and the volume knob. Not in fullscreen or on phones. -->
+  <div class="tv" aria-hidden="true">
+    <svg class="tv-art" viewBox="0 0 1080 952" focusable="false">
+      <path class="tv-top" d="M24 26 L48 2 H1032 L1056 26 Z"/>
+      <rect class="tv-face" x="1" y="24" width="1078" height="910" rx="32"/>
+      <rect class="tv-tube" x="24" y="48" width="1032" height="782" rx="46"/>
+      <path class="tv-grille" d="M76 862 H420 M76 872 H420 M76 882 H420 M76 892 H420 M76 902 H420"/>
+      <rect class="tv-plate" x="480" y="870" width="110" height="24" rx="4"/>
+      <rect class="tv-key" x="640" y="866" width="40" height="32" rx="6"/>
+      <circle class="tv-led" cx="708" cy="882" r="4.5"/>
+      <circle class="tv-knob" cx="850" cy="882" r="34"/>
+      <circle class="tv-knob-in" cx="850" cy="882" r="24"/>
+      <path class="tv-tick" d="M823.1 908.9 L818.9 913.1 M814.4 895.3 L808.8 897.4 M812.1 879.3 L806.1 878.9 M816.6 863.8 L811.4 860.9 M827.2 851.6 L823.6 846.8 M841.9 844.9 L840.6 839.0 M858.1 844.9 L859.4 839.0 M872.8 851.6 L876.4 846.8 M883.4 863.8 L888.6 860.9 M887.9 879.3 L893.9 878.9 M885.6 895.3 L891.2 897.4 M876.9 908.9 L881.1 913.1"/>
+      <path class="tv-mark" d="M850 882 L850 862"/>
+      <circle class="tv-knob" cx="970" cy="882" r="26"/>
+      <path class="tv-mark" d="M970 882 L984 868"/>
+      <rect class="tv-foot" x="100" y="933" width="110" height="18" rx="4"/>
+      <rect class="tv-foot" x="870" y="933" width="110" height="18" rx="4"/>
+    </svg>
+  </div>
+    <div class="screen" id="screen" tabindex="0" role="application"
+         aria-label="PS2 screen. While it runs and this has focus, the keyboard controls the PS2. Escape releases it.">
+      <canvas id="canvas" width="640" height="480"></canvas>
+      <div class="hairline" id="hairline" role="progressbar" aria-label="Emulator download"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Waiting to start"><div class="hairline-fill" id="hairline-fill"></div></div>
+    </div>
+
+    <section class="slate" id="slate" aria-labelledby="slate-title">
+      <div class="slate-inner" id="slate-inner">
+        <h2 id="slate-title" tabindex="-1">Start with your BIOS.</h2>
+        <p class="body" id="slate-body">TabStationToo needs the BIOS from a PS2 you own, usually a 4&nbsp;MB .bin file. Then add a disc image of one of your games, or boot the console’s own menus.</p>
+        <pre class="excerpt" id="slate-excerpt" hidden></pre>
+        <div class="actions" id="slate-actions">
+          <button type="button" class="btn-primary" id="slate-primary"><svg class="icon" id="slate-primary-icon" aria-hidden="true" focusable="false" hidden><use href="icons.svg?v=385757d8e81d#i-play"/></svg><span id="slate-primary-label">Choose BIOS file…</span><kbd class="cap-enter" id="slate-primary-cap" aria-hidden="true" hidden>Enter</kbd></button>
+          <span class="aside" id="slate-aside">or drop it here</span>
+          <button type="button" class="btn-quiet" id="slate-library" aria-haspopup="dialog" hidden>Disc library…</button>
+          <button type="button" class="btn-quiet" id="slate-disc" hidden>Choose a disc…</button>
+          <button type="button" class="btn-quiet" id="slate-alt" hidden>Use another BIOS…</button>
+          <button type="button" class="btn-quiet" id="slate-remove" hidden>Remove the disc</button>
+          <button type="button" class="btn-quiet" id="slate-openlog" hidden>Open the log</button>
+          <button type="button" class="btn-quiet" id="slate-copy" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-copy"/></svg><span id="slate-copy-label">Copy details</span></button>
+        </div>
+        <p class="error" id="slate-error" hidden></p>
+        <details class="dev" id="slate-dev" hidden>
+          <summary><svg class="icon caret" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-caret-up"/></svg>Details for developers</summary>
+          <dl class="checks" id="dev-checks"></dl>
+          <pre class="code">Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp</pre>
+          <div class="cmd">
+            <pre class="code" id="dev-cmd">python3 tools/wasm/serve.py</pre>
+            <button type="button" class="btn-quiet" id="dev-copy"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-copy"/></svg><span id="dev-copy-label">Copy</span></button>
+          </div>
+        </details>
+        <div class="fine" id="slate-fine"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="sill" id="sill">
+    <div class="capture" id="capture-box">
+      <span class="load-line" id="load-line"></span>
+      <span class="capture-text" id="capture-text" hidden>Keys go to the PS2</span>
+      <button type="button" class="capture-btn" id="capture" hidden>Click the screen to play</button>
+    </div>
+    <p class="subtitle" id="subtitle" role="status"></p>
+    <div class="meter">
+      <p class="readout" id="readout"><span class="r-dash" id="r-dash" hidden>—</span><span class="r-speed" id="r-speed-wrap" hidden><span class="num w4" id="r-speed">0%</span><span class="unit">&nbsp;speed</span></span> <span class="r-rest" id="r-rest" hidden><span class="num w4" id="r-vps">0</span><span class="unit">&nbsp;VPS</span> <span class="num w2" id="r-fps">0</span><span class="unit">&nbsp;FPS</span><span class="r-threads" id="r-threads" hidden></span></span><span class="vh" id="r-frame"></span></p>
+      <span class="tally" aria-hidden="true"></span>
+    </div>
+  </div>
+
+  <!-- The controls are the PS2's front, drawn as a wireframe after the real one, and a TV remote under its
+       tray (UI-SPEC.md §16). Each part is a button laid over the drawing. -->
+  <div class="transport" id="transport" role="group" aria-label="Controls">
+    <div class="ps2bar t-left" id="ps2bar">
+      <svg class="ps2bar-art" viewBox="0 0 1000 120" aria-hidden="true" focusable="false">
+        <!-- the top, seen just above the front edge -->
+        <path class="w-face w-top" d="M16 2 H984 L999 18 H1 Z"/>
+        <!-- the front and its grooves -->
+        <rect class="w-face" x="1" y="18" width="998" height="100" rx="3"/>
+        <path class="w-groove" d="M5 40 H995 M5 62 H995 M5 84 H995 M5 106 H995"/>
+        <!-- memory card slots 1 and 2 -->
+        <text class="w-num" x="115" y="35">1</text>
+        <rect class="w-hole" x="40" y="44" width="150" height="14" rx="2"/>
+        <text class="w-print" x="115" y="54">MEMORY CARD</text>
+        <text class="w-num" x="315" y="35">2</text>
+        <rect class="w-hole" x="240" y="44" width="150" height="14" rx="2"/>
+        <text class="w-print" x="315" y="54">MEMORY CARD</text>
+        <!-- controller ports 1 and 2 -->
+        <path class="w-mark" d="M108 68 l7 5 l7 -5 M308 68 l7 5 l7 -5"/>
+        <rect class="w-hole" x="50" y="86" width="130" height="18" rx="7"/>
+        <rect class="w-hole" x="250" y="86" width="130" height="18" rx="7"/>
+        <g class="w-pins">
+          <circle cx="66" cy="95" r="1.8"/><circle cx="73" cy="95" r="1.8"/><circle cx="80" cy="95" r="1.8"/>
+          <circle cx="108" cy="95" r="1.8"/><circle cx="115" cy="95" r="1.8"/><circle cx="122" cy="95" r="1.8"/>
+          <circle cx="150" cy="95" r="1.8"/><circle cx="157" cy="95" r="1.8"/><circle cx="164" cy="95" r="1.8"/>
+          <circle cx="266" cy="95" r="1.8"/><circle cx="273" cy="95" r="1.8"/><circle cx="280" cy="95" r="1.8"/>
+          <circle cx="308" cy="95" r="1.8"/><circle cx="315" cy="95" r="1.8"/><circle cx="322" cy="95" r="1.8"/>
+          <circle cx="350" cy="95" r="1.8"/><circle cx="357" cy="95" r="1.8"/><circle cx="364" cy="95" r="1.8"/>
+        </g>
+        <!-- the model plate -->
+        <rect class="w-plate" x="412" y="44" width="92" height="14" rx="2"/>
+        <!-- the disc tray -->
+        <rect class="w-tray" x="524" y="40" width="380" height="44" rx="2"/>
+        <path class="w-groove" d="M528 62 H900"/>
+        <!-- reset and eject -->
+        <rect class="w-key" x="928" y="34" width="44" height="34" rx="4"/>
+        <path class="w-icon" d="M950 43 v7 M944.6 46.2 a7.5 7.5 0 1 0 10.8 0"/>
+        <rect class="w-key" x="928" y="78" width="44" height="34" rx="4"/>
+        <path class="w-icon" d="M942 101 h16 M950 87 l8 8 h-16 z"/>
+      </svg>
+      <div class="bar-slot" id="bar-slot-1"></div>
+      <div class="bar-slot" id="bar-slot-2"></div>
+      <!-- Controller ports: a plug in each port something plays on, its cable down to its controller. Pressing one
+           pulls the plug out or pushes it back in. -->
+      <button type="button" class="bar-hot bar-port" id="port-1" data-port="1" aria-pressed="false" aria-label="Controller port 1"><span class="plug" aria-hidden="true"></span><span class="plug-boot" aria-hidden="true"></span><span class="tip" aria-hidden="true"></span></button>
+      <button type="button" class="bar-hot bar-port" id="port-2" data-port="2" aria-pressed="false" aria-label="Controller port 2"><span class="plug" aria-hidden="true"></span><span class="plug-boot" aria-hidden="true"></span><span class="tip" aria-hidden="true"></span></button>
+      <button type="button" class="bar-hot bar-plate bios-btn" id="bios-btn" popovertarget="bios-menu" aria-controls="bios-menu" aria-expanded="false">
+        <span class="vh">BIOS: </span><span class="bios-btn-name" id="bios-btn-name"></span>
+      </button>
+      <button type="button" class="bar-hot bar-tray bios-btn disc-btn" id="disc-btn" popovertarget="disc-menu" aria-controls="disc-menu" aria-expanded="false">
+        <span class="vh">Disc: </span><span class="bios-btn-name" id="disc-btn-name"></span>
+      </button>
+      <button type="button" class="bar-hot bar-tray bar-tray-empty" id="tray-library" aria-haspopup="dialog" aria-label="Disc library">
+        <span class="bar-tray-hint" aria-hidden="true">Insert a disc</span>
+      </button>
+      <span class="bar-led" aria-hidden="true"></span>
+      <button type="button" class="bar-hot bar-reset" id="btn-stop" aria-label="Stop">
+        <span class="tip" aria-hidden="true">Stop</span>
+      </button>
+      <button type="button" class="bar-hot bar-eject" id="btn-eject" aria-haspopup="dialog" aria-label="Eject: disc library">
+        <span class="tip" aria-hidden="true">Disc library</span>
+      </button>
+    </div>
+    <!-- The remote of the first mockup, turned on its side: IR window, the volume rocker over MUTE and WIDE,
+         PICTURE over MENU, CLOCK (Underclock) over INFO, REC above them when shown. The controls (keys, players)
+         open from the console's ports. -->
+    <div class="remote t-right" id="remote" role="group" aria-label="Remote">
+      <span class="rm-ir" aria-hidden="true"></span>
+      <button type="button" class="rm-btn rm-round rm-mute" id="remote-mute" aria-pressed="false" aria-keyshortcuts="M" aria-label="Mute"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><g transform="translate(-1.75 0)"><path d="M6 9 h4 l4 -4 v14 l-4 -4 h-4 z" fill="currentColor"/><path d="M16.5 9 l5 6 M21.5 9 l-5 6" fill="none" stroke="currentColor" stroke-width="1.4"/></g></svg></button>
+      <span class="rm-cap rm-cap-mute" aria-hidden="true">MUTE</span>
+      <button type="button" class="rm-btn rm-round rm-wide" id="btn-fs" aria-keyshortcuts="Alt+Enter"><span class="vh" id="btn-fs-label">Fullscreen</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6" y="7" width="12" height="10" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><svg class="vh" aria-hidden="true" focusable="false"><use id="btn-fs-icon" href="icons.svg?v=385757d8e81d#i-corners-out"/></svg><span class="vh" id="btn-fs-tip"></span></button>
+      <span class="rm-cap rm-cap-wide" aria-hidden="true">WIDE</span>
+      <span class="rm-rocker" aria-hidden="true"></span>
+      <button type="button" class="rm-btn rm-vol rm-vol-down" id="remote-vol-down" aria-label="Volume down">−</button>
+      <button type="button" class="rm-btn rm-vol rm-vol-up" id="remote-vol-up" aria-label="Volume up">+</button>
+      <span class="rm-cap rm-cap-vol" aria-hidden="true">VOL</span>
+      <button type="button" class="rm-btn rm-pill rm-picture" id="btn-crisp" aria-label="Picture: Smooth">PICTURE</button>
+      <button type="button" class="rm-btn rm-pill rm-menu" id="btn-gfx" popovertarget="gfx-menu" aria-controls="gfx-menu" aria-expanded="false" aria-label="Graphics">MENU</button>
+      <button type="button" class="rm-btn rm-small rm-state" id="btn-state" popovertarget="state-menu" aria-controls="state-menu" aria-expanded="false" aria-keyshortcuts="F1 F3" aria-label="Save states">STATE</button>
+      <button type="button" class="rm-btn rm-small rm-clock" id="btn-ee" popovertarget="ee-menu" aria-controls="ee-menu" aria-expanded="false" aria-label="Underclock, off">CLOCK</button>
+      <button type="button" class="rm-btn rm-small rm-info" id="btn-log" aria-expanded="false" aria-controls="log-drawer" aria-keyshortcuts="`" aria-label="Log">INFO</button>
+      <button type="button" class="rm-btn rm-small rm-rec" id="btn-rec" aria-expanded="false" aria-controls="rec-drawer" aria-label="Recorder" hidden><span class="rm-dot" aria-hidden="true"></span>REC</button>
+      <!-- The sound menu stays for the M shortcut's state and its fine print; the remote sets the volume. -->
+      <button type="button" class="rm-btn" id="btn-sound" popovertarget="sound-menu" aria-controls="sound-menu" aria-expanded="false" aria-label="Sound, 100 percent" hidden><svg class="icon" aria-hidden="true" focusable="false"><use id="btn-sound-icon" href="icons.svg?v=385757d8e81d#i-speaker-high"/></svg></button>
+    </div>
+  </div>
+
+  <section class="drawer keys" id="keys-drawer" aria-labelledby="keys-title" hidden>
+    <h2 class="vh" id="keys-title">Keys</h2>
+    <!-- Opened from a controller port: who plays there. -->
+    <div class="port-pick" id="port-pick" role="group" aria-labelledby="port-pick-title">
+      <p class="lbl" id="port-pick-title">Player 1 plays with</p>
+      <div class="port-pick-list" id="port-pick-list"></div>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Controls">
+      <button type="button" class="tab" role="tab" id="tab-keyboard" aria-controls="panel-keyboard" aria-selected="true">Keyboard</button>
+      <button type="button" class="tab" role="tab" id="tab-gamepad" aria-controls="panel-gamepad" aria-selected="false" tabindex="-1">Gamepad</button>
+    </div>
+    <div role="tabpanel" id="panel-keyboard" aria-labelledby="tab-keyboard">
+    <fieldset class="players" id="kb-players">
+      <legend class="lbl">The keyboard plays as</legend>
+      <label class="check"><input type="radio" name="kb-player" value="1" checked><span>Player 1</span></label>
+      <label class="check"><input type="radio" name="kb-player" value="2"><span>Player 2</span></label>
+    </fieldset>
+    <div class="pad">
+      <div class="pad-l">
+        <div class="shoulder">
+          <span class="bind"><span class="lbl">L2</span><kbd data-key="1">1</kbd></span>
+          <span class="bind"><span class="lbl">L1</span><kbd data-key="Q" data-code="KeyQ">Q</kbd></span>
+        </div>
+        <div class="dpad" role="group" aria-label="D-pad">
+          <kbd class="d-up" data-key="Up"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up"/></svg><span class="vh">Up arrow</span></kbd>
+          <kbd class="d-left" data-key="Left"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-left"/></svg><span class="vh">Left arrow</span></kbd>
+          <kbd class="d-right" data-key="Right"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-right"/></svg><span class="vh">Right arrow</span></kbd>
+          <kbd class="d-down" data-key="Down"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-down"/></svg><span class="vh">Down arrow</span></kbd>
+        </div>
+      </div>
+      <div class="pad-m">
+        <div class="sys">
+          <span class="bind col"><span class="lbl">Select</span><kbd data-key="Backspace">Backspace</kbd></span>
+          <span class="bind col"><span class="lbl">Start</span><kbd data-key="Return">Enter</kbd></span>
+        </div>
+        <div class="notes">
+          <p>In the system menus <svg class="glyph-inline" role="img" aria-label="Cross"><use href="icons.svg?v=385757d8e81d#i-cross"/></svg> confirms and <svg class="glyph-inline" role="img" aria-label="Triangle"><use href="icons.svg?v=385757d8e81d#i-triangle"/></svg> goes back (<svg class="glyph-inline" role="img" aria-label="Circle"><use href="icons.svg?v=385757d8e81d#i-circle"/></svg> confirms on Japanese consoles).</p>
+          <p>While the PS2 runs, keys you press light up here.</p>
+        </div>
+      </div>
+      <div class="pad-r">
+        <div class="shoulder">
+          <span class="bind"><span class="lbl">R1</span><kbd data-key="E" data-code="KeyE">E</kbd></span>
+          <span class="bind"><span class="lbl">R2</span><kbd data-key="3">3</kbd></span>
+        </div>
+        <div class="face" role="group" aria-label="Face buttons">
+          <span class="bind f-top"><svg class="glyph" role="img" aria-label="Triangle"><use href="icons.svg?v=385757d8e81d#i-triangle"/></svg><kbd data-key="I" data-code="KeyI">I</kbd></span>
+          <span class="bind f-left"><svg class="glyph" role="img" aria-label="Square"><use href="icons.svg?v=385757d8e81d#i-square"/></svg><kbd data-key="J" data-code="KeyJ">J</kbd></span>
+          <span class="bind f-right"><svg class="glyph" role="img" aria-label="Circle"><use href="icons.svg?v=385757d8e81d#i-circle"/></svg><kbd data-key="L" data-code="KeyL">L</kbd></span>
+          <span class="bind f-bottom"><svg class="glyph" role="img" aria-label="Cross"><use href="icons.svg?v=385757d8e81d#i-cross"/></svg><kbd data-key="K" data-code="KeyK">K</kbd></span>
+        </div>
+      </div>
+    </div>
+    <div class="sticks">
+      <div class="stick-side">
+        <span class="bind"><span class="lbl">Left stick</span><kbd data-key="W" data-code="KeyW">W</kbd><kbd data-key="A" data-code="KeyA">A</kbd><kbd data-key="S" data-code="KeyS">S</kbd><kbd data-key="D" data-code="KeyD">D</kbd></span>
+        <span class="bind"><span class="lbl">L3</span><kbd data-key="2">2</kbd></span>
+      </div>
+      <div class="stick-side">
+        <span class="bind"><span class="lbl">R3</span><kbd data-key="4">4</kbd></span>
+        <span class="bind"><span class="lbl">Right stick</span><kbd data-key="T" data-code="KeyT">T</kbd><kbd data-key="F" data-code="KeyF">F</kbd><kbd data-key="G" data-code="KeyG">G</kbd><kbd data-key="H" data-code="KeyH">H</kbd></span>
+      </div>
+    </div>
+    </div>
+    <div role="tabpanel" id="panel-gamepad" aria-labelledby="tab-gamepad" hidden>
+      <p class="gp-empty" id="gp-empty">Press a button on your gamepad to connect it.</p>
+      <p class="gp-taps" id="gp-taps" hidden>This browser can miss quick taps. To catch every tap, open <code>about:config</code>, set <code>dom.gamepad.non_standard_events.enabled</code> to true, and reload this page.</p>
+      <div class="gp-list" id="gp-list"></div>
+      <div class="gp-actions" id="gp-actions" hidden>
+        <button type="button" class="btn-quiet" id="gp-swap">Swap players</button>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <p class="shortcuts"><span class="shortcut"><kbd>?</kbd> Keys</span><span class="vh">, </span><span class="shortcut"><kbd data-code="Backquote">`</kbd> Log</span><span class="vh">, </span><span class="shortcut"><kbd>M</kbd> Mute</span><span class="vh">, </span><span class="shortcut"><kbd>F1</kbd> Save state</span><span class="vh">, </span><span class="shortcut"><kbd>F3</kbd> Load the newest</span><span class="vh">, </span><span class="shortcut"><kbd>Alt</kbd><span class="vh">+</span><kbd>Enter</kbd> Fullscreen</span><span class="vh">, </span><span class="shortcut"><kbd>Esc</kbd> Release the keyboard</span></p>
+      <label class="check"><input type="checkbox" id="keep-chrome"><span>Keep controls visible</span></label>
+      <button type="button" class="btn-icon" id="keys-close" aria-label="Close Keys"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-x"/></svg></button>
+    </div>
+  </section>
+
+  <template id="gp-template">
+    <section class="gp">
+      <div class="gp-head">
+        <h3 class="gp-name"></h3>
+        <fieldset class="players">
+          <legend class="vh"></legend>
+          <label class="check"><input type="radio" value="1"><span>Player 1</span></label>
+          <label class="check"><input type="radio" value="2"><span>Player 2</span></label>
+        </fieldset>
+        <span class="gp-unused" hidden>Not plugged in.</span>
+      </div>
+      <div class="gp-map" hidden>
+        <p class="gp-map-note"></p>
+        <div class="gp-map-idle">
+          <button type="button" class="btn-quiet gp-map-start">Map controls</button>
+          <button type="button" class="btn-quiet gp-map-clear" hidden>Clear mapping</button>
+        </div>
+        <div class="gp-map-run" hidden>
+          <p class="gp-map-step"></p>
+          <p class="gp-map-prompt" role="status"></p>
+          <div class="gp-map-actions">
+            <button type="button" class="btn-quiet gp-map-skip">Skip</button>
+            <button type="button" class="btn-quiet gp-map-back">Back</button>
+            <button type="button" class="btn-quiet gp-map-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div class="pad gp-view" aria-hidden="true">
+        <div class="pad-l">
+          <div class="shoulder">
+            <span class="bind"><span class="cap" data-input="L2">L2</span></span>
+            <span class="bind"><span class="cap" data-input="L1">L1</span></span>
+          </div>
+          <div class="dpad">
+            <span class="cap d-up" data-input="Up"><svg class="icon" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up"/></svg></span>
+            <span class="cap d-left" data-input="Left"><svg class="icon" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-left"/></svg></span>
+            <span class="cap d-right" data-input="Right"><svg class="icon" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-right"/></svg></span>
+            <span class="cap d-down" data-input="Down"><svg class="icon" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-down"/></svg></span>
+          </div>
+        </div>
+        <div class="pad-m">
+          <div class="sys">
+            <span class="bind col"><span class="lbl">Select</span><span class="cap" data-input="Select"></span></span>
+            <span class="bind col"><span class="lbl">Analog</span><span class="cap" data-input="Analog"></span></span>
+            <span class="bind col"><span class="lbl">Start</span><span class="cap" data-input="Start"></span></span>
+          </div>
+        </div>
+        <div class="pad-r">
+          <div class="shoulder">
+            <span class="bind"><span class="cap" data-input="R1">R1</span></span>
+            <span class="bind"><span class="cap" data-input="R2">R2</span></span>
+          </div>
+          <div class="face">
+            <span class="cap f-top" data-input="Triangle"><svg class="glyph"><use href="icons.svg?v=385757d8e81d#i-triangle"/></svg></span>
+            <span class="cap f-left" data-input="Square"><svg class="glyph"><use href="icons.svg?v=385757d8e81d#i-square"/></svg></span>
+            <span class="cap f-right" data-input="Circle"><svg class="glyph"><use href="icons.svg?v=385757d8e81d#i-circle"/></svg></span>
+            <span class="cap f-bottom" data-input="Cross"><svg class="glyph"><use href="icons.svg?v=385757d8e81d#i-cross"/></svg></span>
+          </div>
+        </div>
+      </div>
+      <div class="sticks gp-sticks" aria-hidden="true">
+        <div class="stick-side">
+          <span class="bind"><span class="lbl">Left stick</span><span class="stick" data-stick="L"><span class="stick-dot"></span></span></span>
+          <span class="bind"><span class="lbl">L3</span><span class="cap" data-input="L3"></span></span>
+        </div>
+        <div class="stick-side">
+          <span class="bind"><span class="lbl">R3</span><span class="cap" data-input="R3"></span></span>
+          <span class="bind"><span class="lbl">Right stick</span><span class="stick" data-stick="R"><span class="stick-dot"></span></span></span>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <section class="drawer log" id="log-drawer" aria-labelledby="log-title" hidden>
+    <div class="log-head">
+      <h2 id="log-title">Log</h2>
+      <span class="log-count" id="log-count"></span>
+      <span class="grow"></span>
+      <button type="button" class="btn-quiet" id="log-latest" hidden><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-line-down"/></svg>Jump to latest</button>
+      <button type="button" class="btn-quiet" id="log-copy"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-copy"/></svg><span id="log-copy-label">Copy</span></button>
+      <button type="button" class="btn-quiet" id="log-clear"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-trash"/></svg>Clear</button>
+      <button type="button" class="btn-icon" id="log-close" aria-label="Close Log"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-x"/></svg></button>
+    </div>
+    <div class="log-frame">
+      <p class="log-empty" id="log-empty">No output yet.</p>
+      <div class="log-body" id="log" role="log" aria-live="off" aria-labelledby="log-title" tabindex="0"></div>
+    </div>
+  </section>
+
+  <section class="drawer rec" id="rec-drawer" aria-labelledby="rec-title" hidden>
+    <div class="log-head">
+      <h2 id="rec-title">Recorder</h2>
+      <span class="log-count" id="rec-status"></span>
+      <span class="grow"></span>
+      <button type="button" class="btn-quiet" id="state-save" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-camera"/></svg><span id="state-save-label">Save state</span></button>
+      <button type="button" class="btn-quiet" id="state-load" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-folder-open"/></svg><span id="state-load-label">Load state…</span></button>
+      <button type="button" class="btn-quiet" id="state-reload" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-clock-counter-clockwise"/></svg><span id="state-reload-label">Reload state</span></button>
+      <button type="button" class="btn-quiet" id="rec-toggle"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-record"/></svg><span id="rec-toggle-label">Record</span></button>
+      <button type="button" class="btn-quiet" id="rec-copy" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-copy"/></svg><span id="rec-copy-label">Copy</span></button>
+      <button type="button" class="btn-quiet" id="rec-download" disabled><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-download-simple"/></svg>Download</button>
+      <button type="button" class="btn-icon" id="rec-close" aria-label="Close Recorder"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-x"/></svg></button>
+    </div>
+    <div class="rec-frame">
+      <p class="log-empty" id="rec-empty">Record while you play, then stop: every vsync's speed and thread load show here, ready to crop, copy or download.</p>
+      <canvas class="rec-chart" id="rec-chart" role="img" aria-label="No recording yet" hidden></canvas>
+      <div class="rec-crop" id="rec-crop" hidden>
+        <label class="rec-range"><span>From</span><input type="range" id="rec-from" min="0" max="0" value="0" step="1"></label>
+        <label class="rec-range"><span>To</span><input type="range" id="rec-to" min="0" max="0" value="0" step="1"></label>
+      </div>
+      <p class="rec-summary" id="rec-summary"></p>
+    </div>
+  </section>
+
+  <template id="card-template">
+    <button type="button" class="bios-btn card-btn empty" aria-expanded="false">
+      <span class="mc" aria-hidden="true"><span class="mc-card"><span class="mc-print">8MB MEMORY CARD</span><span class="mc-grip"></span></span></span>
+      <span class="mc-name" aria-hidden="true"><span class="mc-num">1</span> · <span class="mc-label"></span></span>
+      <svg class="icon card-icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-sim-card"/></svg><span class="card-dot" aria-hidden="true"></span><span class="bios-btn-name card-label" aria-hidden="true"><span class="card-pre">Card </span><span class="card-num">1</span><span class="card-rest"> · empty</span></span><svg class="icon caret" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-caret-up"/></svg>
+      <span class="tip" aria-hidden="true"></span>
+    </button>
+    <div class="menu card-menu" popover role="group">
+      <div class="card-view" data-view="plugged">
+        <p class="menu-file"><span class="menu-name"></span><span class="menu-where"></span></p>
+        <div class="menu-items">
+          <button type="button" class="menu-item" data-act="unplug"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-eject"/></svg>Unplug</button>
+          <button type="button" class="menu-item" data-act="rename"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-pencil-simple"/></svg>Rename…</button>
+          <button type="button" class="menu-item" data-act="copy"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-download-simple"/></svg>Save a copy to disk…</button>
+          <p class="menu-reason" hidden></p>
+        </div>
+      </div>
+      <div class="card-view" data-view="picker" hidden>
+        <p class="menu-file"><span class="menu-where"></span></p>
+        <div class="menu-items">
+          <div class="card-list"></div>
+          <button type="button" class="menu-item" data-act="new"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-plus"/></svg>New card…</button>
+          <button type="button" class="menu-item" data-act="open"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-folder-open"/></svg>Open a card file…</button>
+          <p class="menu-reason" hidden></p>
+        </div>
+      </div>
+      <div class="card-view" data-view="more" hidden>
+        <p class="menu-file"><span class="menu-name"></span><span class="menu-where"></span></p>
+        <div class="menu-items">
+          <button type="button" class="menu-item" data-act="more-rename"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-pencil-simple"/></svg>Rename…</button>
+          <button type="button" class="menu-item" data-act="more-copy"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-download-simple"/></svg>Save a copy to disk…</button>
+          <button type="button" class="menu-item" data-act="more-delete"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-trash"/></svg><span class="label">Delete</span></button>
+          <p class="menu-reason" hidden></p>
+          <button type="button" class="menu-item" data-act="more-back"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-left"/></svg>Back to the cards</button>
+        </div>
+      </div>
+      <form class="card-view" data-view="name" novalidate hidden>
+        <p class="menu-file"><span class="menu-where card-form-title"></span></p>
+        <div class="card-form">
+          <label class="sound-label">Name</label>
+          <input type="text" class="card-name" autocomplete="off" spellcheck="false">
+          <div class="menu-confirm-actions">
+            <button type="submit" class="btn-quiet" data-act="name-ok">Create</button>
+            <button type="button" class="btn-quiet" data-act="name-cancel">Cancel</button>
+          </div>
+        </div>
+      </form>
+      <div class="card-view menu-confirm" data-view="confirm" role="group" hidden>
+        <p></p>
+        <div class="menu-confirm-actions">
+          <button type="button" class="btn-quiet" data-act="keep">Keep</button>
+          <button type="button" class="btn-quiet" data-act="copy-first">Save a copy first…</button>
+          <button type="button" class="btn-quiet card-delete-yes" data-act="delete-yes">Delete</button>
+        </div>
+      </div>
+      <p class="card-error" hidden></p>
+    </div>
+  </template>
+
+  <div class="menu" id="disc-menu" popover role="group" aria-label="Disc">
+    <p class="menu-file"><span class="menu-name" id="disc-menu-name"></span><span class="menu-where" id="disc-menu-where"></span></p>
+    <div class="menu-items">
+      <button type="button" class="menu-item" id="disc-menu-library" aria-haspopup="dialog"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-disc"/></svg>Disc library…</button>
+      <button type="button" class="menu-item" id="disc-menu-choose"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-folder-open"/></svg>Choose another disc…</button>
+      <button type="button" class="menu-item" id="disc-menu-remove"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-x"/></svg>Remove the disc</button>
+      <p class="menu-reason" id="disc-menu-reason" hidden>Stop the PS2 to change the disc.</p>
+    </div>
+  </div>
+
+  <div class="menu sound-menu" id="sound-menu" popover role="group" aria-label="Sound">
+    <div class="sound-volume">
+      <label class="sound-label" for="sound-volume">Volume</label>
+      <input type="range" class="sound-range" id="sound-volume" min="0" max="100" step="5" value="100" aria-valuetext="100 percent">
+      <span class="sound-value" id="sound-value" aria-hidden="true">100%</span>
+    </div>
+    <div class="menu-items">
+      <button type="button" class="menu-item" id="sound-mute" aria-pressed="false" aria-keyshortcuts="M"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-speaker-x"/></svg>Mute<kbd class="cap-key" aria-hidden="true">M</kbd></button>
+      <p class="menu-reason" id="sound-note" hidden></p>
+    </div>
+  </div>
+
+  <div class="menu gfx-menu" id="gfx-menu" popover role="group" aria-label="Graphics">
+    <p class="menu-file"><span class="menu-where">Now</span><span class="gfx-mode" id="gfx-mode">Not started yet</span><span class="menu-where" id="gfx-why" hidden></span></p>
+    <fieldset class="gfx-choice">
+      <legend class="sound-label">Renderer</legend>
+      <label class="gfx-option"><input type="radio" name="gfx-choice" value="auto" checked><span>Auto<span class="gfx-hint">GPU when it works, software otherwise</span></span></label>
+      <label class="gfx-option"><input type="radio" name="gfx-choice" value="gpu"><span>GPU<span class="gfx-hint">PCSX2’s hardware renderer on WebGPU</span></span></label>
+      <label class="gfx-option"><input type="radio" name="gfx-choice" value="sw"><span>Software<span class="gfx-hint">No WebGPU: drawn by the CPU on a 2D canvas</span></span></label>
+      <p class="menu-reason" id="gfx-applies">Applies at the next boot.</p>
+    </fieldset>
+    <fieldset class="gfx-choice" aria-describedby="gfx-scale-note">
+      <legend class="sound-label">Resolution</legend>
+      <label class="gfx-option"><input type="radio" name="gfx-scale" value="1" checked><span>Native<span class="gfx-hint">As the PS2 draws it</span></span></label>
+      <label class="gfx-option"><input type="radio" name="gfx-scale" value="2"><span>2×<span class="gfx-hint">Twice the lines; needs a stronger GPU</span></span></label>
+      <p class="menu-reason" id="gfx-scale-note">Remembered in this browser. Applies at once.</p>
+    </fieldset>
+    <div class="menu-items">
+      <button type="button" class="menu-item" id="gfx-check"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-graphics-card"/></svg>Check WebGPU</button>
+      <div class="gfx-result" id="gfx-result" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <div class="menu gfx-menu" id="ee-menu" popover role="group" aria-label="Underclock">
+    <p class="menu-file"><span class="menu-where">This game</span><span class="gfx-mode" id="ee-game">No game running</span></p>
+    <fieldset class="gfx-choice" id="ee-choice" aria-describedby="ee-reason">
+      <legend class="sound-label">Underclock the PS2’s processor</legend>
+      <label class="gfx-option"><input type="radio" name="ee-rate" value="0" checked><span>Off<span class="gfx-hint">Full speed, as on a PS2</span></span></label>
+      <label class="gfx-option"><input type="radio" name="ee-rate" value="-1"><span>Light<span class="gfx-hint">75 %</span></span></label>
+      <label class="gfx-option"><input type="radio" name="ee-rate" value="-2"><span>Medium<span class="gfx-hint">60 %</span></span></label>
+      <label class="gfx-option"><input type="radio" name="ee-rate" value="-3"><span>Strong<span class="gfx-hint">50 %</span></span></label>
+      <p class="menu-reason" id="ee-reason">Start a game to choose. Each game keeps its own choice.</p>
+    </fieldset>
+  </div>
+
+  <div class="menu gfx-menu state-menu" id="state-menu" popover role="group" aria-label="Save states">
+    <div class="state-view" data-view="list">
+      <p class="menu-file"><span class="menu-where">This game</span><span class="gfx-mode" id="state-game">No game running</span></p>
+      <div class="menu-items">
+        <button type="button" class="menu-item" id="state-new" aria-keyshortcuts="F1"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-camera"/></svg><span class="label" id="state-new-label">Save state</span><kbd class="cap-key" aria-hidden="true">F1</kbd></button>
+        <div class="state-list" id="state-list" role="group" aria-label="States of this game"></div>
+        <p class="state-none" id="state-none" hidden>No states for this game yet.</p>
+        <button type="button" class="menu-item" id="state-open"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-folder-open"/></svg>Open a state file…</button>
+        <p class="menu-reason" id="state-reason">Start a game to save its state.</p>
+      </div>
+    </div>
+    <div class="state-view" data-view="more" hidden>
+      <p class="menu-file"><span class="menu-name" id="state-more-name"></span><span class="menu-where" id="state-more-where"></span></p>
+      <div class="menu-items">
+        <button type="button" class="menu-item" id="state-copy"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-download-simple"/></svg>Save a copy to disk…</button>
+        <button type="button" class="menu-item" id="state-delete"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-trash"/></svg>Delete</button>
+        <button type="button" class="menu-item" id="state-back"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-left"/></svg>Back to the states</button>
+      </div>
+    </div>
+    <p class="card-error" id="state-error" role="alert" hidden></p>
+  </div>
+
+  <div class="menu" id="bios-menu" popover role="group" aria-label="BIOS">
+    <p class="menu-file"><span class="menu-name" id="menu-name"></span><span class="menu-where" id="menu-where"></span></p>
+    <div class="menu-items" id="menu-items">
+      <button type="button" class="menu-item" id="menu-choose"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-folder-open"/></svg>Choose another file…</button>
+      <button type="button" class="menu-item" id="menu-forget"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-trash"/></svg>Forget this BIOS</button>
+      <p class="menu-reason" id="menu-reason" hidden>Stop the PS2 to change the BIOS.</p>
+    </div>
+    <div class="menu-confirm" id="menu-confirm" role="group" aria-labelledby="menu-confirm-q" hidden>
+      <p id="menu-confirm-q">Forget it? You’ll need the file to boot again.</p>
+      <div class="menu-confirm-actions">
+        <button type="button" class="btn-quiet" id="menu-forget-yes">Forget</button>
+        <button type="button" class="btn-quiet" id="menu-keep">Keep</button>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+
+<!-- The controllers on the floor under the console (UI-SPEC.md §17), one per port, each plugged in by a cable
+     while something plays as its player. app.js builds them from pad-template. -->
+<section class="pads" id="pads" aria-labelledby="pads-title">
+  <h2 class="lbl pads-title" id="pads-title">Controllers</h2>
+  <div class="pads-row" id="pads-row"></div>
+</section>
+<!-- The credits, on the floor's far side, below the controllers. -->
+<footer class="credits">
+  <p><span class="seg">Use a BIOS and discs from your own console; they never leave this browser&nbsp;<span class="sep" aria-hidden="true">·</span></span> <span class="seg">Built on <a href="https://github.com/PCSX2/pcsx2" target="_blank" rel="noopener noreferrer">PCSX2<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> (opens in a new tab)</span></a> (GPL-3.0)&nbsp;<span class="sep" aria-hidden="true">·</span></span> <span class="seg"><a class="source-link" href="https://github.com/TabStationToo/TabStationToo" target="_blank" rel="noopener noreferrer">Source<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> (opens in a new tab)</span></a>&nbsp;<span class="sep" aria-hidden="true">·</span></span> <span class="seg">Not affiliated with Sony or the PCSX2 project</span></p>
+</footer>
+<svg class="cables" id="cables" aria-hidden="true" focusable="false">
+  <path class="cable-wall" id="cable-1-wall" pathLength="1"/><path class="cable-core" id="cable-1" pathLength="1"/>
+  <path class="cable-wall" id="cable-2-wall" pathLength="1"/><path class="cable-core" id="cable-2" pathLength="1"/>
+</svg>
+<!-- The same cables in front of the page, shown only over the console's face: where they come out of the plugs. -->
+<svg class="cables cables-front" id="cables-front" aria-hidden="true" focusable="false">
+  <clipPath id="cables-front-clip"><rect id="cables-front-rect"/></clipPath>
+  <g clip-path="url(#cables-front-clip)">
+    <path class="cable-wall" id="cable-1-front-wall" pathLength="1"/><path class="cable-core" id="cable-1-front" pathLength="1"/>
+    <path class="cable-wall" id="cable-2-front-wall" pathLength="1"/><path class="cable-core" id="cable-2-front" pathLength="1"/>
+  </g>
+</svg>
+
+<!-- A controller, drawn as a wireframe like the console (600 × 310 units) and without any maker's marks. app.js
+     lays a button over each control, showing the key or gamepad control that plays it. -->
+<template id="pad-template">
+  <section class="pad-unit">
+    <div class="pad-art">
+      <svg class="pad-svg" viewBox="0 0 600 310" aria-hidden="true" focusable="false">
+        <!-- the shoulder buttons' lines out to their labels (L2 and R2 are behind L1 and R1) -->
+        <path class="p-lead" d="M162.7 56.5 L124 30 H92 M153.8 75.7 L120 74 H92 M 437.3 56.5 L 476 30 H 508 M 446.2 75.7 L 480 74 H 508"/>
+        <text class="p-name p-name-l" x="44" y="34">L2</text>
+        <text class="p-name p-name-l" x="44" y="78">L1</text>
+        <text class="p-name" x="556" y="78">R1</text>
+        <text class="p-name" x="556" y="34">R2</text>
+        <!-- The controller, after a real one seen from above (in its own units, 725 wide, scaled into the frame).
+             Back to front: L2 and R2 behind L1 and R1; the grips; the bridge; the round wings and the sticks' round
+             housings as one outline (drawn wide, then filled over, so only its outer edge shows); then what is on
+             top. -->
+        <g transform="translate(68 4) scale(0.64)">
+          <path class="p-sh" d="M146 88 C146 81 152 77 166 77 H202 C216 77 222 81 222 88 Z"/>
+          <path class="p-sh" d="M 579 88 C 579 81 573 77 559 77 H 523 C 509 77 503 81 503 88 Z"/>
+          <path class="p-sh" d="M129 150 L130.5 136 L136.5 98 Q137.5 88.5 146 88 C165 85 203 85 222 88 Q230.5 88.5 232.5 98 L239.5 136 L241 150 Z"/>
+          <path class="p-sh" d="M 596 150 L 594.5 136 L 588.5 98 Q 587.5 88.5 579 88 C 560 85 522 85 503 88 Q 494.5 88.5 492.5 98 L 485.5 136 L 484 150 Z"/>
+          <path class="p-part" d="M150 217 L86 217 L56 385 C56 425 85 452 118 452 C135 452 148 446 160 436 L222 360 L236 330 L200 260 Z"/>
+          <path class="p-part" d="M 575 217 L 639 217 L 669 385 C 669 425 640 452 607 452 C 590 452 577 446 565 436 L 503 360 L 489 330 L 525 260 Z"/>
+          <rect class="p-part" x="230" y="137" width="265" height="190"/>
+          <g class="p-shell"><circle cx="182.5" cy="217" r="96"/><circle cx="542.5" cy="217" r="96"/><circle cx="271" cy="305" r="65"/><circle cx="454" cy="305" r="65"/></g>
+          <g class="p-body"><circle cx="182.5" cy="217" r="96"/><circle cx="542.5" cy="217" r="96"/><circle cx="271" cy="305" r="65"/><circle cx="454" cy="305" r="65"/></g>
+          <path class="p-line" d="M330 313 H395"/>
+          <!-- where the cable comes out -->
+          <rect class="p-relief" x="354" y="121" width="17" height="18" rx="3"/>
+          <!-- the D-pad's and the face buttons' plates -->
+          <g class="p-shell"><rect x="156" y="143" width="52" height="148" rx="8"/><rect x="109" y="191" width="148" height="52" rx="8"/><rect x="516.5" y="143" width="52" height="148" rx="8"/><rect x="469.5" y="191" width="147" height="52" rx="8"/></g>
+          <g class="p-plate"><rect x="156" y="143" width="52" height="148" rx="8"/><rect x="109" y="191" width="148" height="52" rx="8"/><rect x="516.5" y="143" width="52" height="148" rx="8"/><rect x="469.5" y="191" width="147" height="52" rx="8"/></g>
+          <!-- the D-pad: four keys pointing in; the face buttons -->
+          <path class="p-key" d="M166 167 H199 V193 L182.5 207 L166 193 Z M166 267 H199 V241 L182.5 227 L166 241 Z M133 200 V233 H159 L173 216.5 L159 200 Z M232 200 V233 H206 L192 216.5 L206 200 Z"/>
+          <circle class="p-key" cx="542.5" cy="169" r="19.5"/>
+          <circle class="p-key" cx="494.5" cy="217" r="19.5"/>
+          <circle class="p-key" cx="590.5" cy="217" r="19.5"/>
+          <circle class="p-key" cx="542.5" cy="265" r="19.5"/>
+          <!-- Select, Start and Analog -->
+          <rect class="p-key" x="293" y="211" width="27" height="13" rx="1.5"/>
+          <path class="p-key" d="M404 209 L430 217.5 L404 226 Z"/>
+          <rect class="p-key" x="340.5" y="265" width="44" height="18" rx="2"/>
+          <!-- the sticks, which follow a gamepad's -->
+          <circle class="p-stick" data-stick="L" cx="271" cy="305" r="43"/>
+          <circle class="p-stick" data-stick="R" cx="454" cy="305" r="43"/>
+        </g>
+      </svg>
+      <div class="pad-spots"></div>
+    </div>
+    <div class="pad-foot">
+      <h3 class="pad-title"></h3>
+      <fieldset class="pad-dev">
+        <legend class="vh"></legend>
+        <div class="pad-dev-list"></div>
+      </fieldset>
+      <div class="pad-rumble" hidden>
+        <label class="check"><input type="checkbox" class="pad-rumble-input" checked><span>Rumble</span></label>
+        <button type="button" class="btn-quiet pad-rumble-test">Test</button>
+      </div>
+    </div>
+    <p class="pad-status" role="status"></p>
+    <p class="pad-also"></p>
+    <div class="pad-actions">
+      <button type="button" class="btn-quiet pad-map" hidden>Map all controls</button>
+      <button type="button" class="btn-quiet pad-reset" hidden></button>
+    </div>
+  </section>
+</template>
+
+<dialog class="lib-dialog" id="library" aria-labelledby="library-title">
+  <header class="lib-head">
+    <h2 id="library-title"><svg class="mark" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-mark"/></svg>Disc library</h2>
+    <button type="button" class="btn-quiet" id="library-close" aria-keyshortcuts="Escape"><svg class="icon" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-x"/></svg>Close</button>
+  </header>
+  <div class="lib" id="library-root"></div>
+  <p class="lib-credit">Console photo: Evan-Amos, public domain <span class="sep">·</span> Disc art: <a href="https://github.com/xlenore/ps2-covers" target="_blank" rel="noopener noreferrer">ps2-covers<span class="vh"> (opens in a new tab)</span></a>, by serial; your files never leave this browser.</p>
+</dialog>
+
+<dialog class="about" id="about" aria-labelledby="about-title">
+  <h2 id="about-title" tabindex="-1" autofocus>About TabStationToo.</h2>
+  <p>TabStationToo runs PCSX2, the PlayStation&nbsp;2 emulator, compiled to WebAssembly, entirely in this tab.</p>
+  <p>Use only a BIOS dumped from a console you own, and disc images of games you own. The BIOS is kept in this browser (IndexedDB), never sent anywhere, and you can forget it from the BIOS menu. A disc image is read from your file as the game needs it; nothing is copied or uploaded.</p>
+  <p>Works today: the BIOS menus and games from disc images, with sound, a keyboard and gamepads, and memory cards kept in this browser or in files on your disk. Many games run at or near full speed, the heaviest scenes still below. Save states are kept in this browser.</p>
+  <p>Built on <a href="https://github.com/PCSX2/pcsx2" target="_blank" rel="noopener noreferrer">PCSX2<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> (opens in a new tab)</span></a>, GPL-3.0-or-later. <a class="source-link" href="https://github.com/TabStationToo/TabStationToo" target="_blank" rel="noopener noreferrer">Source<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> (opens in a new tab)</span></a></p>
+  <p class="fine">PlayStation and PS2 are trademarks of Sony Interactive Entertainment. TabStationToo isn’t affiliated with or endorsed by Sony or the PCSX2 project.</p>
+  <p class="fine">Type: <a href="fonts/Archivo-OFL.txt" target="_blank" rel="noopener noreferrer">Archivo<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> licence (opens in a new tab)</span></a> and <a href="fonts/ChivoMono-OFL.txt" target="_blank" rel="noopener noreferrer">Chivo Mono<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> licence (opens in a new tab)</span></a> by Omnibus-Type (OFL 1.1). Icons: <a href="icons/Phosphor-LICENSE.txt" target="_blank" rel="noopener noreferrer">Phosphor<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> licence (opens in a new tab)</span></a> (MIT). Service worker: <a href="coi-serviceworker-LICENSE.txt" target="_blank" rel="noopener noreferrer">coi-serviceworker<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> licence (opens in a new tab)</span></a> by Guido Zuidhof (MIT). Cable physics: <a href="vendor/matter-js-LICENSE.txt" target="_blank" rel="noopener noreferrer">matter-js<svg class="icon-ext" aria-hidden="true" focusable="false"><use href="icons.svg?v=385757d8e81d#i-arrow-up-right"/></svg><span class="vh"> licence (opens in a new tab)</span></a> by Liam Brummitt and contributors (MIT).</p>
+  <form method="dialog" class="about-actions"><button type="submit" class="btn-quiet" id="about-close">Close</button></form>
+</dialog>
+
+<p class="vh" id="announce" role="status"></p>
+<input type="file" id="bios-input" hidden accept=".bin,.BIN,.rom,.ROM,.rom0,.ROM0,application/octet-stream">
+<input type="file" id="disc-input" hidden accept=".iso,.ISO,.bin,.BIN,.img,.IMG,.chd,.CHD,.cso,.CSO,.zso,.ZSO,.gz,.GZ">
+<input type="file" id="card-input" hidden accept=".ps2,.PS2">
+<input type="file" id="state-input" hidden accept=".p2s,.P2S">
+<input type="file" id="player-state-input" hidden accept=".p2s,.P2S">
+<noscript><p class="noscript">TabStationToo needs JavaScript and WebAssembly to run.</p></noscript>
+</body>
+</html>

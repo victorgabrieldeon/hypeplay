@@ -26,6 +26,7 @@ const discord = { signIn: async () => ({ id: "42", name: "Ana" }) };
 let root: string;
 let app: ReturnType<typeof createApp>;
 let library: ReturnType<typeof createLibrary>;
+let engine: string;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "cordplay-routes-ps2-"));
@@ -33,6 +34,11 @@ beforeAll(async () => {
   await writeFile(join(root, "bt3", "disc.iso"), "iso");
   await writeFile(join(root, "bt3", "build", "index.html"), "<html><head></head><body>bt3</body></html>");
   library = createLibrary(root, { min: 1024 });
+  // TabStationToo's files (emulator/ps2/): its real page, and stand-ins for the rest
+  engine = join(root, "engine");
+  await mkdir(join(engine, "fonts"), { recursive: true });
+  await writeFile(join(engine, "index.html"), await Bun.file(join(import.meta.dir, "fixtures", "tabstation-index.html")).text());
+  for (const f of ["pcsx2-wasm.wasm", "style.css", "fonts/archivo.woff2", "secret.txt"]) await writeFile(join(engine, f), `engine ${f}`);
   app = createApp({
     dir: root,
     pageDir: PAGE_DIR,
@@ -44,6 +50,7 @@ beforeAll(async () => {
     people: createPeople(root),
     ps2Rooms: new Ps2Rooms(),
     bios: createBios(root),
+    ps2Engine: engine,
   });
 });
 afterAll(() => rm(root, { recursive: true, force: true }));
@@ -157,17 +164,11 @@ test("pad maps and the last game played round-trip", async () => {
   expect((await ana("played", json({ key: "../x" }))).status).toBe(400);
 });
 
-/** A built PS2 game: the disc and what ps2-builder publishes. */
+/** A PS2 game with its disc in: all it takes to play (with the BIOS). */
 async function built(serial: string, program: string) {
   const id = serial.toLowerCase();
   await ana("ps2", json({ serial, name: serial }));
-  const p = library.paths(id);
-  await writeFile(p.iso, makeIso({ "SYSTEM.CNF": cnf(program) }, { pad: 8192 }));
-  await mkdir(join(p.build, "shots"), { recursive: true });
-  await writeFile(join(p.build, "ps2web.html"), "<!doctype html><html><head><title>ps2</title></head><body>game</body></html>");
-  for (const f of ["ps2web.js", "ps2web.wasm", "ps2web.data", "segredo.txt"]) await writeFile(join(p.build, f), `file ${f}`);
-  await writeFile(join(p.build, "ps2web.wasm.gz"), "gz wasm");
-  await writeFile(join(p.build, "shots", "01.webp"), "shot");
+  await writeFile(library.paths(id).iso, makeIso({ "SYSTEM.CNF": cnf(program) }, { pad: 8192 }));
   return id;
 }
 
@@ -178,7 +179,7 @@ const ISOLATION = {
   "cross-origin-resource-policy": "same-origin",
 };
 
-test("a PS2 game is served isolated, from its fixed list, gzipped when asked", async () => {
+test("a PS2 game is TabStationToo's page, patched and isolated, with its files from the fixed list", async () => {
   const id = await built("SLES-66666", "SLES_666.66");
   expect((await ana(`ps2/${id}/game`)).headers.get("location")).toBe("game/");
   const page = await ana(`ps2/${id}/game/`);
@@ -188,17 +189,18 @@ test("a PS2 game is served isolated, from its fixed list, gzipped when asked", a
   const csp = page.headers.get("content-security-policy")!;
   expect(csp).not.toContain("sandbox");
   expect(csp).toContain("frame-ancestors https://discord.com");
-  expect(await page.text()).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
-  expect(await (await ana(`ps2/${id}/game/index.html`)).text()).toContain("game");
+  const html = await page.text();
+  expect(html).toContain("<title>SLES-66666 · CordPlay</title>");
+  expect(html).toContain('<script src="../../../ps2play.js"></script>');
+  expect(html).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
 
-  const wasm = await ana(`ps2/${id}/game/ps2web.wasm`, { headers: { "accept-encoding": "gzip, br" } });
-  expect(wasm.headers.get("content-encoding")).toBe("gzip");
+  const wasm = await ana(`ps2/${id}/game/pcsx2-wasm.wasm`);
   expect(wasm.headers.get("content-type")).toBe("application/wasm");
-  expect(await wasm.text()).toBe("gz wasm");
-  expect(await (await ana(`ps2/${id}/game/ps2web.wasm`)).text()).toBe("file ps2web.wasm");
-  expect(await (await ana(`ps2/${id}/game/ps2web.js`)).text()).toBe("file ps2web.js");
-  expect((await ana(`ps2/${id}/game/shots/01.webp`)).headers.get("content-type")).toBe("image/webp");
-  for (const f of ["segredo.txt", "ps2web.html", "shots/1.webp", "../game.json", "status.json"]) expect((await ana(`ps2/${id}/game/${f}`)).status).toBe(404);
+  expect(wasm.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+  expect(await wasm.text()).toBe("engine pcsx2-wasm.wasm");
+  expect((await ana(`ps2/${id}/game/style.css`)).headers.get("content-type")).toStartWith("text/css");
+  expect((await ana(`ps2/${id}/game/fonts/archivo.woff2`)).headers.get("content-type")).toBe("font/woff2");
+  for (const f of ["secret.txt", "../game.json", "status.json", "ps2web.wasm", "fonts/../secret.txt"]) expect((await ana(`ps2/${id}/game/${f}`)).status).toBe(404);
 });
 
 test("a PS2 game whose disc is in plays once the server has the BIOS, which is sent once and served isolated", async () => {
@@ -244,7 +246,7 @@ test("a removed game's routes 404 while open", async () => {
   const id = await built("SLES-88888", "SLES_888.88");
   expect((await ana(`ps2/${id}/game/disc.iso`, { method: "HEAD" })).status).toBe(200);
   await ana(`ps2/${id}`, { method: "DELETE" });
-  for (const f of ["game/", "game/disc.iso", "game/ps2web.wasm", "status"]) expect((await ana(`ps2/${id}/${f}`)).status).toBe(404);
+  for (const f of ["game/", "game/disc.iso", "game/pcsx2-wasm.wasm", "status"]) expect((await ana(`ps2/${id}/${f}`)).status).toBe(404);
   expect((await ana("games")).status).toBe(200);
 });
 
@@ -319,16 +321,6 @@ test("the home's own scripts, from a fixed list, with the home's headers", async
   expect(app.headers.get("content-security-policy")).toStartWith("sandbox ");
   expect(app.headers.get("access-control-allow-origin")).toBe("*");
   for (const f of ["home/nope.js", "home/../index.html", "home/app.ts", "home/"]) expect((await ana(f)).status).toBe(404);
-});
-
-test("the test runs' screenshots, for the home (not isolated, the home is an opaque origin)", async () => {
-  const id = await built("SLES-10101", "SLES_101.01");
-  const shot = await ana(`ps2/${id}/shots/01.webp`);
-  expect(shot.status).toBe(200);
-  expect(shot.headers.get("content-type")).toBe("image/webp");
-  expect(shot.headers.get("cross-origin-resource-policy")).toBeNull();
-  expect(shot.headers.get("access-control-allow-origin")).toBe("*");
-  for (const f of ["shots/02.webp", "shots/1.webp", "shots/../game.json"]) expect((await ana(`ps2/${id}/${f}`)).status).toBe(404);
 });
 
 test("PS2 routes 404 for unknown ids and without a library", async () => {

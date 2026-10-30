@@ -24,6 +24,7 @@
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
  */
 import type { Server, WebSocketHandler } from "bun";
+import { readFileSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bios } from "./bios";
@@ -36,6 +37,7 @@ import { BT3_SERIAL } from "./iso9660";
 import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
 import type { Pass, Passes } from "./pass";
 import type { People } from "./people";
+import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
 import { createHomebrew, type HomebrewShelf } from "./homebrew";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
@@ -65,8 +67,12 @@ const TYPES: Record<string, string> = {
 
 /** The home's own scripts (page/home/), plain ES modules. */
 const HOME_FILES = new Set(["app.js", "library.js", "drawer.js", "wizard.js", "controller.js", "intro.js", "homebrew.js"]);
-/** The PS2 games' page (ps2-builder publishes ps2web.html; it's served as the folder's index) and files. */
-const PS2_FILES = new Set(["ps2web.js", "ps2web.wasm", "ps2web.data"]);
+/** TabStationToo's files (emulator/ps2/, pinned by emulator/ps2-files.json): nothing else of that folder is served. */
+const ENGINE_FILES = new Set(
+  (JSON.parse(readFileSync(join(import.meta.dir, "..", "emulator", "ps2-files.json"), "utf8")) as { files: { path: string }[] }).files
+    .map((f) => f.path)
+    .filter((p) => p !== "index.html"),
+);
 /** The home's two typefaces, from their packages (OFL), served from here: nothing is fetched elsewhere. */
 const FONTS: Record<string, string> = {
   "inter-latin-wght-normal.woff2": "@fontsource-variable/inter",
@@ -114,6 +120,8 @@ export interface AppOptions {
   ps2Rooms?: Ps2Rooms;
   /** The app's public address (PUBLIC_URL), for "Abrir no navegador". */
   publicUrl?: string;
+  /** TabStationToo's files, emulator/ps2/ by default (emulator/ps2-fetch.ts). */
+  ps2Engine?: string;
   /** The PS2 BIOS, sent once for the whole server (bios.ts); without it the PS2 games wait for one. */
   bios?: Bios;
   /** A TURN relay for the PS2 games' online (TURN_URL, TURN_SECRET). */
@@ -167,6 +175,7 @@ export function createApp({
   turn,
   scripts = {},
   bios,
+  ps2Engine = join(import.meta.dir, "..", "emulator", "ps2"),
 }: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
@@ -188,10 +197,16 @@ export function createApp({
    * A game's page with pad.js (the mapped controller) and overlay.js (volume, screen filter) slipped in; `pad` is the
    * relative address of pad.js, overlay.js sits next to it. Without a </head>, the page as it is.
    */
-  async function page(path: string, pad: string, headers: Record<string, string>) {
+  async function page(path: string, pad: string, headers: Record<string, string>, adjust: (html: string) => string = (h) => h) {
     const f = Bun.file(path);
     if (!(await f.exists())) return text("Não encontrado", 404);
-    const html = await f.text();
+    let html: string;
+    try {
+      html = adjust(await f.text());
+    } catch (err) {
+      console.error(err);
+      return new Response(`O emulador mudou e a página dele precisa de revisão (server/ps2page.ts).`, { status: 500, headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
+    }
     // (each goes in just before </head>: pad.js first, then overlay.js)
     const withPad = injectPad(html, pad);
     const both = withPad && injectPad(withPad, pad.replace(/pad\.js$/, "overlay.js"));
@@ -327,19 +342,18 @@ export function createApp({
     return respond(generatedCover(g.serial, g.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
   }
 
-  /** ps2/<id>/game/…: the compiled game, its disc, its online rooms. All isolated (http.ts). */
+  /** ps2/<id>/game/…: TabStationToo with the game's disc, its online rooms. All isolated (http.ts). */
   async function ps2Game(req: Request, pass: Pass, id: string, rest: string): Promise<Response | undefined> {
     const p = library!.paths(id);
     const isolated = (body: ConstructorParameters<typeof Response>[0], status: number, type: string) =>
       new Response(body, { status, headers: { ...ISOLATED, "Content-Type": type } });
     const notFound = () => isolated("Não encontrado", 404, "text/plain; charset=utf-8");
-    if (rest === "" || rest === "index.html") return page(join(p.build, "ps2web.html"), "../../../pad.js", ISOLATED);
-    if (PS2_FILES.has(rest) || /^shots\/\d{2}\.webp$/.test(rest)) {
-      const path = join(p.build, rest);
-      const gz = Bun.file(`${path}.gz`);
-      if (/\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") && (await gz.exists()))
-        return new Response(gz, { headers: { ...ISOLATED, "Content-Type": typeOf(rest), "Content-Encoding": "gzip", Vary: "Accept-Encoding" } });
-      const f = Bun.file(path);
+    if (rest === "" || rest === "index.html") {
+      const name = (await library!.get(id))?.name ?? id;
+      return page(join(ps2Engine, "index.html"), "../../../pad.js", ISOLATED, (html) => patchTabStation(html, name));
+    }
+    if (ENGINE_FILES.has(rest)) {
+      const f = Bun.file(join(ps2Engine, rest));
       return (await f.exists()) ? isolated(f, 200, typeOf(rest)) : notFound();
     }
     if (rest === "disc.iso") {
@@ -384,8 +398,6 @@ export function createApp({
     const disc = lib.disc(id);
     if (rest === "game") return respond(null, 301, { Location: "game/" });
     if (rest.startsWith("game/")) return ps2Game(req, pass, id, rest.slice("game/".length));
-    // The test runs' screenshots for the home, outside game/: the game's isolation headers would keep them from it.
-    if (/^shots\/\d{2}\.webp$/.test(rest)) return file(join(p.build, rest));
     switch (rest) {
       case "":
         if (req.method === "PATCH") {

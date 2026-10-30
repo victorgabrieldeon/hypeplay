@@ -56,6 +56,7 @@ const app = createApp({
     "pad.js": await bundle("pad.ts"),
     "padmap.js": await bundle("padmap-global.ts"),
     "overlay.js": await bundle("overlay.ts"),
+    "ps2play.js": await bundle("ps2play.ts"),
   },
 });
 

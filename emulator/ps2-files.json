@@ -14,12 +14,24 @@
       "sha256": "c8706912b77b2504496f39d4a335646ecf57638aa11671a74aceb756c27d1e74"
     },
     {
+      "path": "library/disc-library.css",
+      "sha256": "902e9791489525a4ccf2e5b8854accf8b38cec8df2781576406444d77cefb54c"
+    },
+    {
+      "path": "style.css",
+      "sha256": "4b458999ff75ac950c6febea35aabbf1b2feba4b30a64ef99727b4535a8ead64"
+    },
+    {
       "path": "coi-serviceworker.js",
       "sha256": "d12bd536e27e39a773d7dc7adb1a1167d24002293e97ac81c995fb00cf8d4d5a"
     },
     {
       "path": "favicon.svg",
       "sha256": "c03aa5365b4ea4cd29710772321fc44d62b8664811dfb731bfa00149d03ff16b"
+    },
+    {
+      "path": "fonts/chivo-mono.woff2",
+      "sha256": "c00775f8ecb034b6c193c7b253d698cfe882a1d6c0df67299a3d5382c2e82216"
     },
     {
       "path": "icons.svg",

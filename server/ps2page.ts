@@ -26,7 +26,9 @@ export function patchTabStation(html: string, name: string): string {
   for (const { from, to } of SWAPS) {
     const found = typeof from === "string" ? out.split(from).length - 1 : (out.match(new RegExp(from, "g")) ?? []).length;
     if (found !== 1) throw new Error(`tabstation index.html: não achei ${found ? "um só" : "o"} trecho ${String(from)} (o TabStationToo mudou? revise server/ps2page.ts)`);
-    out = out.replace(from, to.replace("{name}", xml(name)));
+    // (replacer functions: a "$" in the game's name or in the page is text, not a replacement pattern)
+    const value = to.replace("{name}", () => xml(name));
+    out = typeof from === "string" ? out.replace(from, () => value) : out.replace(from, (...m: string[]) => value.replace("$1", () => m[1]!));
   }
   return out;
 }

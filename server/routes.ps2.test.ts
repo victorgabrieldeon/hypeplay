@@ -264,6 +264,11 @@ test("rooms: create, post, wait, listed in games; ice with and without TURN", as
   const entry = (await catalog()).games.find((g) => g.id === id)!;
   expect(entry.open).toEqual([{ code: room, host: "Ana", since: expect.any(Number), busy: true }]);
 
+  // only its host closes it, and then it's gone
+  expect((await bia(`ps2/${id}/room/${room}`, { method: "DELETE" })).status).toBe(404);
+  expect((await ana(`ps2/${id}/room/${room}`, { method: "DELETE" })).status).toBe(204);
+  expect((await catalog()).games.find((g) => g.id === id)!.open).toEqual([]);
+
   expect(await (await ana(`ps2/${id}/ice`)).json()).toEqual([{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }]);
   const turned = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, turn: { url: "turn:t.exemplo.com:3478", secret: "s" } });
   const ice = (await ((await turned.handle(new Request(`http://localhost/p/${ANA}/ps2/${id}/ice`))) as Response).json()) as { username?: string }[];

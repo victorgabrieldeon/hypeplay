@@ -1,3 +1,4 @@
+import { createCardSync, heldByOtherTab, type CardStore } from "./cardsync";
 import { roomButton } from "./stream";
 
 // ps2play.js (bundled at startup, server/index.ts; put in TabStationToo's page by server/ps2page.ts, before its
@@ -10,7 +11,8 @@ import { roomButton } from "./stream";
 
 const CARD_ID = "cordplay";
 const CARD_BYTES = 8_650_752;
-const SAVE = "../save";
+/** A card the server hasn't got yet (cardsync.ts), in the emulator's own database. */
+const DIRTY_KEY = "cordplay-unsent";
 
 const STYLE = `
 @font-face { font-family: "Inter"; font-weight: 100 900; font-display: swap; src: url("../../../fonts/inter-latin-wght-normal.woff2") format("woff2"); }
@@ -77,6 +79,17 @@ function note(title: string, text: string, action?: { label: string; run: () => 
   else document.addEventListener("DOMContentLoaded", show);
 }
 
+/** A small notice at the bottom, in our design, that leaves the game playable. */
+function warn(text: string) {
+  const n = document.createElement("p");
+  n.id = "cp-warn";
+  n.textContent = text;
+  n.style.cssText =
+    "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483646;margin:0;max-width:min(560px,calc(100% - 32px));padding:10px 14px;border-radius:12px;background:rgb(15 13 26 / .94);color:#f5a524;font:400 13px/20px Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 0 0 1px rgb(255 255 255 / .08);visibility:visible";
+  document.body.append(n);
+  setTimeout(() => n.remove(), 12_000);
+}
+
 function bar() {
   const b = document.createElement("div");
   b.id = "cp-bar";
@@ -102,35 +115,67 @@ function idb(): Promise<IDBDatabase> {
   });
 }
 
-/** The person's card (or a blank one) as TabStationToo's card in slot 1, before its app.js reads the library. */
-async function seedCard() {
-  const res = await fetch(SAVE, { cache: "no-store" }).catch(() => null);
-  const bytes = res?.ok ? new Uint8Array(await res.arrayBuffer()) : new Uint8Array(CARD_BYTES).fill(0xff);
-  const db = await idb();
-  await new Promise<void>((ok, fail) => {
-    const tx = db.transaction(["cards", "bytes", "meta"], "readwrite");
-    const now = Date.now();
-    tx.objectStore("cards").put({ id: CARD_ID, name: "CordPlay", created: now, used: now, handle: null, file: null, unlinked: false });
-    tx.objectStore("bytes").put(bytes, CARD_ID);
-    tx.objectStore("meta").put({ slots: [CARD_ID, null], last: [CARD_ID, null] }, "slots");
-    tx.oncomplete = () => ok();
-    tx.onerror = () => fail(tx.error);
+function tx<T>(db: IDBDatabase, store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void): Promise<T | undefined> {
+  return new Promise((ok, fail) => {
+    const t = db.transaction(store, mode);
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => ok(req ? req.result : undefined);
+    t.onerror = () => fail(t.error);
   });
-  db.close();
 }
 
-/** When TabStationToo keeps a copy of the card (after each save of the game), the server gets it too. */
-function watchSaves() {
+/** The unsent card waits in the emulator's database, so it outlives a closed page. */
+function dirtyStore(db: IDBDatabase): CardStore {
+  return {
+    getDirty: async () => ((await tx<unknown>(db, "meta", "readonly", (m) => m.get(DIRTY_KEY))) as Uint8Array | undefined) ?? null,
+    setDirty: async (b) => {
+      await tx<unknown>(db, "meta", "readwrite", (m) => (b ? (m.put(b, DIRTY_KEY) as IDBRequest<unknown>) : (m.delete(DIRTY_KEY) as IDBRequest<unknown>)));
+    },
+  };
+}
+
+/** The person's card as TabStationToo's card in slot 1, before its app.js reads the library. */
+async function seedCard(db: IDBDatabase, bytes: Uint8Array) {
+  await new Promise<void>((ok, fail) => {
+    const t = db.transaction(["cards", "bytes", "meta"], "readwrite");
+    const now = Date.now();
+    t.objectStore("cards").put({ id: CARD_ID, name: "CordPlay", created: now, used: now, handle: null, file: null, unlinked: false });
+    t.objectStore("bytes").put(bytes, CARD_ID);
+    t.objectStore("meta").put({ slots: [CARD_ID, null], last: [CARD_ID, null] }, "slots");
+    t.oncomplete = () => ok();
+    t.onerror = () => fail(t.error);
+  });
+}
+
+/** When TabStationToo keeps a copy of the card (after each save of the game), it goes to the server too. */
+function watchSaves(saved: (bytes: Uint8Array) => unknown) {
   const put = IDBObjectStore.prototype.put;
-  let timer = 0;
   IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
-    if (this.name === "bytes" && key === CARD_ID && value instanceof Uint8Array && value.length === CARD_BYTES) {
-      const copy = value.slice();
-      clearTimeout(timer);
-      timer = window.setTimeout(() => fetch(SAVE, { method: "PUT", body: copy }).catch(() => {}), 300);
-    }
+    if (this.name === "bytes" && key === CARD_ID && value instanceof Uint8Array && value.length === CARD_BYTES) void saved(value);
     return put.call(this, value, key);
   } as typeof put;
+}
+
+const holdPage = (e: BeforeUnloadEvent) => {
+  e.preventDefault();
+  e.returnValue = "";
+};
+
+/** The card: the server's (or one left unsent here) into slot 1, and each save of the game back to the server. */
+async function cards() {
+  const locks = await navigator.locks?.query?.().catch(() => null);
+  if (heldByOtherTab(locks ?? null)) return "other-tab" as const;
+  const db = await idb();
+  const sync = createCardSync({
+    fetch: window.fetch.bind(window),
+    store: dirtyStore(db),
+    guard: (on) => (on ? addEventListener("beforeunload", holdPage) : removeEventListener("beforeunload", holdPage)),
+  });
+  const { seed, saving } = await sync.start();
+  if (seed) await seedCard(db, seed);
+  // (after seeding: the card that just came from the server doesn't go back up)
+  if (saving) watchSaves((b) => sync.saved(b));
+  return saving ? ("saving" as const) : ("offline" as const);
 }
 
 function loadApp() {
@@ -157,14 +202,17 @@ async function start() {
   q.set("bios", "../../../bios.bin");
   q.set("disc", "disc.iso");
   history.replaceState(null, "", `${location.pathname}?${q}`);
-  watchSaves();
+  let card: Awaited<ReturnType<typeof cards>> | "error" = "error";
   try {
-    await seedCard();
+    card = await cards();
   } catch (err) {
-    console.warn("CordPlay: no memory card from the server this time", err);
+    console.warn("CordPlay: the memory card", err);
   }
+  if (card === "other-tab")
+    return note("Este jogo já está aberto em outra aba", "Os saves só ficam guardados em uma janela por vez. Feche a outra e abra o jogo de novo aqui.");
   if (document.readyState === "loading") await new Promise((ok) => document.addEventListener("DOMContentLoaded", ok, { once: true }));
   bar();
+  if (card !== "saving") warn("Não deu para buscar o seu save no servidor agora. Dá para jogar, mas o que você salvar nesta vez não vai para o servidor.");
   // (app.js names the tab after the disc and itself: the tab keeps the game's name and ours)
   const ours = document.title;
   new MutationObserver(() => {

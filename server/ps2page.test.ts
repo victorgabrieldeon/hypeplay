@@ -28,3 +28,11 @@ test("fails loudly when a piece is missing", () => {
     expect(() => patchTabStation(broken, "x")).toThrow("tabstation index.html: não achei");
   }
 });
+
+test("a name with $ patterns is taken as written", () => {
+  for (const name of ["$$'", "$'", "$&", "$1 Game $`"]) {
+    const html = patchTabStation(page, name);
+    const xml = name.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+    expect(html).toContain(`<title>${xml} · CordPlay</title>`);
+  }
+});

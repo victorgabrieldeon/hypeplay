@@ -104,3 +104,24 @@ test("ids from outside never reach the disk", async () => {
   expect(await library.rename("../x", "y")).toBe(false);
   expect(() => library.paths("../x")).toThrow();
 });
+
+test("a piece that lands after the game was removed doesn't bring its folder back", async () => {
+  const { library } = await setup();
+  await library.reserve(ana, "SLES-12345", "A");
+  const disc = library.disc("sles-12345");
+  expect((await disc.put(ana, 0, 20, new Uint8Array(8))).ok).toBe(true);
+  await library.remove("sles-12345");
+  expect(await disc.put(ana, 8, 20, new Uint8Array(8))).toMatchObject({ ok: false, status: 404, code: "gone" });
+  expect(await exists(library.paths("sles-12345").root)).toBe(false);
+});
+
+test("a folder left without game.json doesn't block its serial, and goes from the list", async () => {
+  const { dir, library, advance } = await setup();
+  await mkdir(join(dir, "ps2", "sles-12345", "upload"), { recursive: true });
+  await writeFile(join(dir, "ps2", "sles-12345", "upload", "state.json"), "{}");
+  expect((await library.reserve(ana, "SLES-12345", "A")).ok).toBe(true);
+  await mkdir(join(dir, "ps2", "scus-97481"), { recursive: true });
+  advance(2 * 60_000);
+  expect((await library.list()).map((g) => g.id)).toEqual(["sles-12345"]);
+  expect(await exists(join(dir, "ps2", "scus-97481"))).toBe(false);
+});

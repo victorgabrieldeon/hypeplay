@@ -39,6 +39,8 @@ const exists = (path: string) => stat(path).then(() => true, () => false);
 
 export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX } = {}) {
   const stores = new Map<string, DiscStore>();
+  /** Reservations between making their folder and writing their game.json: not orphans. */
+  const reserving = new Set<string>();
 
   function paths(id: string) {
     if (!ID.test(id)) throw new Error(`not a game id: ${id}`);
@@ -82,7 +84,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
 
   function disc(id: string): DiscStore {
     let s = stores.get(id);
-    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max, page: "ps2web.html" })));
+    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max, page: "ps2web.html", alive: () => exists(paths(id).game) })));
     return s;
   }
 
@@ -112,7 +114,11 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
       const games: Ps2Game[] = [];
       for (const id of ids.filter((i) => ID.test(i))) {
         const g = await get(id);
-        if (!g) continue;
+        if (!g) {
+          // a folder left without its game.json (a reservation that died halfway): it would block its serial
+          if (!reserving.has(id) && !(await exists(paths(id).game))) await remove(id);
+          continue;
+        }
         if (await abandoned(g)) await remove(id);
         else games.push(g);
       }
@@ -123,17 +129,29 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
       if (!SERIAL.test(serial)) throw new Error(`not a serial: ${serial}`);
       if (serial === BT3_SERIAL) return { ok: false, exists: "bt3" };
       const id = serial.toLowerCase();
-      await mkdir(join(dir, "ps2"), { recursive: true });
+      // One reservation of a serial at a time, in this process; the folder settles it between processes.
+      if (reserving.has(id)) return { ok: false, exists: `ps2/${id}` };
+      reserving.add(id);
       try {
-        // Not recursive: of two reserving the same game at once, only one makes the folder.
-        await mkdir(paths(id).root);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "EEXIST") return { ok: false, exists: `ps2/${id}` };
-        throw err;
+        await mkdir(join(dir, "ps2"), { recursive: true });
+        for (let tries = 0; ; tries++) {
+          try {
+            // Not recursive: of two reserving the same game at once, only one makes the folder.
+            await mkdir(paths(id).root);
+            break;
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+            // an orphan folder (no game.json) is cleared once; a real game is a real game
+            if (tries > 0 || (await exists(paths(id).game))) return { ok: false, exists: `ps2/${id}` };
+            await remove(id);
+          }
+        }
+        const game: Ps2Game = { id, serial, name: nameOr(name, serial), by: { id: pass.id, name: pass.name }, at: now(), cover: false };
+        await save(game);
+        return { ok: true, game };
+      } finally {
+        reserving.delete(id);
       }
-      const game: Ps2Game = { id, serial, name: nameOr(name, serial), by: { id: pass.id, name: pass.name }, at: now(), cover: false };
-      await save(game);
-      return { ok: true, game };
     },
 
     /** The whole disc arrived: is it the game reserved? If not, the game goes, and its image with it. */

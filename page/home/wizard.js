@@ -127,7 +127,9 @@ async function submit() {
   const res = await r.json().catch(() => ({}));
   if (r.status === 409) {
     await poll();
-    Object.assign(w, { step: 'iso', busy: false, exists: res.exists });
+    // (a game someone else is adding right now isn't in the library yet)
+    if (!gameOf(res.exists)) Object.assign(w, { busy: false, error: 'Alguém está adicionando esse jogo agora. Tente de novo daqui a pouco.' });
+    else Object.assign(w, { step: 'iso', busy: false, exists: res.exists });
     return render();
   }
   if (!r.ok) {

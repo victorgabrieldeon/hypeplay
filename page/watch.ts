@@ -71,8 +71,12 @@ async function start() {
     };
     channel.onopen = tick;
   };
+  // while playing, "here" every few seconds: the library shows the room as taken
+  let beat = 0;
   pc.onconnectionstatechange = () => {
     const connected = pc.connectionState === "connected";
+    clearInterval(beat);
+    if (connected) beat = window.setInterval(() => void send("host", { type: "here", from: me }).catch(() => {}), 10_000);
     $("dot").classList.toggle("on", connected);
     if (connected) status("", "", "hide");
     else if (pc.connectionState === "failed") status("Sem conexão com o host", "As redes de vocês não se alcançaram. O servidor precisa de um TURN.", "error");
@@ -87,15 +91,17 @@ async function start() {
     await send("host", { type: "join", from: me });
     status("Conectando…", "Esperando o host aceitar.");
     for (let after = 0; ; ) {
-      const r = await fetch(`../room/${room}/${me}?after=${after}`, { cache: "no-store" });
-      if (r.status === 404) return gone();
-      if (!r.ok) {
+      // (a dropped request is retried: only the server saying the room is gone ends it)
+      const r = await fetch(`../room/${room}/${me}?after=${after}`, { cache: "no-store" }).catch(() => null);
+      if (r?.status === 404) return gone();
+      if (!r?.ok) {
         await new Promise((ok) => setTimeout(ok, 2000));
         continue;
       }
       const { messages, next } = (await r.json()) as { messages: { type?: string; sdp?: string }[]; next: number };
       after = next;
       for (const m of messages) {
+        if (m.type === "full") return status("A sala está cheia", "Já tem alguém jogando como jogador 2. Tente de novo quando a vaga abrir.", "error");
         if (m.type !== "offer" || !m.sdp) continue;
         await pc.setRemoteDescription({ type: "offer", sdp: m.sdp });
         await pc.setLocalDescription(await pc.createAnswer());

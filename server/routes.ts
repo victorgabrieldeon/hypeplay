@@ -365,6 +365,11 @@ export function createApp({
       if (req.method !== "POST") return text("Método não permitido", 405);
       return json({ room: ps2Rooms.create(id, pass) });
     }
+    const closing = /^room\/([A-Z2-9]{6})$/.exec(rest);
+    if (closing) {
+      if (req.method !== "DELETE") return text("Método não permitido", 405);
+      return ps2Rooms.close(closing[1]!, pass.id) ? respond(null, 204) : text("Não encontrado", 404);
+    }
     const m = /^room\/([A-Z2-9]{6})\/([^/]+)$/.exec(rest);
     if (!m || !INBOX.test(m[2]!)) return text("Não encontrado", 404);
     const [, code, who] = m;

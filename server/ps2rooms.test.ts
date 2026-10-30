@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { GUEST_QUIET_MS, Ps2Rooms, ROOM_IDLE_MS, ROOM_LETTERS } from "./ps2rooms";
+import { GUEST_QUIET_MS, HOST_QUIET_MS, Ps2Rooms, ROOM_IDLE_MS, ROOM_LETTERS, WAIT_MS } from "./ps2rooms";
 
 const ana = { id: "42", name: "Ana" };
 
@@ -54,7 +54,7 @@ test("a message reaches the right inbox; wait returns at once when there is one"
   expect(await r.wait(code, "g1", 0)).toEqual({ messages: [{ type: "offer", sdp: "x" }], next: 1 });
 });
 
-test("wait sleeps until a message arrives, or returns empty after 20 s", async () => {
+test("wait sleeps until a message arrives, or returns empty after WAIT_MS", async () => {
   const t = fakeTime();
   const r = rooms(t);
   const code = r.create("sles-12345", ana);
@@ -62,7 +62,7 @@ test("wait sleeps until a message arrives, or returns empty after 20 s", async (
   r.post(code, "host", { type: "join", from: "g1" });
   expect(await waiting).toEqual({ messages: [{ type: "join", from: "g1" }], next: 1 });
   const empty = r.wait(code, "host", 1);
-  t.advance(20_000);
+  t.advance(WAIT_MS);
   expect(await empty).toEqual({ messages: [], next: 1 });
 });
 
@@ -86,6 +86,48 @@ test("busy once a guest joined, free again when it left or went quiet", async ()
 
   r.post(code, "host", { type: "join", from: "g2" });
   expect(r.list("sles-12345")[0]!.busy).toBe(true);
-  t.advance(GUEST_QUIET_MS + 1);
+  t.advance(GUEST_QUIET_MS - 1_000);
+  void r.wait(code, "host", 9, 1); // (the host keeps polling)
+  t.advance(2_000);
   expect(r.list("sles-12345")[0]!.busy).toBe(false);
+});
+
+test("a long-poll ends before Bun's 10 s idle timeout cuts the request", () => {
+  expect(WAIT_MS).toBeLessThan(10_000);
+});
+
+test("a playing guest's heartbeat keeps the room busy, and isn't kept in the host's inbox", async () => {
+  const t = fakeTime();
+  const r = rooms(t);
+  const code = r.create("sles-12345", ana);
+  r.post(code, "host", { type: "join", from: "g1" });
+  for (let i = 0; i < 4; i++) {
+    t.advance(GUEST_QUIET_MS - 5_000);
+    void r.wait(code, "host", 1, 1); // the host keeps polling
+    expect(r.post(code, "host", { type: "here", from: "g1" })).toBe(true);
+  }
+  expect(r.list("sles-12345")[0]!.busy).toBe(true);
+  expect(await r.wait(code, "host", 0, 1)).toEqual({ messages: [{ type: "join", from: "g1" }], next: 1 });
+});
+
+test("a room whose host stopped polling is gone", async () => {
+  const t = fakeTime();
+  const r = rooms(t);
+  const code = r.create("sles-12345", ana);
+  t.advance(HOST_QUIET_MS - 1_000);
+  void r.wait(code, "host", 0, 1);
+  t.advance(HOST_QUIET_MS - 1_000);
+  expect(r.list("sles-12345").map((x) => x.code)).toEqual([code]);
+  t.advance(2_000);
+  expect(r.list("sles-12345")).toEqual([]);
+  expect(r.post(code, "host", { type: "join", from: "g1" })).toBe(false);
+});
+
+test("only its host closes a room", async () => {
+  const r = rooms();
+  const code = r.create("sles-12345", ana);
+  expect(r.close(code, "43")).toBe(false);
+  expect(r.close(code, "42")).toBe(true);
+  expect(r.list("sles-12345")).toEqual([]);
+  expect(await r.wait(code, "g1", 0)).toBeNull();
 });

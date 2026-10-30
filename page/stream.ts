@@ -23,7 +23,7 @@ function gathered(pc: RTCPeerConnection) {
   });
 }
 
-/** One guest at a time: player 2. A second one waits until the first leaves. */
+/** One guest at a time: player 2. A second one hears the room is full. */
 async function serve(code: string, button: HTMLButtonElement) {
   const ice = await fetch("../ice").then((r) => r.json()).catch(() => [{ urls: ["stun:stun.cloudflare.com:3478"] }]);
   let guest: { id: string; pc: RTCPeerConnection } | null = null;
@@ -48,7 +48,10 @@ async function serve(code: string, button: HTMLButtonElement) {
     const { messages, next } = (await r.json()) as { messages: Msg[]; next: number };
     after = next;
     for (const m of messages) {
-      if (m.type === "join" && m.from && !guest) {
+      if (m.type === "join" && m.from && guest && m.from !== guest.id) {
+        // one player 2 at a time: a second guest hears the room is full
+        await post(code, m.from, { type: "full" });
+      } else if (m.type === "join" && m.from && !guest) {
         const pc = new RTCPeerConnection({ iceServers: ice });
         guest = { id: m.from, pc };
         // picture (the game's canvas) and sound (the game's gain) in one stream
@@ -73,8 +76,9 @@ async function serve(code: string, button: HTMLButtonElement) {
             // (a broken message is dropped)
           }
         };
-        channel.onclose = drop;
-        pc.onconnectionstatechange = () => ["failed", "closed", "disconnected"].includes(pc.connectionState) && guest?.pc === pc && drop();
+        // (only this connection's end drops its guest; "disconnected" is often a moment, "failed" is not)
+        channel.onclose = () => guest?.pc === pc && drop();
+        pc.onconnectionstatechange = () => ["failed", "closed"].includes(pc.connectionState) && guest?.pc === pc && drop();
         await pc.setLocalDescription(await pc.createOffer());
         await gathered(pc);
         await post(code, m.from, { type: "offer", sdp: pc.localDescription!.sdp });
@@ -104,6 +108,8 @@ export function roomButton(): HTMLButtonElement {
     }
     const { room } = (await r.json()) as { room: string };
     button.textContent = `Sala ${room} · esperando`;
+    // leaving the game closes the room, so the library stops offering it
+    addEventListener("pagehide", () => void fetch(`../room/${room}`, { method: "DELETE", keepalive: true }).catch(() => {}));
     void serve(room, button);
   });
   return button;

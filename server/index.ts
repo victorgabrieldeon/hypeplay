@@ -66,6 +66,8 @@ await app.homebrew.start();
 
 Bun.serve<NetData>({
   port: PORT,
+  // (above the online rooms' long-poll, ps2rooms.ts WAIT_MS; Bun's default 10 s would cut it)
+  idleTimeout: 30,
   fetch: (req, server) => app.handle(req, server),
   websocket: app.websocket,
 });

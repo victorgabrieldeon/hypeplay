@@ -31,3 +31,9 @@ test("the generated cover is the same for the same game, escapes the name and di
   expect(a).not.toContain("<Tom");
   expect(generatedCover("SCUS-97481", "<Tom & Jerry>")).not.toBe(a);
 });
+
+test("a generated cover carries the serial on its spine, and the library's covers don't share one color", () => {
+  expect(generatedCover("SLES-12345", "A")).toContain(">SLES-12345<");
+  const hues = Array.from({ length: 20 }, (_, i) => Number(/hsl\((\d+)/.exec(generatedCover(`SLUS-2${String(i).padStart(4, "0")}`, "x"))![1]));
+  expect(Math.max(...hues) - Math.min(...hues)).toBeGreaterThan(100);
+});

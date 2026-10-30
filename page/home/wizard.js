@@ -19,8 +19,11 @@ function close() {
   returnFocus?.focus?.({ preventScroll: true });
 }
 
-const steps = () => `<ol class="chips" aria-label="Passos">${w.steps
-  .map((s, i) => `<li class="chip" ${s === w.step ? 'aria-current="step" style="background:var(--primary);color:#fff"' : ''}>${i + 1}. ${NAMES[s]}</li>`).join('')}</ol>`;
+const steps = () => {
+  const now = w.steps.indexOf(w.step);
+  return `<ol class="stepper" aria-label="Passos">${w.steps
+    .map((s, i) => `<li${i < now ? ' class="done"' : ''}${i === now ? ' aria-current="step"' : ''}>${i + 1}. ${NAMES[s]}</li>`).join('')}</ol>`;
+};
 
 function go(delta) {
   const i = w.steps.indexOf(w.step) + delta;
@@ -31,11 +34,11 @@ function go(delta) {
 function body() {
   if (w.step === 'warn')
     return `${steps()}
-      <p style="display:flex;gap:var(--s3)"><span style="color:var(--warn)">${icon('warn')}</span><span>Os jogos de PS2 rodam no
-      TabStationToo, o emulador PCSX2 no navegador, ainda em teste. A maioria dos jogos roda; alguns podem travar, ficar lentos ou
-      com gráficos errados. Precisa de um Chrome ou Edge atualizado e de um PC razoável. A ISO fica guardada no servidor: você
-      envia uma vez e todo mundo joga quando quiser. Use só a ISO de um jogo que você tem.</span></p>
-      <label style="display:flex;gap:var(--s2);align-items:center;cursor:pointer"><input type="checkbox" id="w-ok"${w.ok ? ' checked' : ''}> Entendi</label>
+      <div class="callout">${icon('warn')}<p>Os jogos de PS2 rodam no TabStationToo, o emulador PCSX2 no navegador, ainda em
+      teste. A maioria dos jogos roda; alguns podem travar, ficar lentos ou com gráficos errados. Precisa de um Chrome ou Edge
+      atualizado e de um PC razoável.</p></div>
+      <p>A ISO fica guardada no servidor: você envia uma vez e todo mundo joga quando quiser. Use só a ISO de um jogo que você tem.</p>
+      <label class="check"><input type="checkbox" id="w-ok"${w.ok ? ' checked' : ''}> Entendi</label>
       <footer><button class="btn quiet" data-w="cancel">Cancelar</button><button class="btn" data-w="next"${w.ok ? '' : ' disabled'}>Continuar</button></footer>`;
   if (w.step === 'bios')
     return `${steps()}
@@ -58,7 +61,7 @@ function body() {
       <footer><button class="btn quiet" data-w="back">Voltar</button></footer>`;
   }
   return `${steps()}
-    <div class="game-head"><img src="${esc(w.coverUrl || 'cover/bt3')}" alt="" style="${w.coverUrl ? '' : 'opacity:.35'}">
+    <div class="game-head"><img src="${esc(w.coverUrl || 'cover/bt3')}" alt=""${w.coverUrl ? '' : ' class="ghost"'}>
       <div class="block">
         <label for="w-name">Nome do jogo</label>
         <input class="field" id="w-name" maxlength="80" value="${esc(w.name)}">

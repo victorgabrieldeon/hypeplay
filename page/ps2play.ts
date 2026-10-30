@@ -15,42 +15,45 @@ const CARD_BYTES = 8_650_752;
 const DIRTY_KEY = "cordplay-unsent";
 
 const STYLE = `
-@font-face { font-family: "Inter"; font-weight: 100 900; font-display: swap; src: url("../../../fonts/inter-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Space Grotesk"; font-weight: 300 700; font-display: swap; src: url("../../../fonts/space-grotesk-latin-wght-normal.woff2") format("woff2"); }
-html, body { background: #0b0a14 !important; overflow: hidden !important; }
+@font-face { font-family: "Manrope"; font-weight: 200 800; font-display: swap; src: url("../../../fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Unbounded"; font-weight: 200 900; font-display: swap; src: url("../../../fonts/unbounded-latin-wght-normal.woff2") format("woff2"); }
+html, body { background: #000 !important; overflow: hidden !important; }
 body > * { visibility: hidden !important; }
 #screen, #screen *, #slate, #slate *, #cp-bar, #cp-bar *, #cp-license, #cp-license *, #cp-ov, #cp-ov *, #cp-crt, #cp-note, #cp-note * { visibility: visible !important; }
-#screen { position: fixed !important; inset: 0 !important; z-index: 10 !important; margin: 0 !important; border: 0 !important; border-radius: 0 !important;
-  background: #000 !important; display: grid !important; place-items: center !important; width: auto !important; height: auto !important; transform: none !important; }
+/* the whole 4:3 picture, as big as the window takes, centered (TabStationToo's own 4:3 box would overflow a wide window) */
+#screen { position: fixed !important; inset: 0 !important; z-index: 10 !important; margin: auto !important; border: 0 !important; border-radius: 0 !important;
+  background: #000 !important; display: grid !important; place-items: center !important; transform: none !important;
+  width: min(100vw, 100vh * 4 / 3) !important; height: min(100vh, 100vw * 3 / 4) !important; aspect-ratio: auto !important;
+  max-width: none !important; max-height: none !important; translate: none !important; scale: none !important; rotate: none !important; }
 #screen canvas { width: 100% !important; height: 100% !important; object-fit: contain !important; max-width: none !important; max-height: none !important; }
 #slate { position: fixed !important; left: 50% !important; bottom: 32px !important; top: auto !important; transform: translateX(-50%) !important; z-index: 20 !important;
   width: min(460px, calc(100% - 32px)) !important; background: rgb(15 13 26 / 0.94) !important; color: #f3f2fb !important; border-radius: 18px !important;
   box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08) !important; padding: 16px 20px !important;
-  font: 400 15px/24px Inter, ui-sans-serif, system-ui, sans-serif !important; text-align: center; }
+  font: 500 15px/24px Manrope, ui-sans-serif, system-ui, sans-serif !important; text-align: center; }
 #slate[hidden] { display: none !important; }
-#slate h1, #slate h2 { font: 600 17px/26px "Space Grotesk", ui-sans-serif, system-ui, sans-serif !important; color: #f3f2fb !important; margin: 0 0 4px !important; }
+#slate h1, #slate h2 { font: 600 17px/26px Unbounded, ui-sans-serif, system-ui, sans-serif !important; color: #f3f2fb !important; margin: 0 0 4px !important; }
 #slate p, #slate .fine { color: #a3a1bd !important; }
-#slate button { font: 600 14px/1 Inter, ui-sans-serif, system-ui, sans-serif !important; border: 0 !important; border-radius: 8px !important; height: 36px; padding: 0 14px;
+#slate button { font: 600 14px/1 Manrope, ui-sans-serif, system-ui, sans-serif !important; border: 0 !important; border-radius: 8px !important; height: 36px; padding: 0 14px;
   background: #242040 !important; color: #f3f2fb !important; cursor: pointer; }
 #slate .btn-primary { background: #7655ff !important; color: #fff !important; }
 #slate .cmd, #slate #dev-copy, #slate #slate-library, #slate #slate-disc, #slate #slate-remove { display: none !important; }
 #cp-bar { position: fixed; top: 10px; left: 10px; z-index: 2147483646; display: flex; align-items: center; gap: 8px; padding: 4px;
   border-radius: 12px; background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
-  font: 600 13px/20px Inter, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; opacity: 0.25; transition: opacity 120ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+  font: 600 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; opacity: 0.25; transition: opacity 120ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 #cp-bar:hover, #cp-bar:focus-within, #cp-bar.near { opacity: 1; }
 #cp-bar a, #cp-bar button { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: #242040;
   color: inherit; text-decoration: none; font: inherit; cursor: pointer; }
 #cp-bar a:hover, #cp-bar button:hover { background: #2c2750; }
 #cp-bar a:focus-visible, #cp-bar button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
-#cp-bar b { font: 600 14px/20px "Space Grotesk", ui-sans-serif, system-ui, sans-serif; padding: 0 6px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#cp-license { position: fixed; right: 12px; bottom: 6px; z-index: 30; margin: 0; font: 400 11px/16px Inter, ui-sans-serif, system-ui, sans-serif; color: #6f6c8c; }
+#cp-bar b { font: 600 14px/20px Unbounded, ui-sans-serif, system-ui, sans-serif; padding: 0 6px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cp-license { position: fixed; right: 12px; bottom: 6px; z-index: 30; margin: 0; font: 500 11px/16px Manrope, ui-sans-serif, system-ui, sans-serif; color: #a3a1bd; }
 #cp-license a { color: #a3a1bd; }
 #cp-note { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; padding: 16px; background: #0b0a14;
-  font: 400 15px/24px Inter, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; text-align: center; }
+  font: 500 15px/24px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; text-align: center; }
 #cp-note > div { max-width: 460px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
-#cp-note h1 { font: 600 22px/28px "Space Grotesk", ui-sans-serif, system-ui, sans-serif; margin: 0; }
+#cp-note h1 { font: 600 22px/28px Unbounded, ui-sans-serif, system-ui, sans-serif; margin: 0; }
 #cp-note p { color: #a3a1bd; margin: 0; }
-#cp-note button, #cp-note a { height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 600 15px/40px Inter, sans-serif;
+#cp-note button, #cp-note a { height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 600 15px/40px Manrope, sans-serif;
   cursor: pointer; text-decoration: none; }
 `;
 
@@ -85,7 +88,7 @@ function warn(text: string) {
   n.id = "cp-warn";
   n.textContent = text;
   n.style.cssText =
-    "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483646;margin:0;max-width:min(560px,calc(100% - 32px));padding:10px 14px;border-radius:12px;background:rgb(15 13 26 / .94);color:#f5a524;font:400 13px/20px Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 0 0 1px rgb(255 255 255 / .08);visibility:visible";
+    "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483646;margin:0;max-width:min(560px,calc(100% - 32px));padding:10px 14px;border-radius:12px;background:rgb(15 13 26 / .94);color:#f5a524;font:500 13px/20px Manrope,ui-sans-serif,system-ui,sans-serif;box-shadow:0 0 0 1px rgb(255 255 255 / .08);visibility:visible";
   document.body.append(n);
   setTimeout(() => n.remove(), 12_000);
 }

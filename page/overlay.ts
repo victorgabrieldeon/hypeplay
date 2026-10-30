@@ -24,7 +24,7 @@ const volume = installVolume(
 const FILTERS: [Filter, string][] = [["off", "Desligado"], ["crt", "TV de tubo"], ["scan", "Scanlines leves"]];
 
 const CSS = `
-#cp-ov { position: fixed; top: 10px; right: 10px; z-index: 2147483646; font: 400 13px/20px Inter, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; }
+#cp-ov { position: fixed; top: 10px; right: 10px; z-index: 2147483646; font: 500 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; }
 #cp-ov button { font: inherit; color: inherit; }
 #cp-ov .cp-btn { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; cursor: pointer;
   background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);

@@ -37,14 +37,32 @@ function spotlight() {
   return gs.find((g) => g.key === state.last) ?? gs.find((g) => g.status.state === 'ready') ?? gs[0];
 }
 
+const greeting = (h) => (h >= 5 && h < 12 ? 'Bom dia' : h >= 12 && h < 18 ? 'Boa tarde' : 'Boa noite');
+
+let entered = false;
 export function render() {
   $('expired').hidden = !state.expired;
   if (!state.games) return;
+  // The first look only: the spotlight and the cards come in one after another (later polls just swap them).
+  if (!entered) {
+    entered = true;
+    document.body.classList.add('entering');
+    setTimeout(() => document.body.classList.remove('entering'), 1600);
+  }
   set($('me'), state.me ? `<span>${esc(state.me)}</span><div class="avatar" aria-hidden="true">${esc(initials(state.me))}</div>` : '');
-  set($('n-games'), String(state.games.length));
+  set($('hello'), esc(greeting(new Date().getHours()) + (state.me ? ', ' + state.me.split(/\s+/)[0] : '')));
+  const n = state.games.length;
+  const rooms = state.games.reduce((sum, g) => sum + g.open.length, 0);
+  set($('sub'), `${n} ${n === 1 ? 'jogo' : 'jogos'} no servidor, prontos para a call${rooms ? ` <span class="state ok live">${rooms} ${rooms === 1 ? 'sala aberta' : 'salas abertas'} agora</span>` : ''}`);
+  set($('n-games'), String(n));
   const top = spotlight();
-  if (top) set($('hero'), hero(top, state.sending));
-  set($('grid'), state.games.map((g) => card(g, state.sending, state.open)).join('') + addCard());
+  $('hero').hidden = !top;
+  if (top) {
+    set($('hero'), hero(top, state.sending, top.key === state.last ? 'Continuar jogando' : 'Em destaque'));
+    $('hero').classList.remove('loading');
+    $('hero').removeAttribute('aria-busy');
+  }
+  set($('grid'), state.games.map((g, i) => card(g, state.sending, state.open, i)).join('') + addCard(n));
   const g = state.open && gameOf(state.open);
   if (state.open && !g) closeDrawer(); // removed meanwhile
   else if (g) {

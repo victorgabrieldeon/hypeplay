@@ -87,5 +87,6 @@ export function drawer(g, ctx) {
   const warning = recomp
     ? `<p class="note">${icon('warn')} Em teste: roda no TabStationToo, o PCSX2 no navegador. A maioria dos jogos roda; alguns podem travar, ficar lentos ou com gráficos errados.</p>`
     : '';
-  return `${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${rooms}${manage}${warning}`;
+  const art = `<div class="art" aria-hidden="true" style="background-image:url('${esc(g.cover)}')"></div>`;
+  return `${art}${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${rooms}${manage}${warning}`;
 }

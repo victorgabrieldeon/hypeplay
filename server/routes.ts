@@ -28,7 +28,7 @@ import { readFileSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bios } from "./bios";
-import { COVER_MAX, generatedCover, normalizeCover } from "./cover";
+import { COVER_MAX, coverVersion, generatedCover, normalizeCover } from "./cover";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { iceServers } from "./ice";
 import type { Discord } from "./discord";
@@ -73,10 +73,11 @@ const ENGINE_FILES = new Set(
     .map((f) => f.path)
     .filter((p) => p !== "index.html"),
 );
-/** The home's two typefaces, from their packages (OFL), served from here: nothing is fetched elsewhere. */
+/** The pages' typefaces (titles, text, serials), from their packages (OFL), served from here: nothing is fetched elsewhere. */
 const FONTS: Record<string, string> = {
-  "inter-latin-wght-normal.woff2": "@fontsource-variable/inter",
-  "space-grotesk-latin-wght-normal.woff2": "@fontsource-variable/space-grotesk",
+  "unbounded-latin-wght-normal.woff2": "@fontsource-variable/unbounded",
+  "manrope-latin-wght-normal.woff2": "@fontsource-variable/manrope",
+  "jetbrains-mono-latin-wght-normal.woff2": "@fontsource-variable/jetbrains-mono",
 };
 
 export const HEADERS = {
@@ -298,7 +299,7 @@ export function createApp({
       steps: [],
       minIso: PS2_MIN,
       maxIso: PS2_MAX,
-      cover: `cover/ps2/${g.id}?v=${g.cover ? `${g.at}-c` : g.at}`,
+      cover: `cover/ps2/${g.id}?v=${g.cover ? `${g.coverAt ?? g.at}-c` : coverVersion(g.serial, g.name)}`,
       status,
       rooms: open.length,
       open,
@@ -312,7 +313,7 @@ export function createApp({
         ...g,
         key: g.id,
         kind: "port",
-        cover: `cover/${g.id}`,
+        cover: `cover/${g.id}?v=${coverVersion(BT3_SERIAL, g.name)}`,
         status: await disc.status(pass),
         rooms: rooms.size,
         open: [],

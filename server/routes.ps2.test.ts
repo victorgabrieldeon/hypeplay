@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import type { Mapping } from "../page/padmap";
+import { COVER_ART } from "./cover";
 import { createLibrary } from "./library";
 import type { Passes } from "./pass";
 import { createPeople } from "./people";
@@ -74,7 +75,7 @@ test("games lists BT3 and the PS2 games, each with its key, cover and state", as
   const body = await catalog();
   expect(body.me).toBe("Ana");
   const bt3 = body.games.find((g) => g.key === "bt3")!;
-  expect(bt3).toMatchObject({ kind: "port", id: "bt3", cover: "cover/bt3", open: [], status: { state: "ready" } });
+  expect(bt3).toMatchObject({ kind: "port", id: "bt3", cover: expect.stringMatching(/^cover\/bt3\?v=/), open: [], status: { state: "ready" } });
   const one = body.games.find((g) => g.key === "ps2/sles-11111")!;
   expect(one).toMatchObject({ kind: "recomp", id: "sles-11111", name: "Jogo Um", status: { state: "empty" }, open: [], by: "Ana" });
   expect(one.cover).toStartWith("cover/ps2/sles-11111?v=");
@@ -134,6 +135,24 @@ test("rename, cover (webp, generated, too big) and remove", async () => {
   expect((await ana("ps2/sles-44444", { method: "DELETE" })).status).toBe(204);
   expect((await ana("ps2/sles-44444/status")).status).toBe(404);
   expect((await catalog()).games.some((g) => g.id === "sles-44444")).toBe(false);
+});
+
+test("a cover's address changes whenever its picture does (it is kept a year): a rename, each cover sent, a new drawing", async () => {
+  await ana("ps2", json({ serial: "SLES-56565", name: "Antes" }));
+  const coverOf = async (key = "ps2/sles-56565") => (await catalog()).games.find((g) => g.key === key)!.cover;
+  const drawn = await coverOf();
+  expect(drawn).toContain(`g${COVER_ART}`);
+  expect(await coverOf("bt3")).toContain(`g${COVER_ART}`);
+  await ana("ps2/sles-56565", json({ name: "Depois" }, "PATCH"));
+  const renamed = await coverOf();
+  expect(renamed).not.toBe(drawn);
+  const image = (background: string) => sharp({ create: { width: 300, height: 300, channels: 3, background } }).png().toBuffer();
+  await ana("ps2/sles-56565/cover", { method: "PUT", body: await image("#7655ff") });
+  const first = await coverOf();
+  expect(first).not.toBe(renamed);
+  await ana("ps2/sles-56565/cover", { method: "PUT", body: await image("#3ddc84") });
+  expect(await coverOf()).not.toBe(first);
+  await ana("ps2/sles-56565", { method: "DELETE" });
 });
 
 test("saves: one per person, never another's", async () => {
@@ -304,9 +323,12 @@ test("the page's scripts and fonts", async () => {
   expect(await iso.text()).toBe("/* iso */");
   expect(iso.headers.get("content-type")).toStartWith("text/javascript");
   expect((await get("nope.js")).status).toBe(404);
-  const font = await get("fonts/inter-latin-wght-normal.woff2");
-  expect(font.status).toBe(200);
-  expect(font.headers.get("content-type")).toBe("font/woff2");
+  for (const name of ["unbounded", "manrope", "jetbrains-mono"]) {
+    const font = await get(`fonts/${name}-latin-wght-normal.woff2`);
+    expect(font.status).toBe(200);
+    expect(font.headers.get("content-type")).toBe("font/woff2");
+  }
+  expect((await get("fonts/inter-latin-wght-normal.woff2")).status).toBe(404);
   expect((await get("fonts/../package.json")).status).toBe(404);
 });
 

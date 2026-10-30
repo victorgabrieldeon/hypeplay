@@ -67,7 +67,7 @@ function list() {
     </div></div>`;
   }).join('');
   frame(`<p>Sempre um controle de PS2. Se o navegador não reconhecer o seu (um adaptador USB, por exemplo), mapeie os botões uma vez: vale em todos os jogos, em qualquer computador.</p>
-    <div class="pads">${rows || '<div class="busy"><div class="spin"></div><p>Conecte o controle e aperte qualquer botão…</p></div>'}</div>
+    <div class="pads">${rows || `<div class="waiting">${PAD}<div class="busy"><div class="spin"></div><p>Conecte o controle e aperte qualquer botão…</p></div></div>`}</div>
     <footer><button class="btn second" data-c="close">Fechar</button></footer>`);
 }
 

@@ -23,6 +23,8 @@ export interface Ps2Game {
   by: { id: string; name: string };
   at: number;
   cover: boolean;
+  /** When the cover was last sent (always later than the one before): part of its address. */
+  coverAt?: number;
 }
 
 /** Some PS2 games came on CD: smaller than BT3's floor. */
@@ -164,7 +166,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     },
 
     rename: (id: string, name: string) => update(id, (g) => ({ ...g, name: nameOr(name, g.serial) })),
-    setCover: (id: string, has: boolean) => update(id, (g) => ({ ...g, cover: has })),
+    setCover: (id: string, has: boolean) => update(id, (g) => ({ ...g, cover: has, coverAt: Math.max(now(), (g.coverAt ?? 0) + 1) })),
 
   };
 }

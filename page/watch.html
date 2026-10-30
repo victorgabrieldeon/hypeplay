@@ -10,28 +10,28 @@
   needs neither isolation nor WebGPU, so it opens inside Discord. Tokens: DESIGN.md.
 -->
 <style>
-  @font-face { font-family: "Inter"; font-weight: 100 900; font-display: swap; src: url("../../../fonts/inter-latin-wght-normal.woff2") format("woff2"); }
-  @font-face { font-family: "Space Grotesk"; font-weight: 300 700; font-display: swap; src: url("../../../fonts/space-grotesk-latin-wght-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Manrope"; font-weight: 200 800; font-display: swap; src: url("../../../fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
+  @font-face { font-family: "Unbounded"; font-weight: 200 900; font-display: swap; src: url("../../../fonts/unbounded-latin-wght-normal.woff2") format("woff2"); }
   :root { --bg: #0b0a14; --side: #0f0d1a; --surface-top: #242040; --ink: #f3f2fb; --soft: #a3a1bd; --primary: #7655ff; --accent: #a08cff; --ok: #3ddc84; --danger: #f0384c; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--ink); font: 400 15px/24px Inter, ui-sans-serif, system-ui, sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--ink); font: 500 15px/24px Manrope, ui-sans-serif, system-ui, sans-serif; }
   video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   #bar { position: fixed; top: 10px; left: 10px; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 12px;
     background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08); font-weight: 600; font-size: 13px; }
   #bar a { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--surface-top); color: inherit; text-decoration: none; }
   #bar a:hover { background: #2c2750; }
   #bar a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #bar b { font: 600 14px/20px "Space Grotesk", ui-sans-serif, system-ui, sans-serif; padding: 0 6px; }
+  #bar b { font: 600 14px/20px Unbounded, ui-sans-serif, system-ui, sans-serif; padding: 0 6px; }
   #bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); margin-left: 4px; }
   #bar .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   #status { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4; width: min(440px, calc(100% - 32px)); padding: 20px;
     border-radius: 18px; background: rgb(15 13 26 / 0.94); box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08); text-align: center; }
-  #status h1 { margin: 0 0 4px; font: 600 20px/28px "Space Grotesk", ui-sans-serif, system-ui, sans-serif; }
+  #status h1 { margin: 0 0 4px; font: 600 20px/28px Unbounded, ui-sans-serif, system-ui, sans-serif; }
   #status p { margin: 0; color: var(--soft); }
   #status.error h1 { color: var(--danger); }
   #status[hidden] { display: none; }
   #sound { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 5; height: 40px; padding: 0 16px; border: 0; border-radius: 8px;
-    background: var(--primary); color: #fff; font: 600 15px/40px Inter, sans-serif; cursor: pointer; }
+    background: var(--primary); color: #fff; font: 600 15px/40px Manrope, sans-serif; cursor: pointer; }
   #sound[hidden] { display: none; }
   .spin { width: 20px; height: 20px; margin: 0 auto 10px; border-radius: 50%; border: 2px solid #1b1830; border-top-color: var(--accent); animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }

@@ -39,7 +39,7 @@ beforeAll(async () => {
   engine = join(root, "engine");
   await mkdir(join(engine, "fonts"), { recursive: true });
   await writeFile(join(engine, "index.html"), await Bun.file(join(import.meta.dir, "fixtures", "tabstation-index.html")).text());
-  for (const f of ["pcsx2-wasm.wasm", "style.css", "fonts/archivo.woff2", "secret.txt"]) await writeFile(join(engine, f), `engine ${f}`);
+  for (const f of ["pcsx2-wasm.wasm", "style.css", "fonts/archivo.woff2", "secret.txt", "disc-worker.js"]) await writeFile(join(engine, f), `engine ${f}`);
   app = createApp({
     dir: root,
     pageDir: PAGE_DIR,
@@ -52,6 +52,7 @@ beforeAll(async () => {
     ps2Rooms: new Ps2Rooms(),
     bios: createBios(root),
     ps2Engine: engine,
+    scripts: { "disccache.js": "/* cache */" },
   });
 });
 afterAll(() => rm(root, { recursive: true, force: true }));
@@ -235,6 +236,12 @@ test("a PS2 game is TabStationToo's page, patched and isolated, with its files f
   expect((await ana(`ps2/${id}/game/style.css`)).headers.get("content-type")).toStartWith("text/css");
   expect((await ana(`ps2/${id}/game/fonts/archivo.woff2`)).headers.get("content-type")).toBe("font/woff2");
   for (const f of ["secret.txt", "../game.json", "status.json", "ps2web.wasm", "fonts/../secret.txt"]) expect((await ana(`ps2/${id}/game/${f}`)).status).toBe(404);
+
+  // the disc reader, with our block cache at its end (disccache-worker.ts: the game stops waiting on the network)
+  const worker = await ana(`ps2/${id}/game/disc-worker.js`);
+  expect(await worker.text()).toBe("engine disc-worker.js\n/* cache */");
+  expect(worker.headers.get("content-type")).toStartWith("text/javascript");
+  expect(worker.headers.get("cross-origin-resource-policy")).toBe("same-origin");
 });
 
 test("a PS2 game whose disc is in plays once the server has the BIOS, which is sent once and served isolated", async () => {

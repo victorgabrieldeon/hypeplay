@@ -58,6 +58,8 @@ const app = createApp({
     "padmap.js": await bundle("padmap-global.ts"),
     "overlay.js": await bundle("overlay.ts"),
     "ps2play.js": await bundle("ps2play.ts"),
+    // (not a page's: the end of TabStationToo's disc-worker.js, routes.ts)
+    "disccache.js": await bundle("disccache-worker.ts"),
     "watch.js": await bundle("watch.ts"),
   },
 });

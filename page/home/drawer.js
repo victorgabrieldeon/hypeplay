@@ -62,7 +62,8 @@ function fast(g) {
   const f = g.fast;
   if (!f || g.status.state !== 'ready') return '';
   const key = esc(g.key);
-  const play = `<button class="btn wide second" data-play="${key}" data-fast>${icon('rocket')}Jogar a versão rápida</button>`;
+  // (playing, the library's buttons open it: Jogar agora, the rooms; the emulator stays a click away)
+  const emulator = `<div class="row-actions"><button class="btn second small" data-play="${key}" data-emulator>${icon('play')}Jogar no emulador</button></div>`;
   let body;
   switch (f.state) {
     case 'off':
@@ -73,16 +74,17 @@ function fast(g) {
       body = '<div class="busy"><div class="spin"></div><p>Na fila do compilador (um jogo por vez)…</p></div>';
       break;
     case 'building':
-      body = `${f.playable ? play : ''}<p><strong>${f.learning ? 'Aprendendo um trecho novo do jogo' : 'Compilando a versão rápida'}</strong> (passo ${f.step} de ${f.total})</p>
+      body = `<p><strong>${f.learning ? 'Aprendendo um trecho novo do jogo' : f.updating ? 'Atualizando a versão rápida' : 'Compilando a versão rápida'}</strong> (passo ${f.step} de ${f.total})</p>
         <div class="bar moving"><div style="width:${pct(f.step - 1, f.total)}%"></div></div>${steps(g, f)}
-        <p class="num">${f.learning ? 'A versão de antes continua jogável. ' : 'Uma vez só. '}Já passou ${clock(f.elapsed)}.</p>`;
+        <p class="num">${f.playable ? 'A versão de antes continua jogável. ' : 'Uma vez só. '}Já passou ${clock(f.elapsed)}.</p>${f.playable ? emulator : ''}`;
       break;
     case 'ready':
-      body = `${play}<p>O save é o mesmo do emulador. Se o jogo chegar num trecho que a versão rápida ainda não tem, o servidor aprende esse trecho e recompila sozinho.</p>`;
+      body = `<p>Pronta: o <strong>Jogar agora</strong> e as salas abrem a versão rápida, com o mesmo save do emulador. Se o jogo chegar num trecho que ela ainda não tem, o servidor tenta compilar esse trecho sozinho.</p>${emulator}`;
       break;
     case 'failed':
-      body = `${f.playable ? play : ''}<p class="error">${f.reason ? 'O jogo usa algo que o compilador ainda não sabe fazer.' : 'A versão rápida não compilou.'}</p>
-        <pre>${esc(f.reason || f.message || 'Erro desconhecido')}</pre><button class="btn" data-fast-build="${key}">Tentar de novo</button>`;
+      body = `<p class="error">${f.reason ? 'O jogo usa algo que o compilador ainda não sabe fazer.' : 'A versão rápida não compilou.'}</p>
+        <pre>${esc(f.reason || f.message || 'Erro desconhecido')}</pre>${f.playable ? '<p>A versão de antes continua jogável no Jogar agora.</p>' : ''}
+        <div class="row-actions"><button class="btn" data-fast-build="${key}">Tentar de novo</button>${f.playable ? `<button class="btn second small" data-play="${key}" data-emulator>${icon('play')}Jogar no emulador</button>` : ''}</div>`;
       break;
     default:
       body = '<p class="error">O compilador da versão rápida não está rodando no servidor.</p><p>Quem cuida do servidor precisa subir o serviço ps2-builder.</p>';

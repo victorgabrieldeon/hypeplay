@@ -78,13 +78,17 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
   nele, o VU1 no limite). Na gaveta do jogo, **Compilar a versão rápida** faz o serviço `ps2-builder` compilar o jogo
   com o [ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) (MIT): o código do jogo vira C++ e depois
   WebAssembly, sem emulador de CPU. Leva uns 20 a 40 minutos no servidor (o God of War: 21 minutos com 2 CPUs, até
-  1,2 GB de memória), uma vez para todo mundo, e só compila os jogos pedidos, um por vez. Pronto, aparece **Jogar a versão rápida** (o God of War vai a 60 fps). O memory card é o mesmo
-  do emulador (mesmo arquivo, mesmas regras: nunca grava um cartão em branco por cima do save, e um save do emulador
-  que ficou sem enviar sobe antes). Nem todo jogo funciona:
-  se a compilação falhar, a gaveta diz por quê e o emulador continua ali. Se o jogo chegar num trecho de código que a
-  compilação não achou, a página manda o endereço ao servidor, que tenta recompilar com ele (só a página, sem jogar
-  de novo), e oferece continuar no emulador. O online fica no emulador (a versão rápida joga sozinha ou com dois controles no
-  mesmo PC). No Linux o Firefox/Zen também roda, com `dom.webgpu.enabled` ligado em `about:config`.
+  1,2 GB de memória), uma vez para todo mundo, e só compila os jogos pedidos, um por vez. Pronta, ela vira o padrão:
+  **Jogar agora** e **Abrir uma sala** abrem a versão rápida (o God of War vai a 60 fps), e a gaveta guarda um **Jogar
+  no emulador**. O online é o mesmo do emulador: "Abrir sala" no painel do jogo, o amigo entra pela biblioteca como
+  jogador 2 (WebRTC, ou pelo servidor quando não conecta). O memory card também é o mesmo (mesmo arquivo, mesmas
+  regras: nunca grava um cartão em branco por cima do save, e um save do emulador que ficou sem enviar sobe antes).
+  Nem todo jogo funciona: se a compilação falhar, a gaveta diz por quê e o emulador continua ali. Se o jogo chegar
+  num trecho de código que a compilação não achou, a página manda o endereço ao servidor, que tenta recompilar com ele
+  (sem jogar de novo), e oferece continuar no emulador. Quando uma imagem nova do `ps2-builder` muda a página (o
+  patch em `ps2-builder/patch.ts`) ou o ps2-web-recomp fixado, as versões prontas se atualizam sozinhas (só a página,
+  se for só ela), e continuam jogáveis enquanto isso. No Linux o Firefox/Zen também roda, com `dom.webgpu.enabled`
+  ligado em `about:config`.
 
 ## Configurar o app no Discord
 

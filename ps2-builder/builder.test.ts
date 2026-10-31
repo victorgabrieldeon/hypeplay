@@ -1,5 +1,5 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Runner } from "../builder/builder";
@@ -34,6 +34,8 @@ function fakeTools(fake: Fake = {}) {
     seen.push(cmd);
     for (let n = 1; n <= 6; n++) log(`== [${n}/6] stage\n`);
     await mkdir(join(cwd, "games", id), { recursive: true });
+    // (port.sh starts the entry points' list; build_web.sh only builds the page)
+    if (cmd[1] === "scripts/port.sh") await appendFile(join(cwd, "games", id, "entries.txt"), "");
     const f = fake.fail?.[id];
     await writeFile(join(cwd, "games", id, "explore.log"), f?.explore ?? "[ee] halted: frame limit reached\n");
     await fake.during?.(id);
@@ -55,7 +57,9 @@ async function setup(tools: ReturnType<typeof fakeTools>) {
   await mkdir(join(repo, "web"), { recursive: true });
   await writeFile(join(repo, "web", "shell.html"), await readFile(fixture));
   let clock = 1_000_000;
-  const builder = createPs2Builder({ data, repo, run: tools.run, now: () => (clock += 1000) });
+  // (another builder over the same folders: the next image, with its own page and recompiler)
+  const make = (commit = "") => createPs2Builder({ data, repo, run: tools.run, commit, now: () => (clock += 1000) });
+  const builder = make();
   const fast = (id: string) => join(data, "ps2", id, "fast");
   const status = async (id: string) => JSON.parse(await readFile(join(fast(id), "status.json"), "utf8"));
   async function game(id: string, { ask = true } = {}) {
@@ -68,7 +72,7 @@ async function setup(tools: ReturnType<typeof fakeTools>) {
       await writeFile(join(fast(id), "request"), "");
     }
   }
-  return { data, repo, builder, status, game, fast };
+  return { data, repo, builder, make, status, game, fast };
 }
 
 test("a game nobody asked a fast version of is never built", async () => {
@@ -145,7 +149,8 @@ test("code the players met is added and built in, without the test runs", async 
 
 test("removed while it builds: nothing published, its files freed", async () => {
   let fast!: (id: string) => string;
-  const tools = fakeTools({ during: async (id) => rm(fast(id), { recursive: true, force: true }) });
+  // (as the app's "Apagar a versão rápida" does it: library.removeFast, retrying while the log is being written)
+  const tools = fakeTools({ during: async (id) => rm(fast(id), { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }) });
   const st = await setup(tools);
   fast = st.fast;
   await st.game("scus-97399");
@@ -168,4 +173,51 @@ test("oldest request first, one at a time", async () => {
 
 test("misses: only word-aligned pcs in main memory, once each", () => {
   expect(parseMisses("0027959C\n0027959c\n00279599\n00000010\n02000000\nxyz\n001FFFFC\n")).toEqual(["27959c", "1ffffc"]);
+});
+
+test("a new page (the shell's patch changed) rebuilds the page alone; a new recompiler translates again, without test runs", async () => {
+  const tools = fakeTools();
+  const { builder, make, game, status, data, repo } = await setup(tools);
+  await game("scus-97399");
+  await builder.tick();
+  expect((await status("scus-97399")).shell).toMatch(/^[0-9a-f]{16}$/);
+  // the next image's patch: another shell
+  const shell = join(repo, "web", "shell.html");
+  await writeFile(shell, `${await readFile(shell, "utf8")}<!-- outra versão -->\n`);
+  const next = make();
+  await next.tick();
+  expect(tools.seen[1]).toEqual(["bash", "scripts/build_web.sh", "scus-97399"]);
+  expect(await status("scus-97399")).toMatchObject({ state: "ready" });
+  await next.tick();
+  expect(tools.seen.length).toBe(2);
+  // the next image's recompiler
+  await make("abc123").tick();
+  expect(tools.seen[2]).toEqual(["bash", "scripts/port.sh", "scus-97399", join(data, "ps2", "scus-97399", "disc.iso"), "--no-explore"]);
+  expect(await status("scus-97399")).toMatchObject({ state: "ready", recomp: "abc123" });
+});
+
+test("while it's brought up to date it says so, and without its files the page can't be rebuilt alone", async () => {
+  const seen: { updating?: boolean; step?: number }[] = [];
+  let st!: Awaited<ReturnType<typeof setup>>;
+  const tools = fakeTools({ during: async (id) => void seen.push(await st.status(id)) });
+  st = await setup(tools);
+  await st.game("scus-97399");
+  await st.builder.tick();
+  await rm(join(st.data, "ps2-work", "scus-97399", "web", "build.ninja"));
+  const shell = join(st.repo, "web", "shell.html");
+  await writeFile(shell, `${await readFile(shell, "utf8")}<!-- outra versão -->\n`);
+  await st.make().tick();
+  expect(tools.seen[1]![1]).toBe("scripts/port.sh");
+  expect(tools.seen[1]).toContain("--no-explore");
+  expect(seen[1]).toMatchObject({ updating: true });
+});
+
+test("Tentar de novo over a build redoes its code too (what failed may have been learning)", async () => {
+  const tools = fakeTools();
+  const { builder, game, fast } = await setup(tools);
+  await game("scus-97399");
+  await builder.tick();
+  await writeFile(join(fast("scus-97399"), "retry"), "");
+  await builder.tick();
+  expect(tools.seen[1]).toContain("--no-explore");
 });

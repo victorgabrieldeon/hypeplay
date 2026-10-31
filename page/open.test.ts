@@ -49,8 +49,8 @@ test("another copy of a game (its id: the serial, -2, -3…) opens like the firs
 });
 
 test("a PS2 game's versão rápida opens outside too: its page, and the library straight into it", () => {
-  for (const path of ["/p/abc/ps2/scus-97399/fast/", "/p/abc/?play=ps2%2Fscus-97399&fast=1"])
+  for (const path of ["/p/abc/ps2/scus-97399/fast/", "/p/abc/?play=ps2%2Fscus-97399&fast=1", "/p/abc/?play=ps2%2Fscus-97399&fast=1&online=1"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
-  for (const path of ["/p/abc/ps2/scus-97399/fast/ps2web.wasm", "/p/abc/?play=ps2%2Fscus-97399&fast=2", "/p/abc/?play=bt3&fast=1&online=1"])
+  for (const path of ["/p/abc/ps2/scus-97399/fast/ps2web.wasm", "/p/abc/?play=ps2%2Fscus-97399&fast=2", "/p/abc/?play=ps2%2Fscus-97399&online=1&fast=1", "/p/abc/?play=ps2%2Fscus-97399&fast=1&join=ABCDEF"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });

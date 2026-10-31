@@ -34,7 +34,7 @@ function run(g, join, online, fast) {
 
 /** The library in the browser, straight into this game (open.ts lets exactly these through). */
 const playPath = (g, join, online, fast) =>
-  `${location.pathname}?play=${encodeURIComponent(g.key)}${fast ? '&fast=1' : join ? `&join=${encodeURIComponent(join)}` : online ? '&online=1' : ''}`;
+  `${location.pathname}?play=${encodeURIComponent(g.key)}${join ? `&join=${encodeURIComponent(join)}` : `${fast ? '&fast=1' : ''}${online ? '&online=1' : ''}`}`;
 
 let choice = null; // { here, path }
 

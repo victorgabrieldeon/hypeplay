@@ -44,3 +44,16 @@ export function nearest(from: Box, boxes: readonly Box[], dir: Dir): number {
   });
   return best;
 }
+
+const DEAD = 0.25;
+const FULL_PX_PER_S = 1800;
+
+/**
+ * The right stick scrolling (the home's gamepadnav.js): pixels to scroll in `ms` for the stick's vertical axis `y`,
+ * nothing inside the dead zone (a resting stick drifts), then faster the further it's pushed, gently at first.
+ */
+export function stickScroll(y: number, ms: number): number {
+  if (!Number.isFinite(y) || Math.abs(y) <= DEAD) return 0;
+  const t = Math.min(1, (Math.abs(y) - DEAD) / (1 - DEAD));
+  return Math.sign(y) * Math.round(t * t * FULL_PX_PER_S * (ms / 1000));
+}

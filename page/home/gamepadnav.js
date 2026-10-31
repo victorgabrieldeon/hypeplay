@@ -1,10 +1,11 @@
 // The home with a controller, like a console's menu: the d-pad or the left stick moves the focus to the nearest thing
 // that way (spatial.ts), ✕/A chooses, ○/B goes back (closes the drawer or a window), Start plays the game in focus.
 // The pad is read through its map (the controller screen's), and nothing happens while that screen is open (its
-// buttons are being mapped there). A legend of the buttons shows while the controller is in use.
+// buttons are being mapped there). A legend of the buttons shows while the controller is in use. The right stick
+// scrolls what's in front.
 import { gameOf, hooks } from './app.js';
 
-const { STANDARD, nearest, padFamily, remap, validMapping } = globalThis.CordPad;
+const { STANDARD, nearest, padFamily, remap, stickScroll, validMapping } = globalThis.CordPad;
 const B = Object.fromEntries(STANDARD.map((name, i) => [name, i]));
 const EVERY_MS = 30;
 const REPEAT_FIRST_MS = 380;
@@ -32,6 +33,14 @@ function scope() {
   if (layer.firstElementChild) return layer;
   const drawer = document.getElementById('drawer');
   return drawer.classList.contains('open') ? drawer : document.querySelector('.app');
+}
+
+/** What scrolls inside `root`: it or the first thing in it with more to show; the page when that's the page. */
+function scroller(root) {
+  const scrolls = (el) => el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY);
+  if (root.matches('.app')) return document.scrollingElement;
+  if (scrolls(root)) return root;
+  return [...root.querySelectorAll('*')].find(scrolls) ?? document.scrollingElement;
 }
 
 function focusables(root) {
@@ -110,6 +119,9 @@ function tick() {
   const any = Object.values(dirs).some(Boolean) || ['cross', 'circle', 'start'].some(btn);
   // the controller screen maps raw buttons: hands off there
   if (document.querySelector('#layer [data-c]')) { held.clear(); return; }
+  // the right stick scrolls what's in front: the open window, the drawer, or the page
+  const by = stickScroll(p.axes[3] ?? 0, EVERY_MS);
+  if (by) scroller(scope()).scrollBy({ top: by, behavior: 'instant' });
   if (any && !document.documentElement.classList.contains('pad-mode')) {
     document.documentElement.classList.add('pad-mode');
     legend(p);

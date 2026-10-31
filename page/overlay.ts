@@ -199,8 +199,10 @@ function openInBrowser() {
   const path = location.pathname + (keep.size ? `?${keep}` : "");
   parent.postMessage({ t: "cordplay:open", path }, "*");
   // (the link straight away, from the server's public address: Discord may never answer the entry page's request)
-  const base = document.querySelector('meta[name="hypeplay-public"]')?.getAttribute("content") ?? "";
-  if (/^https?:\/\//.test(base)) linkNote(true, "", base.replace(/\/+$/, "") + path);
+  // (without PUBLIC_URL, the address this page is at: inside Discord, the app's own *.discordsays.com one)
+  const meta = document.querySelector('meta[name="hypeplay-public"]')?.getAttribute("content") ?? "";
+  const base = /^https?:\/\//.test(meta) ? meta.replace(/\/+$/, "") : `${location.protocol}//${location.host}`;
+  linkNote(true, "", base + path);
 }
 // player 2's page (watch.ts) asks for it too, when joining stops
 addEventListener("hypeplay:open", (e) => {

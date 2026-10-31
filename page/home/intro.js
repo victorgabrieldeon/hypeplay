@@ -103,11 +103,10 @@ layer.addEventListener('click', (e) => {
   if (a === 'browser' && choice.path) {
     parent.postMessage({ t: 'cordplay:open', path: choice.path }, '*');
     // (the link straight away, from the library itself: Discord may never answer the entry page's request)
-    const base = /^https?:\/\//.test(state.publicUrl ?? '') ? state.publicUrl.replace(/\/+$/, '') : '';
-    if (base) return linkBox(OPENING, base + choice.path);
-    const box = layer.querySelector('.where-status');
-    box.hidden = false;
-    box.innerHTML = '<p class="note">Abrindo no navegador… Se o Discord perguntar, confirme.</p>';
+    // (without PUBLIC_URL, the address this page is at: inside Discord, the app's own *.discordsays.com one; the home is
+    // sandboxed, so location.origin is "null" and the host is what's left)
+    const base = /^https?:\/\//.test(state.publicUrl ?? '') ? state.publicUrl.replace(/\/+$/, '') : `${location.protocol}//${location.host}`;
+    return linkBox(OPENING, base + choice.path);
   }
 });
 document.addEventListener('keydown', (e) => {

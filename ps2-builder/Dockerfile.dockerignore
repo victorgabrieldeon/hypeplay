@@ -1,0 +1,7 @@
+# The ps2-builder image is built from the repository's root; it only needs these.
+*
+!builder/builder.ts
+!builder/patch.ts
+!server/games.ts
+!ps2-builder/builder.ts
+!ps2-builder/patch.ts

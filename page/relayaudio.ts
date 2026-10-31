@@ -1,6 +1,6 @@
 // The online relay's sound (spec: docs/superpowers/specs/2026-10-31-online-rele-design.md): the host's game sound as
-// PCM blocks for the Opus encoder (relayhost.ts). The AudioWorklet modules are strings, loaded from Blob URLs (the
-// game's page has no file of its own for them).
+// PCM blocks for the Opus encoder (relayhost.ts), and player 2's speaker for what it decodes (relayguest.ts). The
+// AudioWorklet modules are strings, loaded from Blob URLs (the pages have no file of their own for them).
 
 const RATE = 48000;
 /** 20 ms at 48 kHz: one Opus packet. */
@@ -60,5 +60,69 @@ export async function captureAudio(stream: MediaStream, onPcm: (pcm: Float32Arra
     source.disconnect();
     node.disconnect();
     void ctx.close().catch(() => {});
+  };
+}
+
+/** Player 2's buffer: sound starts (and starts again after running dry) with 60 ms queued; past 200 ms, the oldest goes. */
+const TARGET = (RATE * 60) / 1000;
+const MOST = (RATE * 200) / 1000;
+
+const PLAYER = `
+class Player extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.queue = [];
+    this.at = 0;
+    this.queued = 0;
+    this.playing = false;
+    this.port.onmessage = (e) => {
+      this.queue.push(e.data);
+      this.queued += e.data.length / 2;
+      while (this.queued > ${MOST} && this.queue.length > 1) {
+        const old = this.queue.shift();
+        this.queued -= old.length / 2 - this.at;
+        this.at = 0;
+      }
+    };
+  }
+  process(inputs, outputs) {
+    const l = outputs[0][0];
+    const r = outputs[0][1] || l;
+    if (!this.playing && this.queued >= ${TARGET}) this.playing = true;
+    for (let i = 0; i < l.length; i++) {
+      const block = this.playing ? this.queue[0] : undefined;
+      if (!block) {
+        l[i] = 0;
+        r[i] = 0;
+        this.playing = false;
+        continue;
+      }
+      l[i] = block[this.at * 2];
+      r[i] = block[this.at * 2 + 1];
+      this.queued--;
+      if (++this.at * 2 >= block.length) {
+        this.queue.shift();
+        this.at = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("hypeplay-player", Player);
+`;
+
+/**
+ * Player 2's speaker: blocks of 48 kHz stereo interleaved PCM in, played with a small buffer. Silent until resume()
+ * (the browser wants a click first: the page's "Ligar o som").
+ */
+export async function playAudio(): Promise<{ push(pcm: Float32Array<ArrayBuffer>, frames: number): void; resume(): Promise<void>; close(): void }> {
+  const ctx = new AudioContext({ sampleRate: RATE });
+  await load(ctx, PLAYER);
+  const node = new AudioWorkletNode(ctx, "hypeplay-player", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+  node.connect(ctx.destination);
+  return {
+    push: (pcm) => node.port.postMessage(pcm, [pcm.buffer]),
+    resume: () => ctx.resume(),
+    close: () => void ctx.close().catch(() => {}),
   };
 }

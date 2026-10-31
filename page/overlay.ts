@@ -11,9 +11,10 @@ interface Prefs {
   filter: Filter;
 }
 
-/** What a game's page adds to the panel: its online (ps2play.ts: the room it opens). */
+/** What a game's page adds to the panel: its online (ps2play.ts: the room it opens), and a section of its own. */
 export interface OverlayApi {
   online(hint: string, control?: HTMLElement): void;
+  section(el: HTMLElement): void;
 }
 
 const here = (document.currentScript as HTMLScriptElement | null)?.src ?? location.href;
@@ -72,6 +73,16 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
 #cp-ov .cp-panel { position: absolute; top: 44px; right: 0; width: 288px; padding: 14px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
   backdrop-filter: blur(10px); box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08);
   display: none; flex-direction: column; gap: 12px; }
+#cp-ov .cp-panel { max-height: calc(100vh - 64px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #2c2750 transparent; }
+#cp-ov .cp-extra:empty { display: none; }
+#cp-ov .cp-perf { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid rgb(255 255 255 / 0.08); }
+#cp-ov .cp-group { display: flex; flex-direction: column; gap: 6px; }
+#cp-ov .cp-sub { color: #d9d8ea; font-weight: 700; font-size: 12px; }
+#cp-ov .cp-speed { text-transform: none; letter-spacing: 0; color: #3ddc84; font-variant-numeric: tabular-nums; }
+#cp-ov .cp-speed.slow { color: #f5a524; }
+#cp-ov .cp-slow { color: #f5a524; }
+#cp-ov .cp-seg button:disabled { opacity: 0.45; cursor: default; }
+#cp-ov .cp-reopen button { margin-left: 4px; padding: 2px 8px; border: 0; border-radius: 6px; background: #7655ff; color: #fff; font-weight: 700; cursor: pointer; }
 #cp-ov.open .cp-panel { display: flex; animation: cp-rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes cp-rise { from { opacity: 0; transform: translateY(-6px); } }
 #cp-ov .cp-label { display: flex; justify-content: space-between; color: #a3a1bd; font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
@@ -147,6 +158,7 @@ function build() {
       <div class="cp-vol"><button class="cp-mute" type="button"></button><input type="range" min="0" max="100" step="1" aria-label="Volume do jogo"></div>
       <div class="cp-label"><span>Filtro de imagem</span></div>
       <div class="cp-seg" role="group" aria-label="Filtro de imagem">${FILTERS.map(([f, name]) => `<button type="button" data-filter="${f}">${name}</button>`).join("")}</div>
+      <div class="cp-extra"></div>
       <div class="cp-online" hidden><div class="cp-label"><span>Jogar online</span></div><p class="cp-hint"></p></div>
       ${framed ? '<button class="cp-browser" type="button">Jogar no navegador (mais liso)</button>' : ""}
     </div>`;
@@ -185,6 +197,7 @@ function build() {
   document.addEventListener("pointerdown", (e) => { if (!ov.contains(e.target as Node)) toggle(false); }, true);
   ov.querySelector(".cp-browser")?.addEventListener("click", openInBrowser);
   apply();
+  ov.querySelector(".cp-extra")!.append(...sections);
   if (pending) showOnline(...pending);
   else if (document.querySelector('meta[name="hypeplay-online"]')?.getAttribute("content") === "menu") portOnline();
   gpuCheck();
@@ -335,10 +348,16 @@ function showOnline(hint: string, control?: HTMLElement) {
   box.hidden = false;
 }
 let pending: [string, HTMLElement?] | null = null;
+const sections: HTMLElement[] = [];
 (window as unknown as { hypeplayOverlay: OverlayApi }).hypeplayOverlay = {
   online(hint, control) {
     if (document.getElementById("cp-ov")) showOnline(hint, control);
     else pending = [hint, control];
+  },
+  section(el) {
+    const extra = document.querySelector("#cp-ov .cp-extra");
+    if (extra) extra.append(el);
+    else sections.push(el);
   },
 };
 

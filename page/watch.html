@@ -15,7 +15,8 @@
   :root { --bg: #0b0a14; --side: #0f0d1a; --surface-top: #242040; --ink: #f3f2fb; --soft: #a3a1bd; --primary: #7655ff; --accent: #a08cff; --ok: #3ddc84; --danger: #f0384c; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--ink); font: 500 15px/24px Manrope, ui-sans-serif, system-ui, sans-serif; }
-  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  video, #relay { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  video[hidden], #relay[hidden] { display: none; }
   #bar { position: fixed; top: 10px; left: 10px; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 12px;
     background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08); font-weight: 600; font-size: 13px; }
   #bar a { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 8px; background: var(--surface-top); color: inherit; text-decoration: none; }
@@ -45,6 +46,7 @@
 </head>
 <body>
 <video id="video" autoplay playsinline muted></video>
+<canvas id="relay" hidden></canvas>
 <div id="bar"><a href="../../../">← Biblioteca</a><b>Jogador 2</b><span class="dot" id="dot" aria-hidden="true"></span></div>
 <section id="status" role="status" aria-live="polite"><div class="spin"></div><h1>Conectando…</h1><p>Entrando na sala.</p></section>
 <button id="sound" type="button" hidden>Ligar o som</button>

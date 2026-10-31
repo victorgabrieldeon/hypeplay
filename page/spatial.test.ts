@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { nearest, type Box } from "./spatial";
+import { nearest, stickScroll, type Box } from "./spatial";
 
 const box = (left: number, top: number, w = 100, h = 150): Box => ({ left, top, right: left + w, bottom: top + h });
 
@@ -21,4 +21,16 @@ test("from the sidebar to the page, and a wide button above a row", () => {
   expect(nearest(side, [side, hero, card], "right")).toBe(1);
   // down from a wide box lands on the card under it
   expect(nearest(hero, [side, hero, card], "down")).toBe(2);
+});
+
+test("the right stick scrolls: nothing in the dead zone, faster the further it's pushed, either way", () => {
+  expect(stickScroll(0.15, 30)).toBe(0);
+  expect(stickScroll(-0.15, 30)).toBe(0);
+  expect(stickScroll(1, 30)).toBe(54); // full tilt: 1800 px a second
+  expect(stickScroll(-1, 30)).toBe(-54);
+  const half = stickScroll(0.6, 30);
+  expect(half).toBeGreaterThan(0);
+  expect(half).toBeLessThan(stickScroll(0.9, 30));
+  expect(stickScroll(1, 60)).toBe(108);
+  expect(stickScroll(Number.NaN, 30)).toBe(0);
 });

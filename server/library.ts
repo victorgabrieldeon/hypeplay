@@ -1,6 +1,7 @@
 /**
  * The PS2 library: games anyone sent, each built once by ps2-builder/ and kept for everyone. One folder per game,
- * named by its disc's serial, in the data folder:
+ * named by its disc's serial (another copy of the same game, when someone asks for one: the serial, -2, -3…), in the
+ * data folder:
  *
  *   ps2/<id>/game.json          { id, serial, name, by, at, cover }   written here
  *   ps2/<id>/cover.webp         its cover, when someone sent one
@@ -32,7 +33,9 @@ export const PS2_MIN = 100 * 1024 ** 2;
 export const PS2_MAX = 9 * 1024 ** 3;
 /** A game reserved and never sent goes after this long. */
 export const ABANDONED_MS = 24 * 60 * 60_000;
-export const ID = /^[a-z]{4}-\d{5}$/;
+export const ID = /^[a-z]{4}-\d{5}(?:-\d{1,2})?$/;
+/** Copies of one serial at most (its id's suffix). */
+const COPIES = 99;
 const SERIAL = /^[A-Z]{4}-\d{5}$/;
 
 export type Reserve = { ok: true; game: Ps2Game } | { ok: false; exists: string };
@@ -127,33 +130,50 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
       return games.sort((a, b) => b.at - a.at);
     },
 
-    async reserve(pass: Pass, serial: string, name: string): Promise<Reserve> {
+    /**
+     * A new game for this serial. Without `copy`, the game already there wins (BT3's port, or the library's); with it,
+     * another copy (BT3's disc beside its port, a mod that keeps its game's serial): the first free id of serial, -2, -3…
+     */
+    async reserve(pass: Pass, serial: string, name: string, { copy = false } = {}): Promise<Reserve> {
       if (!SERIAL.test(serial)) throw new Error(`not a serial: ${serial}`);
-      if (serial === BT3_SERIAL) return { ok: false, exists: "bt3" };
-      const id = serial.toLowerCase();
-      // One reservation of a serial at a time, in this process; the folder settles it between processes.
-      if (reserving.has(id)) return { ok: false, exists: `ps2/${id}` };
-      reserving.add(id);
-      try {
-        await mkdir(join(dir, "ps2"), { recursive: true });
-        for (let tries = 0; ; tries++) {
-          try {
-            // Not recursive: of two reserving the same game at once, only one makes the folder.
-            await mkdir(paths(id).root);
-            break;
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-            // an orphan folder (no game.json) is cleared once; a real game is a real game
-            if (tries > 0 || (await exists(paths(id).game))) return { ok: false, exists: `ps2/${id}` };
-            await remove(id);
-          }
+      if (serial === BT3_SERIAL && !copy) return { ok: false, exists: "bt3" };
+      const base = serial.toLowerCase();
+      await mkdir(join(dir, "ps2"), { recursive: true });
+      for (let n = 1; n <= COPIES; n++) {
+        const id = n === 1 ? base : `${base}-${n}`;
+        const taken = { ok: false as const, exists: `ps2/${id}` };
+        // One reservation of an id at a time, in this process; the folder settles it between processes.
+        if (reserving.has(id)) {
+          if (copy) continue;
+          return taken;
         }
-        const game: Ps2Game = { id, serial, name: nameOr(name, serial), by: { id: pass.id, name: pass.name }, at: now(), cover: false };
-        await save(game);
-        return { ok: true, game };
-      } finally {
-        reserving.delete(id);
+        reserving.add(id);
+        try {
+          let made = false;
+          for (let tries = 0; !made; tries++) {
+            try {
+              // Not recursive: of two reserving the same id at once, only one makes the folder.
+              await mkdir(paths(id).root);
+              made = true;
+            } catch (err) {
+              if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+              // an orphan folder (no game.json) is cleared once; a real game is a real game
+              if (tries > 0 || (await exists(paths(id).game))) break;
+              await remove(id);
+            }
+          }
+          if (!made) {
+            if (copy) continue;
+            return taken;
+          }
+          const game: Ps2Game = { id, serial, name: nameOr(name, serial), by: { id: pass.id, name: pass.name }, at: now(), cover: false };
+          await save(game);
+          return { ok: true, game };
+        } finally {
+          reserving.delete(id);
+        }
       }
+      return { ok: false, exists: `ps2/${base}` };
     },
 
     /** The whole disc arrived: is it the game reserved? If not, the game goes, and its image with it. */

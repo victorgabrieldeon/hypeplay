@@ -3,8 +3,8 @@
 // game. Only BT3 and the PS2 library get it; the homebrew shelf opens its emulator straight away.
 //
 // Inside Discord, first "Onde jogar?": here, in the Activity, or in the browser, where games run smoother (Discord
-// runs the Activity inside its own window, with less of the machine) and where player 2's picture has to be when
-// Discord takes WebRTC away. The browser opens the library with ?play=, which plays the game there, intro and all.
+// runs the Activity inside its own window, with less of the machine). The browser opens the library with ?play=,
+// which plays the game there, intro and all.
 import { gameOf, gameUrl, hooks, state } from './app.js';
 import { esc, icon } from './library.js';
 
@@ -154,14 +154,8 @@ window.addEventListener('message', (e) => {
 hooks.play = (g, join, online) => {
   if (!framed) return run(g, join, online);
   // Every game can try here (a Discord that can't isolate a PS2 game, the game's page says so and offers the
-  // browser). Player 2 of a PS2 game needs WebRTC for the host's picture, which some Discords take away.
-  const guest = join && g.kind === 'recomp' && typeof RTCPeerConnection !== 'function';
-  where({
-    name: g.name,
-    here: guest ? null : () => run(g, join, online),
-    path: playPath(g, join, online),
-    only: 'Este Discord bloqueia a conexão de vídeo que o jogador 2 usa: só no navegador.',
-  });
+  // browser), player 2 too: without WebRTC (some Discords take it away) its picture comes through the server.
+  where({ name: g.name, here: () => run(g, join, online), path: playPath(g, join, online) });
 };
 /** For the homebrew shelf: where to play one of its games. */
 hooks.where = (name, here, path) => (framed ? where({ name, here, path }) : here());

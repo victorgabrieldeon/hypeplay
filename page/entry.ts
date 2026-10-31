@@ -23,15 +23,21 @@ async function start() {
   }
   await sdk.ready();
   // "Abrir no navegador" from a page Discord holds back (a PS2 game's isolation, player 2's WebRTC, the controller).
-  // When it can't go (no PUBLIC_URL, or Discord didn't open it), the page is told why, with the link to copy.
+  // The page gets the link at once ("opening": to click or copy should Discord not open it, which some Discord apps
+  // leave unanswered), then why, when Discord refused or said nothing for a while (no PUBLIC_URL: no link at all).
   window.addEventListener("message", (e) => {
     if (e.source !== game.contentWindow || (e.data as { t?: unknown } | null)?.t !== "cordplay:open") return;
-    const tell = (why: string, url?: string) => game.contentWindow?.postMessage({ t: "cordplay:cant-open", why, url }, "*");
+    const say = (msg: object) => game.contentWindow?.postMessage(msg, "*");
+    const tell = (why: string, url?: string) => say({ t: "cordplay:cant-open", why, url });
     const url = openRequest(e.data, process.env.PUBLIC_URL ?? "");
     if (!url) return tell(process.env.PUBLIC_URL ? "Essa página não abre fora do Discord." : "Este servidor não tem o PUBLIC_URL configurado.");
-    sdk.commands
-      .openExternalLink({ url })
-      .then((r) => r?.opened === false && tell("O Discord não abriu o link.", url))
+    say({ t: "cordplay:opening", url });
+    const quiet = new Promise<"quiet">((ok) => setTimeout(() => ok("quiet"), 5000));
+    Promise.race([sdk.commands.openExternalLink({ url }), quiet])
+      .then((r) => {
+        if (r === "quiet") tell("O Discord não respondeu ao pedido de abrir o link.", url);
+        else if (r?.opened === false) tell("O Discord não abriu o link.", url);
+      })
       .catch((err: unknown) => tell(`O Discord recusou abrir o link (${err instanceof Error ? err.message : JSON.stringify(err)}).`, url));
   });
   // Asks for consent the first time only; after that it's silent.

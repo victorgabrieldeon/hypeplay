@@ -3,8 +3,8 @@
 // game. Only BT3 and the PS2 library get it; the homebrew shelf opens its emulator straight away.
 //
 // Inside Discord, first "Onde jogar?": here, in the Activity, or in the browser, where games run smoother (Discord
-// runs the Activity inside its own window, with less of the machine) and where the PS2 games and player 2's picture
-// have to be anyway. The browser opens the library with ?play=, which plays the game there, intro and all.
+// runs the Activity inside its own window, with less of the machine) and where player 2's picture has to be when
+// Discord takes WebRTC away. The browser opens the library with ?play=, which plays the game there, intro and all.
 import { gameOf, gameUrl, hooks, state } from './app.js';
 import { esc, icon } from './library.js';
 
@@ -60,22 +60,34 @@ function close() {
   layer.innerHTML = '';
 }
 
-/** It didn't open (no PUBLIC_URL, or Discord didn't): why, and the link to copy into the browser. */
-function cantOpen(why, url) {
+/**
+ * The link to the game in the browser, to click or copy and paste there: shown as soon as the entry page has it
+ * (Discord may leave the opening unanswered), and again with why when it didn't open (no PUBLIC_URL: no link).
+ */
+function linkBox(text, url, error) {
   if (!layer.querySelector('.where')) where({ name: 'Abrir no navegador', here: null, path: '', only: 'Esta página só abre no navegador.' });
   const box = layer.querySelector('.where-status');
   box.hidden = false;
-  box.innerHTML = `<p class="error"></p>${url ? '<div class="copy"><input class="field" readonly aria-label="Link para abrir no navegador"><button type="button" class="btn small">Copiar</button></div>' : ''}`;
-  box.querySelector('p').textContent = `Não deu para abrir no navegador. ${why}`;
-  if (url) {
-    const input = box.querySelector('input');
-    input.value = url;
-    box.querySelector('button').addEventListener('click', async (e) => {
-      input.select();
-      // (Discord's frame may not allow the clipboard: then the link stays selected for Ctrl+C)
-      e.currentTarget.textContent = await navigator.clipboard?.writeText(url).then(() => 'Copiado', () => 'Ctrl+C') ?? 'Ctrl+C';
-    });
-  }
+  box.innerHTML = `<p class="${error ? 'error' : 'note'}"></p>${url ? `<div class="copy"><input class="field" readonly aria-label="Link para abrir no navegador">
+    <button type="button" class="btn small">Copiar</button></div><a class="link" target="_blank" rel="noopener">Abrir o link</a>` : ''}`;
+  box.querySelector('p').textContent = text;
+  if (!url) return;
+  // (the link carries this person's pass)
+  box.insertAdjacentHTML('beforeend', '<small class="mine">O link entra com a sua conta: não mande para outras pessoas.</small>');
+  const input = box.querySelector('input');
+  input.value = url;
+  box.querySelector('a').href = url;
+  box.querySelector('button').addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    input.select();
+    // (Discord's frame may not allow the clipboard API, the old copy command often still works; failing both, the link
+    // stays selected for Ctrl+C)
+    let done = false;
+    try { done = document.execCommand('copy'); } catch {}
+    if (!done) done = await navigator.clipboard?.writeText(url).then(() => true, () => false) ?? false;
+    b.textContent = done ? 'Copiado!' : 'Ctrl+C';
+  });
+  input.addEventListener('focus', () => input.select());
 }
 
 layer.addEventListener('click', (e) => {
@@ -97,14 +109,23 @@ document.addEventListener('keydown', (e) => {
 }, true);
 window.addEventListener('message', (e) => {
   const m = e.data;
-  if (e.source === parent && m?.t === 'cordplay:cant-open') cantOpen(typeof m.why === 'string' ? m.why : '', typeof m.url === 'string' && /^https?:\/\//.test(m.url) ? m.url : '');
+  if (e.source !== parent) return;
+  const url = typeof m?.url === 'string' && /^https?:\/\//.test(m.url) ? m.url : '';
+  if (m?.t === 'cordplay:opening' && url) linkBox('Abrindo no navegador… Se não abrir, clique no link ou copie e cole no navegador:', url);
+  if (m?.t === 'cordplay:cant-open') linkBox(`Não abriu sozinho. ${typeof m.why === 'string' ? m.why : ''}${url ? ' Copie o link e cole no navegador:' : ''}`, url, true);
 });
 
 hooks.play = (g, join, online) => {
   if (!framed) return run(g, join, online);
-  // a PS2 game (and player 2's picture) only runs in the browser; BT3's port and its Dragon Net Battle run here too
-  const ps2 = g.kind === 'recomp';
-  where({ name: g.name, here: ps2 ? null : () => run(g, join, online), path: playPath(g, join, online), only: 'Os jogos de PS2 só rodam no navegador.' });
+  // Every game can try here (a Discord that can't isolate a PS2 game, the game's page says so and offers the
+  // browser). Player 2 of a PS2 game needs WebRTC for the host's picture, which some Discords take away.
+  const guest = join && g.kind === 'recomp' && typeof RTCPeerConnection !== 'function';
+  where({
+    name: g.name,
+    here: guest ? null : () => run(g, join, online),
+    path: playPath(g, join, online),
+    only: 'Este Discord bloqueia a conexão de vídeo que o jogador 2 usa: só no navegador.',
+  });
 };
 /** For the homebrew shelf: where to play one of its games. */
 hooks.where = (name, here, path) => (framed ? where({ name, here, path }) : here());

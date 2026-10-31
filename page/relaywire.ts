@@ -116,3 +116,8 @@ export async function pickCodec(guest: readonly string[], hostCan: (codec: strin
   for (const codec of VIDEO_CODECS) if (guest.includes(codec) && (await hostCan(codec).catch(() => false))) return codec;
   return null;
 }
+
+/** What the host may have waiting to go out before it stops sending frames (a slow upload): 512 KB. */
+export const HOST_BACKLOG = 512 * 1024;
+/** The host's upload is behind: frames wait (and the next one sent is a key frame), rather than lag piling up. */
+export const hostBehind = (buffered: number) => buffered > HOST_BACKLOG;

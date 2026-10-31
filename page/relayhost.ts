@@ -3,7 +3,7 @@
 // encoded with WebCodecs and sent over the app's WebSocket (server/relay.ts); player 2's controller comes back the
 // same way. The codec is the first both sides can (relaywire.ts' pickCodec).
 import { captureAudio } from "./relayaudio";
-import { decode, encode, pickCodec, type AudioConfig, type Packet, type VideoConfig } from "./relaywire";
+import { decode, encode, hostBehind, pickCodec, type AudioConfig, type Packet, type VideoConfig } from "./relaywire";
 
 const WIDTH = 640;
 const HEIGHT = 480;
@@ -67,8 +67,10 @@ export function startRelay(o: {
     const ctx = off.getContext("2d")!;
     const tick = () => {
       if (stopped || !encoder) return;
-      // (an encoder behind drops this frame instead of falling further back)
-      if (encoder.state === "configured" && encoder.encodeQueueSize <= 2) {
+      // (an encoder behind drops this frame instead of falling further back; so does an upload behind, and the next
+      // frame that goes is a key frame, since the guest missed some)
+      if (hostBehind(ws.bufferedAmount)) wantKey = true;
+      else if (encoder.state === "configured" && encoder.encodeQueueSize <= 2) {
         ctx.drawImage(v, 0, 0, WIDTH, HEIGHT);
         // (stamped as it's taken: the guest's lag counts the encoding too)
         const frame = new VideoFrame(off, { timestamp: Math.round((performance.timeOrigin + performance.now()) * 1000) });
@@ -88,6 +90,8 @@ export function startRelay(o: {
     if (!(await AudioEncoder.isConfigSupported(cfg).catch(() => null))?.supported) return null;
     sound = new AudioEncoder({
       output: (chunk) => {
+        // (sound behind a slow upload is dropped: it'd only be late)
+        if (hostBehind(ws.bufferedAmount)) return;
         const data = new Uint8Array(chunk.byteLength);
         chunk.copyTo(data);
         send({ t: "audio", time: stamp(), data });

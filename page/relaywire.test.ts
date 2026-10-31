@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decode, encode, HELLO, isKeyVideo, pickCodec, VIDEO, type Packet } from "./relaywire";
+import { decode, encode, HELLO, HOST_BACKLOG, hostBehind, isKeyVideo, pickCodec, VIDEO, type Packet } from "./relaywire";
 
 test("each packet goes and comes back as it was", () => {
   const data = Uint8Array.of(9, 8, 7);
@@ -29,4 +29,11 @@ test("the codec: the first both can, H.264 before VP8, none in common is null", 
   expect(await pickCodec(["vp8", "avc1.42E01F"], async () => true)).toBe("avc1.42E01F");
   expect(await pickCodec(["vp8", "avc1.42E01F"], async (c) => c === "vp8")).toBe("vp8");
   expect(await pickCodec(["av01.0.04M.08"], async () => true)).toBeNull();
+});
+
+test("the host waits when its upload falls behind: past 512 KB still to go out", () => {
+  expect(HOST_BACKLOG).toBe(512 * 1024);
+  expect(hostBehind(0)).toBe(false);
+  expect(hostBehind(HOST_BACKLOG)).toBe(false);
+  expect(hostBehind(HOST_BACKLOG + 1)).toBe(true);
 });

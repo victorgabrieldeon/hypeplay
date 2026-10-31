@@ -38,8 +38,12 @@ function stuck(error?: string) {
   if (linked) return;
   const s = stuckAt(step, error);
   const actions: Action[] = [{ label: "Tentar de novo", run: () => location.reload() }];
-  if (s.browser && framed)
-    actions.unshift({ label: "Abrir no navegador", run: () => parent.postMessage({ t: "cordplay:open", path: location.pathname + location.search }, "*") });
+  // (overlay.js asks, and shows the link to copy right away; without it, asked from here)
+  const open = () => {
+    if (dispatchEvent(new Event("hypeplay:open", { cancelable: true })))
+      parent.postMessage({ t: "cordplay:open", path: location.pathname + location.search }, "*");
+  };
+  if (s.browser && framed) actions.unshift({ label: "Abrir no navegador", run: open });
   status(s.title, s.text, "error", actions);
 }
 

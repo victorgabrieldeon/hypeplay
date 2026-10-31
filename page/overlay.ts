@@ -196,16 +196,29 @@ function openInBrowser() {
   // (only what says which page it is: a PS2 game's ?bios=&disc=… are the engine's, and the browser makes its own)
   const q = new URLSearchParams(location.search);
   const keep = new URLSearchParams([...q].filter(([k]) => ["room", "g", "p", "t"].includes(k)));
-  parent.postMessage({ t: "cordplay:open", path: location.pathname + (keep.size ? `?${keep}` : "") }, "*");
+  const path = location.pathname + (keep.size ? `?${keep}` : "");
+  parent.postMessage({ t: "cordplay:open", path }, "*");
+  // (the link straight away, from the server's public address: Discord may never answer the entry page's request)
+  const base = document.querySelector('meta[name="hypeplay-public"]')?.getAttribute("content") ?? "";
+  if (/^https?:\/\//.test(base)) linkNote(true, "", base.replace(/\/+$/, "") + path);
 }
-// The link to this page in the browser, to click or copy and paste there: as soon as the entry page has it (Discord may
-// leave the opening unanswered), and again with why when it didn't open (no PUBLIC_URL: no link).
+// player 2's page (watch.ts) asks for it too, when joining stops
+addEventListener("hypeplay:open", (e) => {
+  e.preventDefault();
+  openInBrowser();
+});
+// What the entry page says: the link as soon as it has it (none yet on the page), why when it didn't open.
 window.addEventListener("message", (e) => {
   const m = e.data as { t?: unknown; why?: unknown; url?: unknown } | null;
   if (e.source !== parent || (m?.t !== "cordplay:opening" && m?.t !== "cordplay:cant-open")) return;
   const url = typeof m.url === "string" && /^https?:\/\//.test(m.url) ? m.url : "";
   const opening = m.t === "cordplay:opening";
-  if (opening && !url) return;
+  if (opening && (!url || document.querySelector("#cp-top .cp-copy"))) return;
+  linkNote(opening, typeof m.why === "string" ? m.why : "", url);
+});
+
+/** The link to this page in the browser, to click or copy and paste there; `why` it didn't open, when it didn't. */
+function linkNote(opening: boolean, why: string, url: string) {
   document.getElementById("cp-top")?.remove();
   const note = document.createElement("div");
   note.id = "cp-top";
@@ -214,7 +227,7 @@ window.addEventListener("message", (e) => {
   note.querySelector("b")!.textContent = opening ? "Abrindo no navegador…" : "Não abriu sozinho.";
   note.querySelector(".why")!.textContent = opening
     ? "Se não abrir, clique no link ou copie e cole no navegador:"
-    : `${typeof m.why === "string" ? m.why : ""}${url ? " Copie o link e cole no navegador:" : ""}`;
+    : `${why}${url ? " Copie o link e cole no navegador:" : ""}`;
   if (url) {
     const copy = document.createElement("div");
     copy.className = "cp-copy";
@@ -248,7 +261,7 @@ window.addEventListener("message", (e) => {
   }
   note.querySelector("button[aria-label]")!.addEventListener("click", () => note.remove());
   document.body.append(note);
-});
+}
 
 /**
  * Drawn without the graphics card (Discord's "Hardware Acceleration" off, or a blocked GPU): the game stutters, and a

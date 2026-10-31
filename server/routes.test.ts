@@ -189,6 +189,13 @@ test("the player page and the emulator's files, only from its folder", async () 
     expect((await get(home(path))).status).toBe(404);
 });
 
+test("the games' pages carry the app's public address: Abrir no navegador shows the link without waiting on Discord", async () => {
+  const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, publicUrl: "https://hype.example" });
+  const page = await (web.handle(new Request(`https://hype.example${home("play/")}`)) as Promise<Response>);
+  expect(await page.text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
+  expect(await (await get(home("play/"))).text()).not.toContain("hypeplay-public");
+});
+
 test("in a browser: Entrar com o Discord goes to Discord, and back here with a pass", async () => {
   const codes: (string | undefined)[][] = [];
   const web = createApp({

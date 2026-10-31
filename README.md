@@ -65,8 +65,12 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
   tecla pula. Não vai para o git: é material da Sony.
 - **Online:** dentro do jogo, "Abrir sala"; na biblioteca os amigos veem "Fulano está jogando — Entrar como
   jogador 2". O host transmite o jogo por WebRTC e o controle do convidado vira o jogador 2 (vale para jogos que
-  aceitam um segundo controle). O convidado não precisa de nada além do navegador. Redes que não se alcançam
-  direto (internet de operadora com CGNAT é comum) precisam de um TURN: veja [Ligar o TURN](#ligar-o-turn).
+  aceitam um segundo controle). O convidado não precisa de nada além do navegador.
+  Quando o WebRTC não conecta em 6 s (redes que não se alcançam direto, como internet de operadora com CGNAT), ou
+  não existe (dentro do Discord), a imagem, o som e o controle passam **pelo próprio servidor**, pelo WebSocket do
+  app, sem nada para configurar: um pouco mais de atraso (a ida e volta até o servidor) e cerca de 3 Mbps de banda
+  do servidor por sala ([spec](docs/superpowers/specs/2026-10-31-online-rele-design.md)). Com um TURN
+  ([Ligar o TURN](#ligar-o-turn)), mais conexões ficam diretas e o servidor repassa menos.
 - **Isolamento e navegador:** o runtime usa threads, então a página do jogo é servida *cross-origin isolated*
   (`Document-Isolation-Policy`, COOP/COEP), sem o sandbox das outras páginas. Se o Discord não isolar a janela, o
   jogo mostra "Abrir no navegador" (precisa de `PUBLIC_URL`). Precisa de WebGPU e JSPI: Chrome ou Edge atualizado.

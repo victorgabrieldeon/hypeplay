@@ -70,7 +70,8 @@ export function startRelay(o: {
       // (an encoder behind drops this frame instead of falling further back)
       if (encoder.state === "configured" && encoder.encodeQueueSize <= 2) {
         ctx.drawImage(v, 0, 0, WIDTH, HEIGHT);
-        const frame = new VideoFrame(off, { timestamp: Math.round(performance.now() * 1000) });
+        // (stamped as it's taken: the guest's lag counts the encoding too)
+        const frame = new VideoFrame(off, { timestamp: Math.round((performance.timeOrigin + performance.now()) * 1000) });
         encoder.encode(frame, { keyFrame: wantKey || frames % KEY_EVERY === 0 });
         frame.close();
         wantKey = false;
@@ -115,7 +116,7 @@ export function startRelay(o: {
       output: (chunk) => {
         const data = new Uint8Array(chunk.byteLength);
         chunk.copyTo(data);
-        send({ t: "video", key: chunk.type === "key", time: stamp(), data });
+        send({ t: "video", key: chunk.type === "key", time: Math.round(chunk.timestamp / 1000) >>> 0, data });
       },
       error: () => {
         wantKey = true;

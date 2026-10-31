@@ -71,6 +71,8 @@ export function joinRelay(o: {
         }
         ctx.drawImage(frame, 0, 0);
         lag = (stamp() - frame.timestamp / 1000) >>> 0;
+        // (on the canvas too, for whoever looks: data-lag, in ms)
+        o.canvas.dataset.lag = String(lag);
         frame.close();
         if (!linked) {
           linked = true;

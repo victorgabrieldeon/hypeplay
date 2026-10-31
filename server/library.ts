@@ -1,12 +1,14 @@
 /**
- * The PS2 library: games anyone sent, each built once by ps2-builder/ and kept for everyone. One folder per game,
- * named by its disc's serial (another copy of the same game, when someone asks for one: the serial, -2, -3…), in the
- * data folder:
+ * The PS2 library: games anyone sent, kept for everyone, each playing in TabStationToo as soon as its disc is in. One
+ * folder per game, named by its disc's serial (another copy of the same game, when someone asks for one: the serial,
+ * -2, -3…), in the data folder:
  *
  *   ps2/<id>/game.json          { id, serial, name, by, at, cover }   written here
  *   ps2/<id>/cover.webp         its cover, when someone sent one
- *   ps2/<id>/upload/, disc.iso, retry, status.json, build/   as BT3's (upload.ts; status.json is the builder's)
- *   ps2-work/<id>/              port.sh's intermediate files (the builder's)
+ *   ps2/<id>/upload/, disc.iso  as BT3's (upload.ts)
+ *   ps2/<id>/fast/              its "versão rápida", when someone asked for one: request, retry and misses.txt written
+ *                               here, status.json and build/ by ps2-builder/ (see there)
+ *   ps2-work/<id>/              port.sh's intermediate files (ps2-builder's)
  *   saves/<id>/                 memory cards (saves.ts): outside the game's folder, so removing a game keeps them
  *
  * An id only ever comes from here (ID): routes look games up, they never build paths from addresses.
@@ -15,7 +17,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { join } from "node:path";
 import { BT3_SERIAL, fileRead, readDiscId } from "./iso9660";
 import type { Pass } from "./pass";
-import { createDiscStore, type DiscStore } from "./upload";
+import { createDiscStore, QUIET_MS, type DiscStore } from "./upload";
 
 export interface Ps2Game {
   id: string;
@@ -40,6 +42,32 @@ const SERIAL = /^[A-Z]{4}-\d{5}$/;
 
 export type Reserve = { ok: true; game: Ps2Game } | { ok: false; exists: string };
 
+/** ps2-builder's fast/status.json, as far as the app reads it. */
+interface FastFile {
+  at: number;
+  state: "idle" | "building" | "ready" | "failed";
+  step?: number;
+  total?: number;
+  label?: string;
+  startedAt?: number;
+  learning?: boolean;
+  message?: string;
+  reason?: string;
+}
+
+/** A game's "versão rápida", for the library (`playable`: a build is there to play, the one before this). */
+export type Fast =
+  | { state: "off" }
+  | { state: "queued" }
+  | { state: "building"; step: number; total: number; label: string; elapsed: number; learning: boolean; playable: boolean }
+  | { state: "ready" }
+  | { state: "failed"; message: string; reason?: string; playable: boolean }
+  | { state: "offline" };
+
+/** A pc a game's page met untranslated (its halt message's form), and how many are kept per game. */
+const MISS = /^[0-9A-F]{8}$/;
+const MISSES_MAX = 256;
+
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
 export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX } = {}) {
@@ -56,6 +84,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
       build: join(root, "build"),
       iso: join(root, "disc.iso"),
       cover: join(root, "cover.webp"),
+      fast: join(root, "fast"),
       work: join(dir, "ps2-work", id),
     };
   }
@@ -188,6 +217,59 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     rename: (id: string, name: string) => update(id, (g) => ({ ...g, name: nameOr(name, g.serial) })),
     setCover: (id: string, has: boolean) => update(id, (g) => ({ ...g, cover: has, coverAt: Math.max(now(), (g.coverAt ?? 0) + 1) })),
 
+    /** The game's "versão rápida", from ps2-builder's files. */
+    async fast(id: string): Promise<Fast> {
+      const f = paths(id).fast;
+      const [request, built, s] = await Promise.all([
+        exists(join(f, "request")),
+        exists(join(f, "build", "ps2web.html")),
+        readFile(join(f, "status.json"), "utf8").then((t) => JSON.parse(t) as FastFile, () => null),
+      ]);
+      if (!request) return { state: "off" };
+      // (a build plays whether or not the builder is up)
+      if (!s || now() - s.at > QUIET_MS) return built ? { state: "ready" } : { state: "offline" };
+      if (s.state === "building")
+        return {
+          state: "building",
+          step: s.step ?? 1,
+          total: s.total ?? 1,
+          label: s.label ?? "",
+          elapsed: Math.max(0, now() - (s.startedAt ?? now())),
+          learning: !!s.learning,
+          playable: built,
+        };
+      if (s.state === "failed") return { state: "failed", message: s.message ?? "", ...(s.reason ? { reason: s.reason } : {}), playable: built };
+      return built ? { state: "ready" } : { state: "queued" };
+    },
+
+    /** "Compilar versão rápida", or "Tentar de novo" after it failed: ps2-builder picks it up. */
+    async askFast(id: string) {
+      if (!(await get(id)) || !(await exists(paths(id).iso))) return false;
+      const f = paths(id).fast;
+      await mkdir(f, { recursive: true });
+      const failed = (await this.fast(id)).state === "failed";
+      await writeFile(join(f, failed ? "retry" : "request"), "");
+      return true;
+    },
+
+    /** The "versão rápida" goes, with its files; the game stays, in the emulator. */
+    async removeFast(id: string) {
+      if (!ID.test(id)) return;
+      await rm(paths(id).fast, { recursive: true, force: true });
+      await rm(paths(id).work, { recursive: true, force: true });
+    },
+
+    /** Code a player's page met untranslated (`pc` as its halt message gives it): ps2-builder builds it in. */
+    async fastMiss(id: string, pc: string) {
+      const f = paths(id).fast;
+      const t = pc.trim().toUpperCase();
+      if (!MISS.test(t) || !(await exists(join(f, "request")))) return false;
+      const file = join(f, "misses.txt");
+      const kept = (await readFile(file, "utf8").catch(() => "")).split("\n").filter(Boolean);
+      if (kept.includes(t) || kept.length >= MISSES_MAX) return true;
+      await writeFile(file, `${[...kept, t].join("\n")}\n`);
+      return true;
+    },
   };
 }
 

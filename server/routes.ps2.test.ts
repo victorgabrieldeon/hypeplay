@@ -323,13 +323,18 @@ test("the versão rápida: asked, its state in games, its page isolated with gzi
   await writeFile(join(dir, "build", "ps2web.js"), "js");
   await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "ready" }));
   expect(await state()).toEqual({ state: "ready" });
+  // brought up to date by a new image: the build there still plays
+  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "building", step: 6, total: 6, label: "Compilando a página", updating: true, startedAt: Date.now() }));
+  expect(await state()).toMatchObject({ state: "building", updating: true, learning: false, playable: true });
+  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "ready" }));
 
   expect((await ana(`ps2/${id}/fast`)).headers.get("location")).toBe("fast/");
   const page = await ana(`ps2/${id}/fast/`);
   for (const [k, v] of Object.entries(ISOLATION)) expect(page.headers.get(k)).toBe(v);
   const html = await page.text();
   expect(html).toContain("<title>SCUS-97399 · HypePlay</title>");
-  expect(html).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
+  // its online (fastplay.js), then the maps and the panel every game gets
+  expect(html).toContain('<script src="../../../fastplay.js"></script><script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
   const gz = await ana(`ps2/${id}/fast/ps2web.wasm`, { headers: { "accept-encoding": "gzip, br" } });
   expect(gz.headers.get("content-encoding")).toBe("gzip");
   expect(gz.headers.get("content-type")).toBe("application/wasm");

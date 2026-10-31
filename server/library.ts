@@ -51,6 +51,7 @@ interface FastFile {
   label?: string;
   startedAt?: number;
   learning?: boolean;
+  updating?: boolean;
   message?: string;
   reason?: string;
 }
@@ -59,7 +60,7 @@ interface FastFile {
 export type Fast =
   | { state: "off" }
   | { state: "queued" }
-  | { state: "building"; step: number; total: number; label: string; elapsed: number; learning: boolean; playable: boolean }
+  | { state: "building"; step: number; total: number; label: string; elapsed: number; learning: boolean; updating: boolean; playable: boolean }
   | { state: "ready" }
   | { state: "failed"; message: string; reason?: string; playable: boolean }
   | { state: "offline" };
@@ -236,6 +237,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
           label: s.label ?? "",
           elapsed: Math.max(0, now() - (s.startedAt ?? now())),
           learning: !!s.learning,
+          updating: !!s.updating,
           playable: built,
         };
       if (s.state === "failed") return { state: "failed", message: s.message ?? "", ...(s.reason ? { reason: s.reason } : {}), playable: built };
@@ -255,8 +257,10 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     /** The "versão rápida" goes, with its files; the game stays, in the emulator. */
     async removeFast(id: string) {
       if (!ID.test(id)) return;
-      await rm(paths(id).fast, { recursive: true, force: true });
-      await rm(paths(id).work, { recursive: true, force: true });
+      // (the builder may be writing its log in there right now: a file made mid-removal is retried, not an error)
+      const again = { recursive: true, force: true, maxRetries: 5, retryDelay: 50 };
+      await rm(paths(id).fast, again);
+      await rm(paths(id).work, again);
     },
 
     /** Code a player's page met untranslated (`pc` as its halt message gives it): ps2-builder builds it in. */

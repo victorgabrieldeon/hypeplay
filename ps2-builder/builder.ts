@@ -8,7 +8,9 @@
  *   ps2/<id>/fast/request        "Compilar versão rápida" (routes.ts): without it nothing is built; gone = removed
  *   ps2/<id>/fast/retry          "Tentar de novo" after a failure
  *   ps2/<id>/fast/misses.txt     code the players' pages met untranslated (routes.ts): added, then built again
- *   ps2/<id>/fast/status.json    its state, written only here (heartbeat `at`: the app says "offline" without it)
+ *   ps2/<id>/fast/status.json    its state, written only here (heartbeat `at`: the app says "offline" without it), and
+ *                                which page (patched shell) and recompiler a ready build was made with: when either
+ *                                changes (a new image), the build is brought up to date, the page alone if that's all
  *   ps2/<id>/fast/build.log      port.sh's output
  *   ps2/<id>/fast/build/         ps2web.{html,js,wasm,data} (+ .gz), swapped in whole
  *   ps2-work/<id>/               port.sh's files: games/<id>, generated/<id>, build/web-<id>, build/native-<id> of the
@@ -16,6 +18,7 @@
  *
  * Before the first build, the recompiler's web/shell.html gets patch.ts (saves on the server, missing code, browser).
  */
+import { createHash } from "node:crypto";
 import { appendFile, cp, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawnRunner, type Runner } from "../builder/builder";
@@ -42,6 +45,11 @@ export interface FastStatus {
   startedAt?: number;
   /** Building in code the players met, over a build that still plays. */
   learning?: boolean;
+  /** Bringing a build up to date with a new page or recompiler, over a build that still plays. */
+  updating?: boolean;
+  /** (ready) the patched shell's hash and the recompiler's commit it was built with */
+  shell?: string;
+  recomp?: string;
   message?: string;
   /** The line of the test runs' log that says why the game stopped, when it did. */
   reason?: string;
@@ -82,14 +90,20 @@ export interface Ps2BuilderOptions {
   /** the recompiler's folder (/opt/recomp), with its tools built */
   repo: string;
   run: Runner;
+  /** the recompiler's commit (the image's RECOMP_COMMIT) */
+  commit?: string;
   rounds?: number;
   frames?: number;
   now?: () => number;
 }
 
-export function createPs2Builder({ data, repo, run, rounds = 4, frames = 3600, now = () => Date.now() }: Ps2BuilderOptions) {
+/** How much a build takes: all of it, code the players met, a new recompiler (or a retry), or the page alone. */
+type Mode = "full" | "learn" | "recomp" | "page";
+
+export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, frames = 3600, now = () => Date.now() }: Ps2BuilderOptions) {
   const statuses = new Map<string, FastStatus>();
-  let patched = false;
+  /** The patched shell's hash, once patched. */
+  let shell = "";
 
   const game = (id: string) => {
     const root = join(data, "ps2", id);
@@ -185,11 +199,11 @@ export function createPs2Builder({ data, repo, run, rounds = 4, frames = 3600, n
   }
 
   async function prepare() {
-    if (patched) return;
-    const shell = join(repo, "web", "shell.html");
-    const html = await readFile(shell, "utf8");
-    if (!html.includes(MARK)) await writeFile(shell, patchShell(html));
-    patched = true;
+    if (shell) return;
+    const path = join(repo, "web", "shell.html");
+    let html = await readFile(path, "utf8");
+    if (!html.includes(MARK)) await writeFile(path, (html = patchShell(html)));
+    shell = createHash("sha256").update(html).digest("hex").slice(0, 16);
   }
 
   async function link(id: string) {
@@ -202,24 +216,37 @@ export function createPs2Builder({ data, repo, run, rounds = 4, frames = 3600, n
     }
   }
 
-  async function build(id: string, learn: string[]) {
+  async function build(id: string, mode: Mode, learn: string[]) {
     const p = game(id);
-    let log = `build ${new Date(now()).toISOString()}${learn.length ? ` (aprendendo ${learn.join(" ")})` : ""}\n`;
+    let log = `build ${new Date(now()).toISOString()} (${mode}${learn.length ? `: ${learn.join(" ")}` : ""})\n`;
     const say = (text: string) => {
       log += text;
       void writeFile(p.log, log).catch(() => undefined);
     };
-    const status: FastStatus = { at: now(), state: "building", startedAt: now(), step: 1, total: FAST_STEPS.length, label: FAST_STEPS[0], ...(learn.length ? { learning: true } : {}) };
+    const first = mode === "page" ? FAST_STEPS.length : 1;
+    const status: FastStatus = {
+      at: now(),
+      state: "building",
+      startedAt: now(),
+      step: first,
+      total: FAST_STEPS.length,
+      label: FAST_STEPS[first - 1],
+      ...(mode === "learn" ? { learning: true } : mode === "recomp" || mode === "page" ? { updating: true } : {}),
+    };
     statuses.set(id, status);
     await save(id);
     await prepare();
     await link(id);
     if (learn.length) await appendFile(p.entries, learn.map((m) => `${m}\n`).join(""));
 
-    // (learning: the new entry points translated and built; the test runs already found the rest)
-    const cmd = learn.length
-      ? ["bash", "scripts/port.sh", id, p.iso, "--no-explore"]
-      : ["bash", "scripts/port.sh", id, p.iso, "--rounds", String(rounds), "--frames", String(frames)];
+    // (learning or a new recompiler: everything translated again with the entry points known, no test runs; a new page:
+    // the page alone, from the code already built)
+    const cmd =
+      mode === "page"
+        ? ["bash", "scripts/build_web.sh", id]
+        : mode === "full"
+          ? ["bash", "scripts/port.sh", id, p.iso, "--rounds", String(rounds), "--frames", String(frames)]
+          : ["bash", "scripts/port.sh", id, p.iso, "--no-explore"];
     say(`\n$ ${cmd.join(" ")}\n`);
     let pending = "";
     const r = await run(cmd, {
@@ -259,13 +286,14 @@ export function createPs2Builder({ data, repo, run, rounds = 4, frames = 3600, n
     if (await exists(p.build)) await rename(p.build, p.old);
     await rename(p.tmp, p.build);
     await rm(p.old, { recursive: true, force: true });
-    statuses.set(id, { at: now(), state: "ready" });
+    statuses.set(id, { at: now(), state: "ready", shell, recomp: commit });
     say("\npronto\n");
   }
 
   /** One look at the folder: builds the oldest game waiting, if any. */
   async function tick() {
     await beat();
+    await prepare();
     for (const g of await wanted()) {
       const p = game(g.id);
       const retry = !!(await exists(p.retry));
@@ -274,13 +302,17 @@ export function createPs2Builder({ data, repo, run, rounds = 4, frames = 3600, n
       if (!retry && s.state === "failed") continue;
       const built = !!(await exists(join(p.build, "ps2web.html")));
       const learn = built ? await newMisses(g.id) : [];
-      if (built && !retry && !learn.length) {
-        if (s.state !== "ready") statuses.set(g.id, { at: now(), state: "ready" });
-        continue;
-      }
+      // (a retry over a build redoes the code too: what failed may have been learning)
+      const translated = !!(await exists(p.entries));
+      let mode: Mode;
+      if (!built) mode = "full";
+      else if (learn.length) mode = "learn";
+      else if (retry || s.recomp !== commit) mode = translated ? "recomp" : "full";
+      else if (s.shell !== shell) mode = (await exists(join(p.work, "web", "build.ninja"))) ? "page" : translated ? "recomp" : "full";
+      else continue;
       if (retry) await rm(p.retry, { force: true });
       try {
-        await build(g.id, learn);
+        await build(g.id, mode, learn);
       } catch (err) {
         if (err instanceof Gone) {
           statuses.delete(g.id);
@@ -308,6 +340,7 @@ if (import.meta.main) {
     data: process.env.DATA ?? "/app/data",
     repo: process.env.RECOMP ?? "/opt/recomp",
     run: spawnRunner,
+    commit: process.env.RECOMP_COMMIT ?? "",
     rounds: Number(process.env.PS2_ROUNDS ?? 4),
     frames: Number(process.env.PS2_FRAMES ?? 3600),
   });

@@ -55,6 +55,8 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
 #cp-top .cp-copy { display: flex; gap: 6px; margin-top: 8px; }
 #cp-top .cp-copy input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 0.12); border-radius: 8px; background: #1b1830; color: #f3f2fb; font: 500 12px/32px ui-monospace, monospace; }
 #cp-top .cp-copy button { width: auto; height: 32px; padding: 0 12px; border-radius: 8px; background: #7655ff; color: #fff; font-weight: 700; }
+#cp-top .cp-link { display: inline-block; margin-top: 8px; color: #a48cff; font-weight: 700; }
+#cp-top .cp-mine { display: block; margin-top: 6px; color: #a3a1bd; font-size: 11px; }
 #cp-gpu .cp-browser { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 700 13px/32px Manrope, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
 #cp-top, #cp-gpu { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
   width: max-content; max-width: min(520px, calc(100% - 120px)); padding: 12px 10px 12px 16px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
@@ -196,29 +198,53 @@ function openInBrowser() {
   const keep = new URLSearchParams([...q].filter(([k]) => ["room", "g", "p", "t"].includes(k)));
   parent.postMessage({ t: "cordplay:open", path: location.pathname + (keep.size ? `?${keep}` : "") }, "*");
 }
-// It didn't open (no PUBLIC_URL, or Discord didn't): why, and the link to copy into the browser.
+// The link to this page in the browser, to click or copy and paste there: as soon as the entry page has it (Discord may
+// leave the opening unanswered), and again with why when it didn't open (no PUBLIC_URL: no link).
 window.addEventListener("message", (e) => {
   const m = e.data as { t?: unknown; why?: unknown; url?: unknown } | null;
-  if (e.source !== parent || m?.t !== "cordplay:cant-open") return;
+  if (e.source !== parent || (m?.t !== "cordplay:opening" && m?.t !== "cordplay:cant-open")) return;
+  const url = typeof m.url === "string" && /^https?:\/\//.test(m.url) ? m.url : "";
+  const opening = m.t === "cordplay:opening";
+  if (opening && !url) return;
   document.getElementById("cp-top")?.remove();
   const note = document.createElement("div");
   note.id = "cp-top";
-  note.setAttribute("role", "alert");
-  note.innerHTML = `<p><b>Não deu para abrir no navegador.</b><br><span class="why"></span></p><button type="button" aria-label="Fechar">${ICON_CLOSE}</button>`;
-  note.querySelector(".why")!.textContent = typeof m.why === "string" ? m.why : "";
-  if (typeof m.url === "string" && /^https?:\/\//.test(m.url)) {
+  note.setAttribute("role", opening ? "status" : "alert");
+  note.innerHTML = `<p><b></b><br><span class="why"></span></p><button type="button" aria-label="Fechar">${ICON_CLOSE}</button>`;
+  note.querySelector("b")!.textContent = opening ? "Abrindo no navegador…" : "Não abriu sozinho.";
+  note.querySelector(".why")!.textContent = opening
+    ? "Se não abrir, clique no link ou copie e cole no navegador:"
+    : `${typeof m.why === "string" ? m.why : ""}${url ? " Copie o link e cole no navegador:" : ""}`;
+  if (url) {
     const copy = document.createElement("div");
     copy.className = "cp-copy";
     copy.innerHTML = `<input readonly aria-label="Link para abrir no navegador"><button type="button">Copiar</button>`;
     const input = copy.querySelector("input")!;
-    input.value = m.url;
+    input.value = url;
+    input.addEventListener("focus", () => input.select());
     copy.querySelector("button")!.addEventListener("click", async (ev) => {
       const b = ev.currentTarget as HTMLButtonElement;
       input.select();
-      // (Discord's frame may not allow the clipboard: then the link stays selected for Ctrl+C)
-      b.textContent = await navigator.clipboard?.writeText(m.url as string).then(() => "Copiado", () => "Ctrl+C").catch(() => "Ctrl+C") ?? "Ctrl+C";
+      // (Discord's frame may not allow the clipboard API, the old copy command often still works; failing both, the
+      // link stays selected for Ctrl+C)
+      let done = false;
+      try {
+        done = document.execCommand("copy");
+      } catch {}
+      if (!done) done = (await navigator.clipboard?.writeText(url).then(() => true, () => false)) ?? false;
+      b.textContent = done ? "Copiado!" : "Ctrl+C";
     });
-    note.querySelector("p")!.append(copy);
+    const link = document.createElement("a");
+    link.className = "cp-link";
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "Abrir o link";
+    // (the link carries this person's pass)
+    const mine = document.createElement("small");
+    mine.className = "cp-mine";
+    mine.textContent = "O link entra com a sua conta: não mande para outras pessoas.";
+    note.querySelector("p")!.append(copy, link, mine);
   }
   note.querySelector("button[aria-label]")!.addEventListener("click", () => note.remove());
   document.body.append(note);

@@ -1,7 +1,9 @@
 // The PS2 games' "Desempenho" in the game's panel (overlay.js), added by ps2play.ts: TabStationToo's own settings,
 // whose menus our design hides, as our buttons. Pressing one presses the emulator's radio, so it applies and keeps the
 // choice itself (the underclock per game, the picture's resolution at once, the renderer at the next opening), and its
-// speed meter, read once a second.
+// speed meter, read once a second. And whether the whole disc goes to the browser in the background (disccache.ts,
+// in the disc worker: they talk over a BroadcastChannel), with how far it is.
+import type { FillProgress } from "./disccache";
 
 interface Choice {
   value: string;
@@ -55,6 +57,80 @@ export function speedLine(speed: string | null, fps: string | null): { text: str
   return { text: `${s} · ${fps?.trim() || "0"} FPS`, slow: parseInt(s, 10) < 90 };
 }
 
+const gb = (blocks: number) => (blocks / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+
+/** The whole disc in the browser: how far (`null`: the disc isn't open yet). */
+export function fillLine(p: FillProgress | null): string {
+  if (!p) return "O disco abre quando o jogo começar.";
+  const pct = p.total ? Math.floor((p.have / p.total) * 100) : 0;
+  switch (p.state) {
+    case "checking":
+      return "Vendo o que já está no navegador…";
+    case "filling":
+      return `Baixando o disco: ${pct}% (${gb(p.have)} de ${gb(p.total)} GB). Quando acabar, o jogo não depende mais da internet.`;
+    case "done":
+      return "O disco inteiro está no navegador: o jogo não depende mais da internet.";
+    case "full":
+      return "Acabou o espaço do navegador: só o que o jogo lê fica guardado.";
+    default:
+      return `Só o que o jogo lê fica no navegador (${pct}%); o resto vem da internet na hora.`;
+  }
+}
+
+const FILL_PREF = "hypeplay.discFill";
+const fillWanted = () => {
+  try {
+    return localStorage.getItem(FILL_PREF) !== "0";
+  } catch {
+    return true;
+  }
+};
+
+/** The disc group: Baixar tudo / Só o que o jogo lê, and how far it is. */
+function discGroup(): HTMLElement {
+  // (this page's disc, as the worker names it: without the pass)
+  const disc = `${location.pathname.replace(/^\/p\/[^/]+\//, "/")}disc.iso`;
+  const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel("hypeplay-disc") : null;
+  const part = document.createElement("div");
+  part.className = "cp-group";
+  part.innerHTML = `<div class="cp-sub">Disco no navegador</div><div class="cp-seg" style="grid-template-columns: repeat(2, 1fr)" role="group" aria-label="Disco no navegador">
+    <button type="button" data-fill="1">Baixar tudo</button><button type="button" data-fill="0">Só o que o jogo lê</button></div><p class="cp-hint" aria-live="polite"></p>`;
+  const hint = part.querySelector<HTMLElement>(".cp-hint")!;
+  let last: FillProgress | null = null;
+  const show = () => {
+    const on = fillWanted();
+    for (const b of part.querySelectorAll<HTMLButtonElement>("[data-fill]")) b.setAttribute("aria-pressed", String((b.dataset.fill === "1") === on));
+    hint.textContent = fillLine(last);
+  };
+  const tell = () => {
+    const on = fillWanted();
+    // (a disc this big is worth keeping: the browser shouldn't drop it to make room)
+    if (on) void navigator.storage?.persist?.().catch(() => {});
+    channel?.postMessage({ t: "fill", disc, on });
+  };
+  channel?.addEventListener("message", (e: MessageEvent) => {
+    const m = e.data as ({ t?: string; disc?: string } & Partial<FillProgress>) | null;
+    if (m?.disc !== disc) return;
+    if (m.t === "hello") tell();
+    if (m.t === "progress" && typeof m.have === "number" && typeof m.total === "number" && m.state) {
+      last = { have: m.have, total: m.total, state: m.state };
+      show();
+    }
+  });
+  part.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-fill]");
+    if (!b) return;
+    try {
+      localStorage.setItem(FILL_PREF, b.dataset.fill!);
+    } catch {}
+    tell();
+    show();
+  });
+  tell();
+  show();
+  return part;
+}
+
 const radio = (name: string, value: string) => document.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`);
 
 export function perfSection(): HTMLElement {
@@ -78,6 +154,7 @@ export function perfSection(): HTMLElement {
     }
     box.append(part);
   }
+  box.append(discGroup());
   const reopen = document.createElement("p");
   reopen.className = "cp-hint cp-reopen";
   reopen.hidden = true;

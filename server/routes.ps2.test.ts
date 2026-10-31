@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import type { Mapping } from "../page/padmap";
+import { decodeList, encodeList, KEY_BYTES, type PipeList } from "../page/pipelines";
 import { COVER_ART } from "./cover";
 import { createLibrary } from "./library";
 import type { Passes } from "./pass";
@@ -242,6 +243,35 @@ test("a PS2 game is TabStationToo's page, patched and isolated, with its files f
   expect(await worker.text()).toBe("engine disc-worker.js\n/* cache */");
   expect(worker.headers.get("content-type")).toStartWith("text/javascript");
   expect(worker.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+});
+
+test("a PS2 game's pipeline list: the union of everyone's, kept per game, so no browser starts from nothing", async () => {
+  const id = await built("SLES-14141", "SLES_141.41");
+  const url = `ps2/${id}/game/pipelines`;
+  const list = (version: [number, number], ...ns: number[]): PipeList => {
+    const keys = new Uint8Array(ns.length * KEY_BYTES);
+    ns.forEach((n, i) => keys.fill(n, i * KEY_BYTES, (i + 1) * KEY_BYTES));
+    return { version, keys };
+  };
+  const put = (l: PipeList, who = ana) => who(url, { method: "PUT", body: encodeList(l) });
+  const got = async () => {
+    const r = await ana(url);
+    const l = decodeList(new Uint8Array(await r.arrayBuffer()))!;
+    return { version: l.version, ids: Array.from({ length: l.keys.length / KEY_BYTES }, (_, i) => l.keys[i * KEY_BYTES]) };
+  };
+  expect((await ana(url)).status).toBe(404);
+  expect((await put(list([1, 0], 1, 2))).status).toBe(204);
+  expect((await put(list([1, 0], 2, 3), bia)).status).toBe(204);
+  expect(await got()).toEqual({ version: [1, 0], ids: [1, 2, 3] });
+  const r = await ana(url);
+  expect(r.headers.get("cache-control")).toBe("no-store");
+  expect(r.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+  // another emulator build (its keys mean something else): its list replaces the old one
+  expect((await put(list([2, 0], 9))).status).toBe(204);
+  expect(await got()).toEqual({ version: [2, 0], ids: [9] });
+  expect((await ana(url, { method: "PUT", body: new Uint8Array(5) })).status).toBe(400);
+  expect((await ana(url, { method: "PUT", body: new Uint8Array(8 + 5000 * KEY_BYTES) })).status).toBe(400);
+  expect((await ana("ps2/sles-00000/game/pipelines")).status).toBe(404);
 });
 
 test("a PS2 game whose disc is in plays once the server has the BIOS, which is sent once and served isolated", async () => {

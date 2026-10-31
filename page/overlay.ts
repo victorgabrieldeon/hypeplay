@@ -58,6 +58,7 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
 #cp-top .cp-copy button { width: auto; height: 32px; padding: 0 12px; border-radius: 8px; background: #7655ff; color: #fff; font-weight: 700; }
 #cp-top .cp-link { display: inline-block; margin-top: 8px; color: #a48cff; font-weight: 700; }
 #cp-top .cp-mine { display: block; margin-top: 6px; color: #a3a1bd; font-size: 11px; }
+#cp-top .cp-warn { display: block; margin-top: 8px; color: #f5a524; font-size: 12px; line-height: 18px; }
 #cp-gpu .cp-browser { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 700 13px/32px Manrope, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
 #cp-top, #cp-gpu { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
   width: max-content; max-width: min(520px, calc(100% - 120px)); padding: 12px 10px 12px 16px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
@@ -214,8 +215,17 @@ function openInBrowser() {
   // (the link straight away, from the server's public address: Discord may never answer the entry page's request)
   // (without PUBLIC_URL, the address this page is at: inside Discord, the app's own *.discordsays.com one)
   const meta = document.querySelector('meta[name="hypeplay-public"]')?.getAttribute("content") ?? "";
-  const base = /^https?:\/\//.test(meta) ? meta.replace(/\/+$/, "") : `${location.protocol}//${location.host}`;
+  const own = /^https?:\/\//.test(meta);
+  const base = own ? meta.replace(/\/+$/, "") : `${location.protocol}//${location.host}`;
   linkNote(true, "", base + path);
+  // (Discord's address takes WebRTC away even in a browser tab: player 2's page can't connect from there)
+  if (!own && /(^|\.)discordsays\.com$/.test(location.hostname) && /\/watch\/$/.test(location.pathname)) {
+    const warn = document.createElement("small");
+    warn.className = "cp-warn";
+    warn.textContent =
+      "Atenção: sem o PUBLIC_URL no servidor, o link é o endereço do Discord, que bloqueia o vídeo do jogador 2 mesmo no navegador. Quem cuida do servidor precisa configurar o PUBLIC_URL.";
+    document.querySelector("#cp-top p")?.append(warn);
+  }
 }
 // player 2's page (watch.ts) asks for it too, when joining stops
 addEventListener("hypeplay:open", (e) => {
@@ -226,7 +236,8 @@ addEventListener("hypeplay:open", (e) => {
 window.addEventListener("message", (e) => {
   const m = e.data as { t?: unknown; why?: unknown; url?: unknown } | null;
   if (e.source !== parent || (m?.t !== "cordplay:opening" && m?.t !== "cordplay:cant-open")) return;
-  const url = typeof m.url === "string" && /^https?:\/\//.test(m.url) ? m.url : "";
+  // (a "didn't open" without a link keeps the one on the screen)
+  const url = typeof m.url === "string" && /^https?:\/\//.test(m.url) ? m.url : document.querySelector<HTMLInputElement>("#cp-top .cp-copy input")?.value ?? "";
   const opening = m.t === "cordplay:opening";
   if (opening && (!url || document.querySelector("#cp-top .cp-copy"))) return;
   linkNote(opening, typeof m.why === "string" ? m.why : "", url);

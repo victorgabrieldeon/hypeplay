@@ -4,7 +4,7 @@
 // Each step says where it is, and a join that stops (an error, or no picture after a while) says where and why
 // (watchsteps.ts), with "Abrir no navegador" inside Discord.
 import { encodePad, KEYS } from "./guestpad";
-import { stuckAt, type Step } from "./watchsteps";
+import { stuckAt, whereAmI, type Step } from "./watchsteps";
 
 const $ = (id: string) => document.getElementById(id)!;
 const room = new URLSearchParams(location.search).get("room") ?? "";
@@ -36,7 +36,7 @@ let linked = false;
 /** The join stopped at `step`: say so, and offer a way on. */
 function stuck(error?: string) {
   if (linked) return;
-  const s = stuckAt(step, error);
+  const s = stuckAt(step, error, whereAmI(framed, location.hostname));
   const actions: Action[] = [{ label: "Tentar de novo", run: () => location.reload() }];
   // (overlay.js asks, and shows the link to copy right away; without it, asked from here)
   const open = () => {

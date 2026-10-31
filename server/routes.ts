@@ -201,12 +201,25 @@ export function createApp({
     return (await f.exists()) ? respond(f, 200, { "Content-Type": type, ...headers }) : text("Não encontrado", 404);
   }
 
+  /**
+   * The app's address for "Abrir no navegador": PUBLIC_URL, or without it the name this request came to. Discord's
+   * proxy asks the mapped address by its name (and Traefik routes by it), so through Discord, even from Discord's own
+   * address in a browser tab, that's the real one. Never a local name, an IP or Discord's own address (none, then).
+   * Per request, never kept: a request that lies about its name only fools itself.
+   */
+  function publicFor(req: Request): string {
+    if (publicUrl) return publicUrl;
+    const { hostname, host } = new URL(req.url);
+    if (!hostname.includes(".") || hostname.startsWith("[") || /^[\d.]+$/.test(hostname) || /(^|\.)discordsays\.com$/.test(hostname)) return "";
+    return `${req.headers.get("x-forwarded-proto") === "http" ? "http" : "https"}://${host}`;
+  }
+
   let warned = false;
   /**
    * A game's page with pad.js (the mapped controller) and overlay.js (volume, screen filter) slipped in; `pad` is the
    * relative address of pad.js, overlay.js sits next to it. Without a </head>, the page as it is.
    */
-  async function page(path: string, pad: string, headers: Record<string, string>, adjust: (html: string) => string = (h) => h) {
+  async function page(req: Request, path: string, pad: string, headers: Record<string, string>, adjust: (html: string) => string = (h) => h) {
     const f = Bun.file(path);
     if (!(await f.exists())) return text("Não encontrado", 404);
     let html: string;
@@ -217,7 +230,8 @@ export function createApp({
       return new Response(`O emulador mudou e a página dele precisa de revisão (server/ps2page.ts).`, { status: 500, headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
     }
     // (the app's public address: overlay.js' "Abrir no navegador" shows the link itself, Discord may never answer)
-    if (publicUrl) html = html.replace(/<\/head>/i, `<meta name="hypeplay-public" content="${publicUrl.replace(/[&"<>]/g, "")}">$&`);
+    const pub = publicFor(req);
+    if (pub) html = html.replace(/<\/head>/i, `<meta name="hypeplay-public" content="${pub.replace(/[&"<>]/g, "")}">$&`);
     // (each goes in just before </head>: pad.js first, then overlay.js)
     const withPad = injectPad(html, pad);
     const both = withPad && injectPad(withPad, pad.replace(/pad\.js$/, "overlay.js"));
@@ -237,7 +251,7 @@ export function createApp({
     const { disc } = on;
     // (the port plays online from its own main menu: overlay.js says so in the game's panel)
     if (rest === "" || rest === "index.html")
-      return page(join(disc.paths.build, "index.html"), "../../pad.js", HEADERS, (html) => html.replace("</head>", '<meta name="hypeplay-online" content="menu">\n</head>'));
+      return page(req, join(disc.paths.build, "index.html"), "../../pad.js", HEADERS, (html) => html.replace("</head>", '<meta name="hypeplay-online" content="menu">\n</head>'));
     if (on.game.files.has(rest)) return file(join(disc.paths.build, rest));
     if (rest === "disc/index.json") {
       const index = await discIndex(on);
@@ -340,7 +354,7 @@ export function createApp({
     return respond(null, 204);
   }
 
-  async function catalog(pass: Pass) {
+  async function catalog(pass: Pass, req: Request) {
     const ports = await Promise.all(
       [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }): Promise<CatalogEntry> => {
         const sent = Bun.file(portCover(g.id));
@@ -357,7 +371,7 @@ export function createApp({
       }),
     );
     const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
-    return { me: pass.name, last: (await people?.last(pass.id)) ?? null, publicUrl, games: [...ports, ...ps2] };
+    return { me: pass.name, last: (await people?.last(pass.id)) ?? null, publicUrl: publicFor(req), games: [...ports, ...ps2] };
   }
 
   async function cover(key: string): Promise<Response> {
@@ -386,7 +400,7 @@ export function createApp({
     const notFound = () => isolated("Não encontrado", 404, "text/plain; charset=utf-8");
     if (rest === "" || rest === "index.html") {
       const name = (await library!.get(id))?.name ?? id;
-      return page(join(ps2Engine, "index.html"), "../../../pad.js", ISOLATED, (html) => patchTabStation(html, name));
+      return page(req, join(ps2Engine, "index.html"), "../../../pad.js", ISOLATED, (html) => patchTabStation(html, name));
     }
     if (ENGINE_FILES.has(rest)) {
       const f = Bun.file(join(ps2Engine, rest));
@@ -479,7 +493,7 @@ export function createApp({
     if (rest === "ice" || rest === "room" || rest.startsWith("room/")) return ps2Room(req, pass, id, rest);
     // The online guest's page: only video and their pad, so neither isolated (it opens inside Discord) nor sandboxed.
     if (rest === "watch") return respond(null, 301, { Location: "watch/" });
-    if (rest === "watch/") return page(join(pageDir, "watch.html"), "../../../pad.js", ENTRY_HEADERS);
+    if (rest === "watch/") return page(req, join(pageDir, "watch.html"), "../../../pad.js", ENTRY_HEADERS);
     switch (rest) {
       case "":
         if (req.method === "PATCH") {
@@ -538,8 +552,8 @@ export function createApp({
     try {
       const user = await discord.signIn(code);
       // (the access token goes back to the entry page, which authenticates the Discord SDK with it: opening a link
-      // outside Discord, for one, needs that)
-      return json({ pass: passes.issue(user), access_token: user.accessToken });
+      // outside Discord, for one, needs that), and the app's public address, what that link opens (publicFor)
+      return json({ pass: passes.issue(user), access_token: user.accessToken, public_url: publicFor(req) });
     } catch (err) {
       console.error("discord sign-in failed:", err);
       return json({ error: "Não deu para entrar pelo Discord. Feche e abra a atividade de novo." }, 502);
@@ -590,7 +604,7 @@ export function createApp({
     const path = m[2];
     if (path === undefined) return respond(null, 301, { Location: slashed(pathname) });
     if (path === "/") return file(join(pageDir, "index.html"));
-    if (path === "/games") return json(await catalog(pass));
+    if (path === "/games") return json(await catalog(pass, req));
     if (path === "/intro.mp4") {
       const where = join(dir, "intro.mp4");
       // sent once from the home's "Servidor" screen, for everyone (like the BIOS); anyone may replace or take it off
@@ -660,7 +674,7 @@ export function createApp({
     const hb = /^\/homebrew\/([\w.-]+)\/(rom|cover)$/.exec(path);
     if (hb) return homebrewFile(hb[1]!, hb[2] as "rom" | "cover");
     // (pad.js: a mapped PS2 controller plays the homebrew games too)
-    if (path === "/play/") return page(join(pageDir, "play.html"), "../pad.js", HEADERS);
+    if (path === "/play/") return page(req, join(pageDir, "play.html"), "../pad.js", HEADERS);
     // (the URL parser already folded any "..": the pattern is the second lock)
     const emu = /^\/emulator\/((?:[\w-][\w.-]*\/)*[\w-][\w.-]*)$/.exec(path);
     if (emu) return file(join(emulatorDir, emu[1]!), undefined, DAY);

@@ -38,6 +38,7 @@ import { BT3_SERIAL } from "./iso9660";
 import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
 import type { Pass, Passes } from "./pass";
 import type { People } from "./people";
+import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
 import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
 import { createHomebrew, type HomebrewShelf } from "./homebrew";
@@ -398,7 +399,38 @@ export function createApp({
       const f = Bun.file(p.iso);
       return (await f.exists()) ? rangeResponse(req, f, { ...ISOLATED, "Content-Type": TYPES.bin! }) : notFound();
     }
+    if (rest === "pipelines") return pipelines(req, join(p.root, "pipelines.bin"));
     return notFound();
+  }
+
+  // One write at a time per list: two players saving at once would each merge into the list before the other's.
+  const pipelineWrites = new Map<string, Promise<unknown>>();
+  /**
+   * A PS2 game's pipeline list (page/pipelines.ts): what everyone's browser has seen the game draw, so a browser that
+   * never played it creates those pipelines ahead of time instead of stuttering on each the first time.
+   */
+  async function pipelines(req: Request, path: string): Promise<Response> {
+    const headers = { ...ISOLATED, "Cache-Control": "no-store" };
+    // (fetched by the game's page: isolated like the rest of it, not the home's sandbox)
+    const respond = (b: ConstructorParameters<typeof Response>[0], status: number, h: Record<string, string>) => new Response(b, { status, headers: h });
+    if (req.method === "GET") {
+      const f = Bun.file(path);
+      return (await f.exists()) ? respond(f, 200, { ...headers, "Content-Type": TYPES.bin! }) : respond("Não encontrado", 404, headers);
+    }
+    if (req.method !== "PUT") return respond("Método não permitido", 405, headers);
+    if (Number(req.headers.get("content-length") ?? 0) > 8 + CAPACITY * KEY_BYTES) return respond("Lista grande demais", 400, headers);
+    const sent = decodeList(new Uint8Array(await req.arrayBuffer()));
+    if (!sent) return respond("Não é uma lista", 400, headers);
+    const write = (pipelineWrites.get(path) ?? Promise.resolve()).then(async () => {
+      const f = Bun.file(path);
+      const kept = (await f.exists()) ? decodeList(new Uint8Array(await f.arrayBuffer())) : null;
+      // (the same version: everyone's keys; another build's list is replaced by this one's)
+      const merged = kept && kept.version[0] === sent.version[0] && kept.version[1] === sent.version[1] ? mergeLists(kept, sent)! : sent;
+      await Bun.write(path, encodeList(merged));
+    });
+    pipelineWrites.set(path, write.catch(() => {}));
+    await write;
+    return respond(null, 204, headers);
   }
 
   /** ps2/<id>/room…, ice: the online's setting up, for the host's game page and the guest's page (rooms.ts' cousin). */

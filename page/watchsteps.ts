@@ -17,7 +17,17 @@ export type Where = "discord" | "discord-site" | "browser";
 export const whereAmI = (framed: boolean, host: string): Where =>
   framed ? "discord" : /(^|\.)discordsays\.com$/.test(host) ? "discord-site" : "browser";
 
-export function stuckAt(step: Step, error?: string, where: Where = "discord"): { title: string; text: string; browser: boolean } {
+/**
+ * The server's TURN, for this browser: none offered (the ICE servers from ../ice), offered but no relay candidate came
+ * (coturn down, or its ports closed), or answered (a relay candidate in this side's description).
+ */
+export type Turn = "none" | "silent" | "answered";
+export function turnState(ice: { urls: string | string[] }[], sdp: string): Turn {
+  if (!ice.some((s) => [s.urls].flat().some((u) => /^turns?:/.test(u)))) return "none";
+  return / typ relay( |$)/m.test(sdp) ? "answered" : "silent";
+}
+
+export function stuckAt(step: Step, error?: string, where: Where = "discord", turn: Turn = "none"): { title: string; text: string; browser: boolean } {
   const why = error ? ` (${error})` : "";
   switch (step) {
     case "start":
@@ -39,10 +49,22 @@ export function stuckAt(step: Step, error?: string, where: Where = "discord"): {
         browser: false,
       };
     case "linking":
+      if (turn === "silent")
+        return {
+          title: "O TURN do servidor não respondeu",
+          text: `O servidor tem um TURN, mas ele não respondeu a este navegador${why}. Quem cuida do servidor precisa conferir se o coturn está rodando e se as portas 3478 (UDP e TCP) e 49160 a 49200 (UDP) estão abertas no firewall.`,
+          browser: false,
+        };
+      if (turn === "answered")
+        return {
+          title: "Sem conexão com o host",
+          text: `Nem pelo TURN as redes de vocês se alcançaram${why}. Tente de novo; se continuar, o host fecha e abre a sala.`,
+          browser: false,
+        };
       return {
         title: "Sem conexão com o host",
-        text: `As redes de vocês não se alcançaram${why}. O servidor precisa de um TURN (TURN_URL e TURN_SECRET). No navegador às vezes passa.`,
-        browser: true,
+        text: `As redes de vocês não se alcançaram${why}. Quem cuida do servidor precisa ligar um TURN, o retransmissor do online (TURN_URL e TURN_SECRET).${where === "discord" ? " No navegador às vezes passa." : ""}`,
+        browser: where === "discord",
       };
   }
 }

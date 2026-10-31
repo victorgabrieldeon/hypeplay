@@ -1,5 +1,5 @@
-# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET; optional PUBLIC_URL, TURN_URL, TURN_SECRET
-# (README). Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
+# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET; optional PUBLIC_URL, and for the online's
+# TURN COMPOSE_PROFILES=turn, TURN_URL, TURN_SECRET (README). Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
 services:
   app:
     build: .
@@ -24,16 +24,22 @@ services:
     volumes:
       - bt3-data:/app/data
 
-  # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly.
-  # Uncomment, set TURN_SECRET, TURN_URL=turn:<this server's public name>:3478, and open 3478/udp, 3478/tcp and
-  # 49160-49200/udp in the firewall.
-  # turn:
-  #   image: coturn/coturn:4.6
-  #   restart: unless-stopped
-  #   network_mode: host
-  #   command: >-
-  #     -n --listening-port=3478 --fingerprint --use-auth-secret --static-auth-secret=${TURN_SECRET}
-  #     --realm=cordplay --min-port=49160 --max-port=49200 --no-cli --no-tls --no-dtls
+  # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly
+  # (README "Online: o TURN"). Off unless COMPOSE_PROFILES=turn; then also set TURN_SECRET and
+  # TURN_URL=turn:<this server's public name>:3478, and open 3478/udp, 3478/tcp and 49160-49200/udp in the firewall.
+  # It relays only to the internet: never to this machine or a private network (an open relay could reach them).
+  turn:
+    image: coturn/coturn:4.6
+    profiles: ["turn"]
+    restart: unless-stopped
+    network_mode: host
+    command: >-
+      -n --listening-port=3478 --fingerprint --use-auth-secret --static-auth-secret=${TURN_SECRET:-}
+      --realm=hypeplay --min-port=49160 --max-port=49200 --no-cli --no-tls --no-dtls --no-multicast-peers
+      --denied-peer-ip=0.0.0.0-0.255.255.255 --denied-peer-ip=10.0.0.0-10.255.255.255
+      --denied-peer-ip=100.64.0.0-100.127.255.255 --denied-peer-ip=127.0.0.0-127.255.255.255
+      --denied-peer-ip=169.254.0.0-169.254.255.255 --denied-peer-ip=172.16.0.0-172.31.255.255
+      --denied-peer-ip=192.168.0.0-192.168.255.255 --denied-peer-ip=::1 --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
 volumes:
   bt3-data:

@@ -66,7 +66,7 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
 - **Online:** dentro do jogo, "Abrir sala"; na biblioteca os amigos veem "Fulano está jogando — Entrar como
   jogador 2". O host transmite o jogo por WebRTC e o controle do convidado vira o jogador 2 (vale para jogos que
   aceitam um segundo controle). O convidado não precisa de nada além do navegador. Redes que não se alcançam
-  direto precisam de um TURN (`TURN_URL`, `TURN_SECRET`; o compose tem um coturn comentado).
+  direto (internet de operadora com CGNAT é comum) precisam de um TURN: veja [Ligar o TURN](#ligar-o-turn).
 - **Isolamento e navegador:** o runtime usa threads, então a página do jogo é servida *cross-origin isolated*
   (`Document-Isolation-Policy`, COOP/COEP), sem o sandbox das outras páginas. Se o Discord não isolar a janela, o
   jogo mostra "Abrir no navegador" (precisa de `PUBLIC_URL`). Precisa de WebGPU e JSPI: Chrome ou Edge atualizado.
@@ -97,9 +97,36 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
-| `TURN_URL`, `TURN_SECRET` | Opcionais. Um TURN (coturn com `--use-auth-secret`) para o online dos jogos de PS2 entre redes que não se alcançam |
+| `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. O TURN do online dos jogos de PS2, para redes que não se alcançam: veja [Ligar o TURN](#ligar-o-turn) |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
+
+### Ligar o TURN
+
+O vídeo do jogador 2 vai direto do navegador do host para o do convidado. Quando uma das redes não aceita conexão
+de fora (CGNAT, roteador fechado), os dois só se falam por um retransmissor, o TURN. O compose já traz um
+(coturn, serviço `turn`), desligado até ser pedido. No Dokploy:
+
+1. Em **Environment**, acrescente:
+   ```
+   COMPOSE_PROFILES=turn
+   TURN_SECRET=<uma senha longa e aleatória>
+   TURN_URL=turn:<nome do servidor>:3478
+   ```
+   O `<nome do servidor>` precisa apontar **direto** para o IP da máquina. Se o domínio do app passa pelo proxy da
+   Cloudflare (nuvem laranja), use o IP ou um subdomínio "DNS only". O app oferece o TURN por UDP e por TCP.
+2. No firewall da máquina (e no painel do provedor, se ele tiver um), abra **3478/udp**, **3478/tcp** e
+   **49160-49200/udp**.
+3. Faça o deploy de novo. O `turn` sobe junto, e o app passa o TURN aos navegadores (credencial de 12 h assinada
+   com o `TURN_SECRET`).
+
+Em nuvens que põem a máquina atrás de NAT (AWS, Google Cloud, Oracle), o coturn também precisa de
+`--external-ip=<IP público>/<IP privado>` no `command` do serviço `turn`.
+
+O coturn só repassa para a internet: nunca para a própria máquina nem para redes privadas.
+
+**Conferir:** se mesmo assim o jogador 2 não conectar, a tela dele diz se o TURN respondeu. "O TURN do servidor
+não respondeu" quer dizer coturn parado ou portas fechadas.
 
 ## Acesso
 

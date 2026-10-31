@@ -18,7 +18,9 @@ export function iceServers({ turnUrl, turnSecret, user, now }: { turnUrl?: strin
   const servers: IceServer[] = [{ urls: STUN }];
   if (turnUrl && turnSecret) {
     const username = `${Math.floor(now / 1000) + TURN_TTL_S}:${user}`;
-    servers.push({ urls: turnUrl, username, credential: createHmac("sha1", turnSecret).update(username).digest("base64") });
+    // (a plain turn: address by UDP and by TCP: some networks only let TCP through; one that says its own, as it is)
+    const urls = /^turn:[^?]+$/.test(turnUrl) ? [`${turnUrl}?transport=udp`, `${turnUrl}?transport=tcp`] : turnUrl;
+    servers.push({ urls, username, credential: createHmac("sha1", turnSecret).update(username).digest("base64") });
   }
   return servers;
 }

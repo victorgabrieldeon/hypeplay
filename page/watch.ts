@@ -4,7 +4,7 @@
 // Each step says where it is, and a join that stops (an error, or no picture after a while) says where and why
 // (watchsteps.ts), with "Abrir no navegador" inside Discord.
 import { encodePad, KEYS } from "./guestpad";
-import { stuckAt, whereAmI, type Step } from "./watchsteps";
+import { stuckAt, turnState, whereAmI, type Step, type Turn } from "./watchsteps";
 
 const $ = (id: string) => document.getElementById(id)!;
 const room = new URLSearchParams(location.search).get("room") ?? "";
@@ -32,11 +32,13 @@ function status(title: string, text: string, kind: "wait" | "error" | "hide" = "
 
 let step: Step = "start";
 let linked = false;
+/** Whether the server's TURN answered this browser, once its ways through are gathered (watchsteps.ts). */
+let turn: Turn = "none";
 
 /** The join stopped at `step`: say so, and offer a way on. */
 function stuck(error?: string) {
   if (linked) return;
-  const s = stuckAt(step, error, whereAmI(framed, location.hostname));
+  const s = stuckAt(step, error, whereAmI(framed, location.hostname), turn);
   const actions: Action[] = [{ label: "Tentar de novo", run: () => location.reload() }];
   // (overlay.js asks, and shows the link to copy right away; without it, asked from here)
   const open = () => {
@@ -147,6 +149,7 @@ async function start() {
         await pc.setRemoteDescription({ type: "offer", sdp: m.sdp });
         await pc.setLocalDescription(await pc.createAnswer());
         await gathered(pc);
+        turn = turnState(ice, pc.localDescription?.sdp ?? "");
         await send("host", { type: "answer", from: me, sdp: pc.localDescription!.sdp });
         return;
       }

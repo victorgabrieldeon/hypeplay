@@ -131,3 +131,17 @@ test("only its host closes a room", async () => {
   expect(r.list("sles-12345")).toEqual([]);
   expect(await r.wait(code, "g1", 0)).toBeNull();
 });
+
+test("who may use a room's relay: its host, and a guest that joined and hasn't left", () => {
+  const r = rooms();
+  const code = r.create("sles-12345", ana);
+  expect(r.hostOf(code)).toBe("42");
+  expect(r.hostOf("ZZZZZZ")).toBeNull();
+  expect(r.hasGuest(code, "g1")).toBe(false);
+  r.post(code, "host", { type: "join", from: "g1" });
+  expect(r.hasGuest(code, "g1")).toBe(true);
+  expect(r.hasGuest(code, "g2")).toBe(false);
+  r.post(code, "host", { type: "bye", from: "g1" });
+  expect(r.hasGuest(code, "g1")).toBe(false);
+  expect(r.hasGuest("ZZZZZZ", "g1")).toBe(false);
+});

@@ -108,6 +108,18 @@ export class Ps2Rooms {
     return true;
   }
 
+  /** Who may open the room's relay as its host (relay.ts): its host's id; null, no such room. */
+  hostOf(code: string): string | null {
+    this.sweep();
+    return this.rooms.get(code)?.hostId ?? null;
+  }
+
+  /** Who may open the relay as player 2: a guest that joined and hasn't said bye. */
+  hasGuest(code: string, me: string): boolean {
+    this.sweep();
+    return this.rooms.get(code)?.guests.has(me) ?? false;
+  }
+
   list(game: string): { code: string; host: string; since: number; busy: boolean }[] {
     this.sweep();
     const t = this.now();

@@ -74,6 +74,17 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
 - **Isolamento e navegador:** o runtime usa threads, então a página do jogo é servida *cross-origin isolated*
   (`Document-Isolation-Policy`, COOP/COEP), sem o sandbox das outras páginas. Se o Discord não isolar a janela, o
   jogo mostra "Abrir no navegador" (precisa de `PUBLIC_URL`). Precisa de WebGPU e JSPI: Chrome ou Edge atualizado.
+- **Versão rápida (opcional, por jogo):** jogos pesados podem ficar lentos no emulador (o God of War roda a ~8 fps
+  nele, o VU1 no limite). Na gaveta do jogo, **Compilar a versão rápida** faz o serviço `ps2-builder` compilar o jogo
+  com o [ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) (MIT): o código do jogo vira C++ e depois
+  WebAssembly, sem emulador de CPU. Leva uns 20 a 40 minutos no servidor (o God of War: 21 minutos com 2 CPUs, até
+  1,2 GB de memória), uma vez para todo mundo, e só compila os jogos pedidos, um por vez. Pronto, aparece **Jogar a versão rápida** (o God of War vai a 60 fps). O memory card é o mesmo
+  do emulador (mesmo arquivo, mesmas regras: nunca grava um cartão em branco por cima do save, e um save do emulador
+  que ficou sem enviar sobe antes). Nem todo jogo funciona:
+  se a compilação falhar, a gaveta diz por quê e o emulador continua ali. Se o jogo chegar num trecho de código que a
+  compilação não achou, a página manda o endereço ao servidor, que tenta recompilar com ele (só a página, sem jogar
+  de novo), e oferece continuar no emulador. O online fica no emulador (a versão rápida joga sozinha ou com dois controles no
+  mesmo PC). No Linux o Firefox/Zen também roda, com `dom.webgpu.enabled` ligado em `about:config`.
 
 ## Configurar o app no Discord
 
@@ -89,12 +100,13 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 
 ## Deploy (Dokploy)
 
-`docker-compose.yml` sobe dois serviços que dividem o volume `bt3-data`:
+`docker-compose.yml` sobe três serviços que dividem o volume `bt3-data`:
 
 | Serviço | Domínio | O que faz |
 | --- | --- | --- |
 | `app` | `bt3.exemplo.com` → 3003 | Entrada pelo Discord, página do jogo, arquivos do jogo, pedaços da ISO, envio, salas do online (WebSocket) |
 | `builder` | — (só o volume) | Confere a ISO, extrai, compila, ajusta os caminhos (`builder/patch.ts`) e publica |
+| `ps2-builder` | — (só o volume) | A versão rápida dos jogos de PS2 pedidos (`ps2-builder/`): `port.sh` do ps2-web-recomp, um jogo por vez, 2 CPUs. `PS2_ROUNDS` e `PS2_FRAMES` (opcionais) dizem quantas partidas de teste e de quantos quadros |
 
 | Variável | Para quê |
 | --- | --- |
@@ -147,11 +159,13 @@ Tudo fica no volume, em `/app/data/bt3/`: `disc.iso`, `work/` com o que a compil
 jogo e `build.log`. Nada disso vai para o git nem para imagem nenhuma (`data/` está no `.gitignore`). Só a
 lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
 
-Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`) e a BIOS em
-`/app/data/bios/`. O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
+Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, e `fast/` com a versão
+rápida: o pedido, `status.json`, `build.log`, `misses.txt` e `build/`) e a BIOS em `/app/data/bios/`. O que a
+compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
 controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4` (enviada pela tela Servidor).
 
-**Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Remover" na biblioteca.
+**Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Remover" na biblioteca;
+só a versão rápida: "Apagar a versão rápida" na gaveta do jogo.
 
 O homebrew fica em `/app/data/homebrew/`: `catalog.json` (a lista, buscada na API do Homebrew Hub ao subir
 quando tem mais de um dia, e depois a cada dia) e, por jogo, o ROM e a capa, baixados do GitHub dos bancos

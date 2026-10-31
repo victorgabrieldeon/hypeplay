@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { stuckAt, turnState, whereAmI } from "./watchsteps";
+import { relayStuck, relayWhen, stuckAt, turnState, whereAmI } from "./watchsteps";
 
 test("player 2 is told where joining stopped, and what that usually means", () => {
   const start = stuckAt("start", "RTCPeerConnection is not defined");
@@ -58,4 +58,19 @@ test("which window player 2 is in: Discord's, Discord's address in a browser tab
   expect(whereAmI(true, "1565741822813409280.discordsays.com")).toBe("discord");
   expect(whereAmI(false, "1565741822813409280.discordsays.com")).toBe("discord-site");
   expect(whereAmI(false, "hypeplay.example.com")).toBe("browser");
+});
+
+test("when to go by the server: no WebRTC at once, 6 s after the offer without a link, failed, never once linked", () => {
+  expect(relayWhen({ webrtc: false, offerAt: null, now: 0, state: null })).toBe("now");
+  expect(relayWhen({ webrtc: true, offerAt: null, now: 50_000, state: null })).toBe("wait");
+  expect(relayWhen({ webrtc: true, offerAt: 1000, now: 6999, state: "connecting" })).toBe("wait");
+  expect(relayWhen({ webrtc: true, offerAt: 1000, now: 7000, state: "connecting" })).toBe("now");
+  expect(relayWhen({ webrtc: true, offerAt: 1000, now: 1500, state: "failed" })).toBe("now");
+  expect(relayWhen({ webrtc: true, offerAt: 1000, now: 60_000, state: "connected" })).toBe("stay");
+});
+
+test("what player 2 hears when the server's way stops", () => {
+  expect(relayStuck("closed").title).toBe("A conexão com o servidor caiu");
+  expect(relayStuck("no-decoder").text).toContain("Chrome ou Edge");
+  expect(relayStuck("host-cant").text).toContain("O navegador do host não consegue transmitir pelo servidor");
 });

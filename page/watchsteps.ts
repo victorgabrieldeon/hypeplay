@@ -68,3 +68,33 @@ export function stuckAt(step: Step, error?: string, where: Where = "discord", tu
       };
   }
 }
+
+/** How long an offered WebRTC link may take before player 2 goes by the server instead (relayguest.ts). */
+export const LINK_MS = 6000;
+
+/**
+ * Whether player 2 goes by the server's relay now: at once without WebRTC; once linked, never; failed, or not linked
+ * LINK_MS after the host's offer came, now; before the offer (or within those 6 s), it waits.
+ */
+export function relayWhen(s: { webrtc: boolean; offerAt: number | null; now: number; state: string | null }): "now" | "wait" | "stay" {
+  if (!s.webrtc) return "now";
+  if (s.state === "connected") return "stay";
+  if (s.state === "failed") return "now";
+  if (s.offerAt === null) return "wait";
+  return s.now - s.offerAt >= LINK_MS ? "now" : "wait";
+}
+
+/** What player 2 hears when the server's way stops. */
+export function relayStuck(why: "closed" | "no-decoder" | "host-cant"): { title: string; text: string } {
+  switch (why) {
+    case "closed":
+      return { title: "A conexão com o servidor caiu", text: "O jogo do host parou de chegar. Tente de novo." };
+    case "no-decoder":
+      return { title: "Não deu para mostrar o jogo", text: "Este navegador não consegue mostrar o jogo pelo servidor. Use um Chrome ou Edge atualizado." };
+    case "host-cant":
+      return {
+        title: "O host não consegue transmitir",
+        text: "O navegador do host não consegue transmitir pelo servidor. Ele precisa de um Chrome ou Edge atualizado.",
+      };
+  }
+}

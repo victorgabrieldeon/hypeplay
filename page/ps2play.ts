@@ -1,5 +1,6 @@
 import { createCardSync, heldByOtherTab, type CardStore } from "./cardsync";
 import type { OverlayApi } from "./overlay";
+import { perfSection } from "./perf";
 import { roomButton } from "./stream";
 
 // ps2play.js (bundled at startup, server/index.ts; put in TabStationToo's page by server/ps2page.ts, before its
@@ -120,6 +121,8 @@ function bar(open: boolean) {
     mirror,
   );
   if (open) room.click();
+  // TabStationToo's speed settings, whose menus are hidden here, in the panel
+  (window as unknown as { hypeplayOverlay?: OverlayApi }).hypeplayOverlay?.section(perfSection());
 }
 
 function idb(): Promise<IDBDatabase> {

@@ -92,7 +92,15 @@ function pressed(name, down, now) {
   return true;
 }
 
+// Another window in front (the game opened in the browser, with the Activity still open in Discord): a controller is
+// read by every window, so this one lets go until it's back in front.
+let away = false;
+addEventListener('blur', () => { away = true; held.clear(); });
+addEventListener('focus', () => { away = false; });
+addEventListener('pointerdown', () => { away = false; }, true);
+
 function tick() {
+  if (away || document.hidden) return;
   const p = pad();
   if (!p) return;
   const now = performance.now();

@@ -27,6 +27,14 @@ test("no WebRTC outside Discord: on Discord's own address, or a browser that won
   expect(stuckAt("start", "x", "discord").browser).toBe(true);
 });
 
+test("networks that don't meet: the TURN, and the browser only offered to who isn't in one", () => {
+  const inBrowser = stuckAt("linking", undefined, "browser");
+  expect(inBrowser.text).toContain("TURN");
+  expect(inBrowser.text).not.toContain("No navegador");
+  expect(inBrowser.browser).toBe(false);
+  expect(stuckAt("linking", undefined, "discord").browser).toBe(true);
+});
+
 test("which window player 2 is in: Discord's, Discord's address in a browser tab, or the server's own", () => {
   expect(whereAmI(true, "1565741822813409280.discordsays.com")).toBe("discord");
   expect(whereAmI(false, "1565741822813409280.discordsays.com")).toBe("discord-site");

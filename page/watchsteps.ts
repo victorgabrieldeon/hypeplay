@@ -41,8 +41,8 @@ export function stuckAt(step: Step, error?: string, where: Where = "discord"): {
     case "linking":
       return {
         title: "Sem conexão com o host",
-        text: `As redes de vocês não se alcançaram${why}. O servidor precisa de um TURN (TURN_URL e TURN_SECRET). No navegador às vezes passa.`,
-        browser: true,
+        text: `As redes de vocês não se alcançaram${why}. Quem cuida do servidor precisa ligar um TURN, o retransmissor do online (TURN_URL e TURN_SECRET).${where === "discord" ? " No navegador às vezes passa." : ""}`,
+        browser: where === "discord",
       };
   }
 }

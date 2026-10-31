@@ -104,6 +104,8 @@ export function joinRelay(o: {
           pcm[i * 2 + 1] = right[i]!;
         }
         speaker?.push(pcm, n);
+        // (for whoever looks: data-heard, the sound blocks that came)
+        o.canvas.dataset.heard = String(Number(o.canvas.dataset.heard ?? 0) + 1);
         if (!heard) {
           heard = true;
           o.onSound();
@@ -149,6 +151,8 @@ export function joinRelay(o: {
     },
     unmute: async () => {
       await speaker?.resume();
+      // (and data-speaker, whether the speaker plays)
+      o.canvas.dataset.speaker = speaker?.state() ?? "none";
     },
     lag: () => lag,
   };

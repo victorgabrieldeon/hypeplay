@@ -13,7 +13,7 @@ interface Guest {
 }
 const w = window as unknown as { cordplayGuest?: Guest; cordplayVolume?: { tap(): MediaStream | null } };
 
-type Msg = { type?: string; from?: string; sdp?: string; watch?: boolean };
+type Msg = { type?: string; from?: string; sdp?: string; watch?: boolean; relay?: boolean };
 
 async function post(code: string, to: string, msg: object) {
   await fetch(`../room/${code}/${to}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(msg) });
@@ -110,8 +110,8 @@ async function serve(code: string, button: HTMLButtonElement) {
         const full = watch ? [...guests.values()].filter((g) => g.watch).length >= MAX_WATCHERS : !!player();
         if (full) {
           await post(code, from, { type: "full", watch });
-        } else if (typeof RTCPeerConnection !== "function") {
-          // (no WebRTC here, inside Discord say: by the server from the start)
+        } else if (typeof RTCPeerConnection !== "function" || m.relay === true) {
+          // (no WebRTC here or there, inside Discord say: by the server from the start, no offer to wait on)
           if (relayTo(from, watch)) await post(code, from, { type: "relay-only" });
         } else {
           const pc = new RTCPeerConnection({ iceServers: ice });

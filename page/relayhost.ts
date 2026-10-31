@@ -84,10 +84,23 @@ export function startRelay(o: {
     void v.play().then(() => v.requestVideoFrameCallback(tick), () => {});
   }
 
+  /** The sound, when both sides can: anything failing here is the picture without sound, not no picture. */
   async function sounds(guestHas: string[]): Promise<AudioConfig | null> {
+    try {
+      return await soundsOrThrow(guestHas);
+    } catch {
+      if (sound && sound.state !== "closed") sound.close();
+      sound = null;
+      stopSound?.();
+      stopSound = null;
+      return null;
+    }
+  }
+
+  async function soundsOrThrow(guestHas: string[]): Promise<AudioConfig | null> {
     if (!o.audio || typeof AudioEncoder !== "function" || !guestHas.includes("opus")) return null;
     const cfg = { ...AUDIO, bitrate: AUDIO_BITRATE };
-    if (!(await AudioEncoder.isConfigSupported(cfg).catch(() => null))?.supported) return null;
+    if (!(await AudioEncoder.isConfigSupported(cfg).catch(() => null))?.supported || stopped) return null;
     sound = new AudioEncoder({
       output: (chunk) => {
         // (sound behind a slow upload is dropped: it'd only be late)
@@ -100,18 +113,25 @@ export function startRelay(o: {
     });
     sound.configure(cfg);
     let at = 0;
-    stopSound = await captureAudio(o.audio, (pcm, n) => {
+    const stop = await captureAudio(o.audio, (pcm, n) => {
       if (sound?.state !== "configured") return;
       const data = new AudioData({ format: "f32", sampleRate: AUDIO.sampleRate, numberOfFrames: n, numberOfChannels: 2, timestamp: at, data: pcm });
       sound.encode(data);
       data.close();
       at += (n / AUDIO.sampleRate) * 1e6;
     });
+    // (the relay ended while the sound was being set up: what was just made goes too)
+    if (stopped) {
+      stop();
+      return null;
+    }
+    stopSound = stop;
     return AUDIO;
   }
 
   async function begin(video: string[], audio: string[]) {
     const codec = await pickCodec(video, (c) => VideoEncoder.isConfigSupported(videoConfig(c)).then((r) => !!r.supported, () => false));
+    if (stopped) return;
     if (!codec) {
       o.onNoCodec();
       return end();
@@ -128,7 +148,10 @@ export function startRelay(o: {
     });
     encoder.configure(videoConfig(codec));
     const v: VideoConfig = { codec, width: WIDTH, height: HEIGHT };
-    config = { t: "config", video: v, audio: await sounds(audio) };
+    const sound = await sounds(audio);
+    // (the relay ended meanwhile: end() closed the encoder; nothing to start)
+    if (stopped) return;
+    config = { t: "config", video: v, audio: sound };
     send(config);
     wantKey = true;
     picture();
@@ -146,7 +169,11 @@ export function startRelay(o: {
       }
       joined = true;
       o.onJoin();
-      void begin(p.video, p.audio);
+      // (anything else failing: player 2 hears the host can't send, rather than waiting on nothing)
+      begin(p.video, p.audio).catch(() => {
+        o.onNoCodec();
+        end();
+      });
     } else if (p.t === "pad") o.onPad(p.pad);
     else if (p.t === "key") wantKey = true;
     else if (p.t === "bye") end();

@@ -61,6 +61,7 @@ function close() {
 }
 
 const OPENING = 'Abrindo no navegador… Se não abrir, clique no link ou copie e cole no navegador:';
+const DISCORD_SITE = 'Atenção: sem o PUBLIC_URL no servidor, o link é o endereço do Discord, que bloqueia o vídeo do jogador 2 mesmo no navegador. Quem cuida do servidor precisa configurar o PUBLIC_URL.';
 
 /**
  * The link to the game in the browser, to click or copy and paste there: shown on the click, from the server's public
@@ -102,20 +103,50 @@ layer.addEventListener('click', (e) => {
   if (a === 'here' && choice.here) { const go = choice.here; close(); return go(); }
   if (a === 'browser' && choice.path) {
     parent.postMessage({ t: 'cordplay:open', path: choice.path }, '*');
-    // (the link straight away, from the library itself: Discord may never answer the entry page's request)
-    // (without PUBLIC_URL, the address this page is at: inside Discord, the app's own *.discordsays.com one; the home is
-    // sandboxed, so location.origin is "null" and the host is what's left)
-    const base = /^https?:\/\//.test(state.publicUrl ?? '') ? state.publicUrl.replace(/\/+$/, '') : `${location.protocol}//${location.host}`;
-    return linkBox(OPENING, base + choice.path);
+    const { url, own } = browserUrl(choice.path);
+    linkBox(OPENING, url);
+    // (Discord's address takes WebRTC away even in a browser tab: player 2 of a PS2 game can't connect from there)
+    if (!own && /(^|\.)discordsays\.com$/.test(location.hostname) && /play=ps2%2F[^&]*&join=/.test(choice.path))
+      layer.querySelector('.where-status').insertAdjacentHTML('beforeend', `<p class="error">${DISCORD_SITE}</p>`);
   }
 });
+
+/**
+ * `path` in the browser, from the library itself (Discord may never answer the entry page's request): the server's
+ * public address (PUBLIC_URL, or the name it was asked by), or without one the address this page is at, which inside
+ * Discord is the app's own *.discordsays.com one (`own` false). The home is sandboxed: location.origin is "null".
+ */
+function browserUrl(path) {
+  const own = /^https?:\/\//.test(state.publicUrl ?? '');
+  return { url: (own ? state.publicUrl.replace(/\/+$/, '') : `${location.protocol}//${location.host}`) + path, own };
+}
+
+/** The sidebar's "Abrir no navegador": the library itself in the browser, with its link to click or copy. */
+function openHome() {
+  const path = location.pathname;
+  choice = { here: null, path };
+  layer.innerHTML = `<div class="modal" data-where="scrim"><div class="dialog where" role="dialog" aria-modal="true" aria-labelledby="where-title">
+    <header><h2 id="where-title">HypePlay no navegador</h2><button class="btn quiet" data-where="cancel" aria-label="Fechar">${icon('close')}</button></header>
+    <p>No navegador os jogos rodam mais lisos: usam o PC inteiro. A biblioteca abre já com a sua conta.</p>
+    <div class="where-status" role="status" hidden></div>
+  </div></div>`;
+  parent.postMessage({ t: 'cordplay:open', path }, '*');
+  linkBox(OPENING, browserUrl(path).url);
+  layer.querySelector('.where-status .copy button')?.focus();
+}
+if (framed) {
+  const button = document.querySelector('[data-browser]');
+  button.hidden = false;
+  button.addEventListener('click', openHome);
+}
 document.addEventListener('keydown', (e) => {
   if (choice && e.key === 'Escape') { e.stopPropagation(); close(); }
 }, true);
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (e.source !== parent) return;
-  const url = typeof m?.url === 'string' && /^https?:\/\//.test(m.url) ? m.url : '';
+  // (a "didn't open" without a link keeps the one on the screen)
+  const url = typeof m?.url === 'string' && /^https?:\/\//.test(m.url) ? m.url : layer.querySelector('.where-status .copy input')?.value ?? '';
   if (m?.t === 'cordplay:opening' && url && !layer.querySelector('.where-status .copy')) linkBox(OPENING, url);
   if (m?.t === 'cordplay:cant-open') linkBox(`Não abriu sozinho. ${typeof m.why === 'string' ? m.why : ''}${url ? ' Copie o link e cole no navegador:' : ''}`, url, true);
 });

@@ -88,7 +88,10 @@ test("token: a Discord code for a pass", async () => {
   const ok = await post({ code: "ana" });
   expect(ok.status).toBe(200);
   // (the access token goes back too: the entry page authenticates the Discord SDK with it, which opening links needs)
-  expect(await ok.json()).toEqual({ pass, access_token: "tok-ana" });
+  expect(await ok.json()).toEqual({ pass, access_token: "tok-ana", public_url: "" });
+  // (and the app's public address, for "Abrir no navegador": the name the request came to, without PUBLIC_URL)
+  const named = await (app.handle(new Request("http://hype.example/token", { method: "POST", body: JSON.stringify({ code: "ana" }) })) as Promise<Response>);
+  expect(((await named.json()) as { public_url: string }).public_url).toBe("https://hype.example");
   expect((await post({ code: "forged" })).status).toBe(502);
   for (const bad of [{}, { code: 1 }, { code: "" }, { code: "x".repeat(201) }]) expect((await post(bad)).status).toBe(400);
   expect((await get("/token")).status).toBe(405);
@@ -194,6 +197,23 @@ test("the games' pages carry the app's public address: Abrir no navegador shows 
   const page = await (web.handle(new Request(`https://hype.example${home("play/")}`)) as Promise<Response>);
   expect(await page.text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
   expect(await (await get(home("play/"))).text()).not.toContain("hypeplay-public");
+});
+
+test("without PUBLIC_URL, the public address is the one each request came to (Discord's proxy and Traefik ask by name), never a local one or Discord's own", async () => {
+  const at = async (url: string, headers: Record<string, string> = {}) =>
+    ((await (await (app.handle(new Request(url + home("games"), { headers })) as Promise<Response>)).json()) as { publicUrl: string }).publicUrl;
+  expect(await at("http://hype.example", { "x-forwarded-proto": "https" })).toBe("https://hype.example");
+  // (no word on the protocol: Discord only maps to https addresses)
+  expect(await at("http://hype.example")).toBe("https://hype.example");
+  expect(await at("http://hype.example:8443", { "x-forwarded-proto": "http" })).toBe("http://hype.example:8443");
+  for (const local of ["http://localhost:3913", "http://127.0.0.1:3913", "http://192.168.0.10:3913", "http://[::1]:3913", "https://1565741822813409280.discordsays.com"])
+    expect(await at(local)).toBe("");
+  const page = await (app.handle(new Request(`http://hype.example${home("play/")}`)) as Promise<Response>);
+  expect(await page.text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
+  // a PUBLIC_URL set stands, whatever the request's address
+  const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, publicUrl: "https://hype.example" });
+  const body = (await (await (web.handle(new Request(`http://other.example${home("games")}`)) as Promise<Response>)).json()) as { publicUrl: string };
+  expect(body.publicUrl).toBe("https://hype.example");
 });
 
 test("in a browser: Entrar com o Discord goes to Discord, and back here with a pass", async () => {

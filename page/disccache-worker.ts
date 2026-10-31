@@ -32,12 +32,21 @@ UrlSource.prototype.read = function (this: Source, offset, length, request) {
     this.cpCache = createBlockCache({
       size: this.size,
       store: cacheStorageStore(this.url, this.size),
-      // (its own reader for each block: the retries, the time limit and the errors the worker knows)
-      fetchBlock: (start, n) => this.readAsync(start, n, {}),
+      // (its own reader for the background too: the retries, the time limit and the errors the worker knows; a request
+      // it can stop, as the emulator stops its own)
+      fetchBlock: (start, n, signal) => {
+        const req: { cancelled?: boolean; abort?: (() => void) | null } = {};
+        signal?.addEventListener("abort", () => {
+          req.cancelled = true;
+          req.abort?.();
+        });
+        return this.readAsync(start, n, req);
+      },
       onProgress: (p) => channel?.postMessage({ t: "progress", disc, ...p }),
     });
     open.set(disc, this.cpCache);
     channel?.postMessage({ t: "hello", disc });
   }
-  return this.cpCache.read(offset, length);
+  // (what isn't kept goes out with the emulator's own request: its deadline, its cancel)
+  return this.cpCache.read(offset, length, (start, n) => this.readAsync(start, n, request));
 };

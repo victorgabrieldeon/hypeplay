@@ -24,6 +24,21 @@ services:
     volumes:
       - bt3-data:/app/data
 
+  # The PS2 games' "versão rápida" (ps2-builder/): compiles, one at a time, only the games someone asked for in the
+  # library ("Compilar versão rápida"), with ps2-web-recomp. Same 2 CPUs, same volume.
+  ps2-builder:
+    build:
+      context: .
+      dockerfile: ps2-builder/Dockerfile
+    restart: unless-stopped
+    cpus: "2"
+    environment:
+      # test runs of each game while building (more find more code, take longer) and frames per run
+      PS2_ROUNDS: ${PS2_ROUNDS:-4}
+      PS2_FRAMES: ${PS2_FRAMES:-3600}
+    volumes:
+      - bt3-data:/app/data
+
   # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly
   # (README "Online: o TURN"). Off unless COMPOSE_PROFILES=turn; then also set TURN_SECRET and
   # TURN_URL=turn:<this server's public name>:3478, and open 3478/udp, 3478/tcp and 49160-49200/udp in the firewall.

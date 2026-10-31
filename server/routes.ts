@@ -13,6 +13,8 @@
  *             pad, played                  the person's controller maps and last game (people.ts)
  *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
+ *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
+ *             ps2/<id>/fast/<file>         the "versão rápida" (ps2-builder/), its disc, and the code it met untranslated
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
  *             homebrew                     the homebrew shelf (homebrew.ts): Homebrew Hub's games
@@ -33,9 +35,9 @@ import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } fr
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { iceServers } from "./ice";
 import { authorizeUrl, type Discord } from "./discord";
-import { GAMES, type Game } from "./games";
+import { FAST_STEPS, GAMES, type Game } from "./games";
 import { BT3_SERIAL } from "./iso9660";
-import { ID, PS2_MAX, PS2_MIN, type Library, type Ps2Game } from "./library";
+import { ID, PS2_MAX, PS2_MIN, type Fast, type Library, type Ps2Game } from "./library";
 import type { Pass, Passes } from "./pass";
 import type { People } from "./people";
 import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
@@ -48,6 +50,13 @@ import { CARD_BYTES, type Saves } from "./saves";
 import { createDiscStore, MAX_PIECE, type DiscStore, type Status } from "./upload";
 
 export const PIECE = 1024 * 1024;
+
+/** The "versão rápida"'s files besides its page (ps2-builder's PUBLISHED), with their types. */
+const FAST_FILES: Record<string, string> = {
+  "ps2web.js": "text/javascript; charset=utf-8",
+  "ps2web.wasm": "application/wasm",
+  "ps2web.data": "application/octet-stream",
+};
 
 const TYPES: Record<string, string> = {
   html: "text/html; charset=utf-8",
@@ -166,6 +175,8 @@ export interface CatalogEntry {
   rooms: number;
   open: { code: string; host: string; since: number; busy: boolean }[];
   by?: string;
+  /** (PS2 games) its "versão rápida" */
+  fast?: Fast;
 }
 
 const PS2_DISC = "Um disco de PS2 que você tem. Roda no TabStationToo (PCSX2 no navegador), em teste.";
@@ -329,7 +340,8 @@ export function createApp({
       platform: "PlayStation 2",
       tags: ["Experimental"],
       disc: PS2_DISC,
-      steps: [],
+      // (its "versão rápida"'s builder: the emulator itself compiles nothing)
+      steps: FAST_STEPS,
       minIso: PS2_MIN,
       maxIso: PS2_MAX,
       cover: `cover/ps2/${g.id}?v=${g.cover ? `${g.coverAt ?? g.at}-c` : coverVersion(g.serial, g.name)}`,
@@ -337,6 +349,7 @@ export function createApp({
       rooms: open.length,
       open,
       by: g.by.name,
+      fast: await library!.fast(g.id),
     };
   }
 
@@ -420,6 +433,38 @@ export function createApp({
     }
     if (rest === "pipelines") return pipelines(req, join(p.root, "pipelines.bin"));
     return notFound();
+  }
+
+  /**
+   * ps2/<id>/fast/…: the game's "versão rápida" (ps2-builder/), isolated like the emulator's page (http.ts). Its page
+   * reads ../save like the emulator's, the same card; disc.iso is the game's disc; miss takes the code it met untranslated.
+   */
+  async function ps2Fast(req: Request, id: string, rest: string): Promise<Response> {
+    const p = library!.paths(id);
+    const build = join(p.fast, "build");
+    const isolated = (body: ConstructorParameters<typeof Response>[0], status: number, h: Record<string, string> = {}) =>
+      new Response(body, { status, headers: { ...ISOLATED, "Content-Type": "text/plain; charset=utf-8", ...h } });
+    if (rest === "" || rest === "index.html") {
+      const name = ((await library!.get(id))?.name ?? id).replace(/[&<>"]/g, "");
+      return page(req, join(build, "ps2web.html"), "../../../pad.js", ISOLATED, (html) => html.replace("<title>ps2-web-recomp</title>", `<title>${name} · HypePlay</title>`));
+    }
+    const type = FAST_FILES[rest];
+    if (type) {
+      // (the build keeps a gzip copy of each: a third of the 15 MB of the engine through the Discord proxy)
+      const gz = /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") ? Bun.file(join(build, `${rest}.gz`)) : null;
+      if (gz && (await gz.exists())) return isolated(gz, 200, { "Content-Type": type, "Content-Encoding": "gzip", "Cache-Control": "no-cache" });
+      const f = Bun.file(join(build, rest));
+      return (await f.exists()) ? isolated(f, 200, { "Content-Type": type, "Cache-Control": "no-cache" }) : isolated("Não encontrado", 404);
+    }
+    if (rest === "disc.iso") {
+      const f = Bun.file(p.iso);
+      return (await f.exists()) ? rangeResponse(req, f, { ...ISOLATED, "Content-Type": TYPES.bin! }) : isolated("Não encontrado", 404);
+    }
+    if (rest === "miss") {
+      if (req.method !== "POST") return isolated("Método não permitido", 405);
+      return (await library!.fastMiss(id, (await req.text()).slice(0, 16))) ? isolated(null, 204) : isolated("Pedido inválido", 400);
+    }
+    return isolated("Não encontrado", 404);
   }
 
   // One write at a time per list: two players saving at once would each merge into the list before the other's.
@@ -510,6 +555,8 @@ export function createApp({
     const disc = lib.disc(id);
     if (rest === "game") return respond(null, 301, { Location: "game/" });
     if (rest.startsWith("game/")) return ps2Game(req, id, rest.slice("game/".length));
+    if (rest === "fast") return respond(null, 301, { Location: "fast/" });
+    if (rest.startsWith("fast/")) return ps2Fast(req, id, rest.slice("fast/".length));
     if (rest === "ice" || rest === "room" || rest.startsWith("room/")) return ps2Room(req, pass, id, rest, server);
     // The online guest's page: only video and their pad, so neither isolated (it opens inside Discord) nor sandboxed.
     if (rest === "watch") return respond(null, 301, { Location: "watch/" });
@@ -535,6 +582,13 @@ export function createApp({
         if (req.method !== "POST") return text("Método não permitido", 405);
         await disc.retry();
         return respond(null, 204);
+      case "fast-build":
+        if (req.method === "POST") return (await lib.askFast(id)) ? respond(null, 204) : text("O jogo ainda não tem a ISO", 409);
+        if (req.method === "DELETE") {
+          await lib.removeFast(id);
+          return respond(null, 204);
+        }
+        return text("Método não permitido", 405);
       case "cover":
         return coverUpload(req, p.cover, (on) => lib.setCover(id, on));
       case "save": {

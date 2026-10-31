@@ -300,6 +300,75 @@ test("a PS2 game whose disc is in plays once the server has the BIOS, which is s
   expect((await req("/p/forged.mac/bios.bin")).status).toBe(403);
 });
 
+test("the versão rápida: asked, its state in games, its page isolated with gzip files, the disc, missing code, removed", async () => {
+  const id = await built("SCUS-97399", "SCUS_973.99");
+  const fast = (await catalog()).games.find((g) => g.key === `ps2/${id}`) as Entry & { fast: { state: string } };
+  expect(fast.fast).toEqual({ state: "off" });
+  // nobody asked: no page, and a missing pc isn't taken
+  expect((await ana(`ps2/${id}/fast/`)).status).toBe(404);
+  expect((await ana(`ps2/${id}/fast/miss`, { method: "POST", body: "0027959C" })).status).toBe(400);
+
+  expect((await ana(`ps2/${id}/fast-build`, { method: "POST" })).status).toBe(204);
+  const dir = library.paths(id).fast;
+  expect(await exists(join(dir, "request"))).toBe(true);
+  // (the builder hasn't answered: offline; then building, then its build)
+  const state = async () => ((await catalog()).games.find((g) => g.key === `ps2/${id}`) as Entry & { fast: Record<string, unknown> }).fast;
+  expect(await state()).toEqual({ state: "offline" });
+  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "building", step: 4, total: 6, label: "Explorando o jogo", startedAt: Date.now() - 5000 }));
+  expect(await state()).toMatchObject({ state: "building", step: 4, total: 6, label: "Explorando o jogo", learning: false, playable: false });
+  await mkdir(join(dir, "build"), { recursive: true });
+  await writeFile(join(dir, "build", "ps2web.html"), "<!doctypehtml><html><head><title>ps2-web-recomp</title></head><body>fast</body></html>");
+  await writeFile(join(dir, "build", "ps2web.wasm"), "wasm");
+  await writeFile(join(dir, "build", "ps2web.wasm.gz"), "wasm.gz");
+  await writeFile(join(dir, "build", "ps2web.js"), "js");
+  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "ready" }));
+  expect(await state()).toEqual({ state: "ready" });
+
+  expect((await ana(`ps2/${id}/fast`)).headers.get("location")).toBe("fast/");
+  const page = await ana(`ps2/${id}/fast/`);
+  for (const [k, v] of Object.entries(ISOLATION)) expect(page.headers.get(k)).toBe(v);
+  const html = await page.text();
+  expect(html).toContain("<title>SCUS-97399 · HypePlay</title>");
+  expect(html).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
+  const gz = await ana(`ps2/${id}/fast/ps2web.wasm`, { headers: { "accept-encoding": "gzip, br" } });
+  expect(gz.headers.get("content-encoding")).toBe("gzip");
+  expect(gz.headers.get("content-type")).toBe("application/wasm");
+  expect(gz.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+  const plain = await ana(`ps2/${id}/fast/ps2web.wasm`, { headers: { "accept-encoding": "identity" } });
+  expect(plain.headers.get("content-encoding")).toBeNull();
+  expect(await plain.text()).toBe("wasm");
+  expect((await ana(`ps2/${id}/fast/ps2web.js`)).headers.get("content-type")).toStartWith("text/javascript");
+  for (const f of ["status.json", "request", "../game.json", "build/ps2web.js", "ps2web.data", "misses.txt"]) expect((await ana(`ps2/${id}/fast/${f}`)).status).toBe(404);
+  const part = await ana(`ps2/${id}/fast/disc.iso`, { headers: { range: "bytes=32768-32772" } });
+  expect(part.status).toBe(206);
+  expect(new TextDecoder().decode(await part.arrayBuffer())).toBe("\x01CD00");
+
+  // code the page met untranslated: kept once, for the builder
+  for (const pc of ["0027959C", "0027959c", "0012A4C0"]) expect((await ana(`ps2/${id}/fast/miss`, { method: "POST", body: pc })).status).toBe(204);
+  expect((await ana(`ps2/${id}/fast/miss`, { method: "POST", body: "../../x" })).status).toBe(400);
+  expect(await Bun.file(join(dir, "misses.txt")).text()).toBe("0027959C\n0012A4C0\n");
+
+  // a failure, then "Tentar de novo"
+  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "failed", message: "boom", reason: "[sys] unhandled syscall 0x77" }));
+  expect(await state()).toEqual({ state: "failed", message: "boom", reason: "[sys] unhandled syscall 0x77", playable: true });
+  expect((await ana(`ps2/${id}/fast-build`, { method: "POST" })).status).toBe(204);
+  expect(await exists(join(dir, "retry"))).toBe(true);
+
+  await mkdir(join(root, "ps2-work", id), { recursive: true });
+  expect((await ana(`ps2/${id}/fast-build`, { method: "DELETE" })).status).toBe(204);
+  expect(await exists(dir)).toBe(false);
+  expect(await exists(join(root, "ps2-work", id))).toBe(false);
+  expect(await state()).toEqual({ state: "off" });
+  // the game itself stays, in the emulator
+  expect((await ana(`ps2/${id}/game/`)).status).toBe(200);
+});
+
+test("the versão rápida needs the game's disc", async () => {
+  await ana("ps2", json({ serial: "SLES-13579", name: "Sem disco" }));
+  expect((await ana("ps2/sles-13579/fast-build", { method: "POST" })).status).toBe(409);
+  expect(await exists(library.paths("sles-13579").fast)).toBe(false);
+});
+
 test("the disc of a PS2 game answers Range and HEAD", async () => {
   const id = await built("SLES-77777", "SLES_777.77");
   const size = (await stat(library.paths(id).iso)).size;

@@ -1,5 +1,5 @@
 // A game's drawer: its cover and name (editable for the PS2 library), what's happening to it (the disc's upload, BT3's
-// build, a missing BIOS, a failure), its open rooms, and what can be done with it.
+// build, a missing BIOS, a failure), a PS2 game's "versão rápida", its open rooms, and what can be done with it.
 import { clock, esc, icon, needsDisc, pct, progress, seal, stateBadge } from './library.js';
 
 function steps(g, s) {
@@ -57,6 +57,40 @@ function situation(g, ctx) {
   }
 }
 
+/** A PS2 game's "versão rápida" (ps2-builder/): compiled on request with ps2-web-recomp, much faster where it works. */
+function fast(g) {
+  const f = g.fast;
+  if (!f || g.status.state !== 'ready') return '';
+  const key = esc(g.key);
+  const play = `<button class="btn wide second" data-play="${key}" data-fast>${icon('rocket')}Jogar a versão rápida</button>`;
+  let body;
+  switch (f.state) {
+    case 'off':
+      body = `<p>O servidor compila este jogo para o navegador: leva uns 20 a 40 minutos, uma vez para todo mundo. Em jogos pesados fica muito mais rápido que o emulador. Nem todo jogo funciona assim; se não der, o emulador continua aqui.</p>
+        <button class="btn second" data-fast-build="${key}">${icon('rocket')}Compilar a versão rápida</button>`;
+      break;
+    case 'queued':
+      body = '<div class="busy"><div class="spin"></div><p>Na fila do compilador (um jogo por vez)…</p></div>';
+      break;
+    case 'building':
+      body = `${f.playable ? play : ''}<p><strong>${f.learning ? 'Aprendendo um trecho novo do jogo' : 'Compilando a versão rápida'}</strong> (passo ${f.step} de ${f.total})</p>
+        <div class="bar moving"><div style="width:${pct(f.step - 1, f.total)}%"></div></div>${steps(g, f)}
+        <p class="num">${f.learning ? 'A versão de antes continua jogável. ' : 'Uma vez só. '}Já passou ${clock(f.elapsed)}.</p>`;
+      break;
+    case 'ready':
+      body = `${play}<p>O save é o mesmo do emulador. Se o jogo chegar num trecho que a versão rápida ainda não tem, o servidor aprende esse trecho e recompila sozinho.</p>`;
+      break;
+    case 'failed':
+      body = `${f.playable ? play : ''}<p class="error">${f.reason ? 'O jogo usa algo que o compilador ainda não sabe fazer.' : 'A versão rápida não compilou.'}</p>
+        <pre>${esc(f.reason || f.message || 'Erro desconhecido')}</pre><button class="btn" data-fast-build="${key}">Tentar de novo</button>`;
+      break;
+    default:
+      body = '<p class="error">O compilador da versão rápida não está rodando no servidor.</p><p>Quem cuida do servidor precisa subir o serviço ps2-builder.</p>';
+  }
+  const remove = f.state === 'off' ? '' : `<div class="row-actions"><button class="btn quiet small" data-fast-remove="${key}">Apagar a versão rápida</button></div>`;
+  return `<div class="block"><h3>Versão rápida</h3>${body}${remove}</div>`;
+}
+
 export function drawer(g, ctx) {
   const recomp = g.kind === 'recomp';
   const name = recomp
@@ -97,5 +131,5 @@ export function drawer(g, ctx) {
     ? `<p class="note">${icon('warn')} Em teste: roda no TabStationToo, o PCSX2 no navegador. A maioria dos jogos roda; alguns podem travar, ficar lentos ou com gráficos errados.</p>`
     : '';
   const art = `<div class="art" aria-hidden="true" style="background-image:url('${esc(g.cover)}')"></div>`;
-  return `${art}${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${online}${manage}${warning}`;
+  return `${art}${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${fast(g)}${online}${manage}${warning}`;
 }

@@ -125,14 +125,16 @@ export async function send(key, file) {
  * Where a game opens: a PS2 game's player 2 watches the host's stream (watch/); `join` is a friend's room, `online`
  * opens one (for BT3's port, both point the way to its own Dragon Net Battle); else the game itself.
  */
-export function gameUrl(g, join, online) {
+export function gameUrl(g, join, online, fast) {
+  // (the "versão rápida" plays alone: the rooms are the emulator's)
+  if (fast) return `${g.key}/fast/`;
   if (join && g.kind === 'recomp') return `${g.key}/watch/?room=${encodeURIComponent(join)}`;
   return `${g.key}/game/${join ? `?join=${encodeURIComponent(join)}` : online ? '?online=host' : ''}`;
 }
 
 /** Opens a game: the intro (intro.js, when it's there) first. Replaced by intro.js's own when loaded. */
 export const hooks = {
-  play: (g, join, online) => { location.href = gameUrl(g, join, online); },
+  play: (g, join, online, fast) => { location.href = gameUrl(g, join, online, fast); },
   add: () => {},
   controller: () => {},
   settings: () => {},
@@ -184,7 +186,7 @@ $('file').addEventListener('change', async (e) => {
 });
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
+  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
   if (!el) {
     if (e.target === $('scrim')) closeDrawer();
     return;
@@ -199,12 +201,15 @@ document.addEventListener('click', async (e) => {
     return document.getElementById(d.nav)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
   if (d.open) return openDrawer(d.open);
-  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d); return; }
+  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d, 'fast' in d); return; }
   if (d.pick) return pickFile(d.pick, 'disc');
   if (d.cover) return pickFile(d.cover, 'cover');
   if ('bios' in d) return pickFile(state.open, 'bios');
   el.disabled = true;
   if (d.retry) await api(`${d.retry}/retry`, { method: 'POST' });
+  if (d.fastBuild) await api(`${d.fastBuild}/fast-build`, { method: 'POST' });
+  if (d.fastRemove && confirm('Apagar a versão rápida deste jogo para todo mundo? O jogo continua no emulador, e os saves ficam.'))
+    await api(`${d.fastRemove}/fast-build`, { method: 'DELETE' });
   if (d.coverRemove) await api(`${d.coverRemove}/cover`, { method: 'DELETE' });
   if (d.remove) {
     const g = gameOf(d.remove);

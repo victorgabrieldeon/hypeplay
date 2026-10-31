@@ -215,6 +215,8 @@ export function createApp({
       console.error(err);
       return new Response(`O emulador mudou e a página dele precisa de revisão (server/ps2page.ts).`, { status: 500, headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
     }
+    // (the app's public address: overlay.js' "Abrir no navegador" shows the link itself, Discord may never answer)
+    if (publicUrl) html = html.replace(/<\/head>/i, `<meta name="hypeplay-public" content="${publicUrl.replace(/[&"<>]/g, "")}">$&`);
     // (each goes in just before </head>: pad.js first, then overlay.js)
     const withPad = injectPad(html, pad);
     const both = withPad && injectPad(withPad, pad.replace(/pad\.js$/, "overlay.js"));

@@ -60,9 +60,12 @@ function close() {
   layer.innerHTML = '';
 }
 
+const OPENING = 'Abrindo no navegador… Se não abrir, clique no link ou copie e cole no navegador:';
+
 /**
- * The link to the game in the browser, to click or copy and paste there: shown as soon as the entry page has it
- * (Discord may leave the opening unanswered), and again with why when it didn't open (no PUBLIC_URL: no link).
+ * The link to the game in the browser, to click or copy and paste there: shown on the click, from the server's public
+ * address (Discord may leave the entry page's request unanswered), and again with why when the entry page says it
+ * didn't open (no PUBLIC_URL: no link).
  */
 function linkBox(text, url, error) {
   if (!layer.querySelector('.where')) where({ name: 'Abrir no navegador', here: null, path: '', only: 'Esta página só abre no navegador.' });
@@ -99,6 +102,9 @@ layer.addEventListener('click', (e) => {
   if (a === 'here' && choice.here) { const go = choice.here; close(); return go(); }
   if (a === 'browser' && choice.path) {
     parent.postMessage({ t: 'cordplay:open', path: choice.path }, '*');
+    // (the link straight away, from the library itself: Discord may never answer the entry page's request)
+    const base = /^https?:\/\//.test(state.publicUrl ?? '') ? state.publicUrl.replace(/\/+$/, '') : '';
+    if (base) return linkBox(OPENING, base + choice.path);
     const box = layer.querySelector('.where-status');
     box.hidden = false;
     box.innerHTML = '<p class="note">Abrindo no navegador… Se o Discord perguntar, confirme.</p>';
@@ -111,7 +117,7 @@ window.addEventListener('message', (e) => {
   const m = e.data;
   if (e.source !== parent) return;
   const url = typeof m?.url === 'string' && /^https?:\/\//.test(m.url) ? m.url : '';
-  if (m?.t === 'cordplay:opening' && url) linkBox('Abrindo no navegador… Se não abrir, clique no link ou copie e cole no navegador:', url);
+  if (m?.t === 'cordplay:opening' && url && !layer.querySelector('.where-status .copy')) linkBox(OPENING, url);
   if (m?.t === 'cordplay:cant-open') linkBox(`Não abriu sozinho. ${typeof m.why === 'string' ? m.why : ''}${url ? ' Copie o link e cole no navegador:' : ''}`, url, true);
 });
 

@@ -126,11 +126,14 @@ export async function send(key, file) {
  * opens one (for BT3's port, both point the way to its own Dragon Net Battle); else the game itself.
  */
 export function gameUrl(g, join, online, fast) {
-  // (the "versão rápida" plays alone: the rooms are the emulator's)
-  if (fast) return `${g.key}/fast/`;
   if (join && g.kind === 'recomp') return `${g.key}/watch/?room=${encodeURIComponent(join)}`;
+  // (a PS2 game's "versão rápida": the same rooms as the emulator's, opened from its panel)
+  if (fast) return `${g.key}/fast/${online ? '?online=host' : ''}`;
   return `${g.key}/game/${join ? `?join=${encodeURIComponent(join)}` : online ? '?online=host' : ''}`;
 }
+
+/** A PS2 game's "versão rápida" plays (or the one before, while a new one builds): the library's buttons open it. */
+export const fastPlays = (g) => !!g.fast && (g.fast.state === 'ready' || !!g.fast.playable);
 
 /** Opens a game: the intro (intro.js, when it's there) first. Replaced by intro.js's own when loaded. */
 export const hooks = {
@@ -201,7 +204,8 @@ document.addEventListener('click', async (e) => {
     return document.getElementById(d.nav)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
   if (d.open) return openDrawer(d.open);
-  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d, 'fast' in d); return; }
+  // (player 2 watches the host's page, whichever it is; data-emulator: the drawer's "Jogar no emulador")
+  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d, !d.join && !('emulator' in d) && fastPlays(g)); return; }
   if (d.pick) return pickFile(d.pick, 'disc');
   if (d.cover) return pickFile(d.cover, 'cover');
   if ('bios' in d) return pickFile(state.open, 'bios');

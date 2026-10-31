@@ -389,7 +389,10 @@ export function createApp({
     }
     if (ENGINE_FILES.has(rest)) {
       const f = Bun.file(join(ps2Engine, rest));
-      return (await f.exists()) ? isolated(f, 200, typeOf(rest)) : notFound();
+      if (!(await f.exists())) return notFound();
+      // (the disc reader, with our block cache at its end: page/disccache-worker.ts)
+      const cache = rest === "disc-worker.js" ? scripts["disccache.js"] : undefined;
+      return isolated(cache ? `${await f.text()}\n${cache}` : f, 200, typeOf(rest));
     }
     if (rest === "disc.iso") {
       const f = Bun.file(p.iso);

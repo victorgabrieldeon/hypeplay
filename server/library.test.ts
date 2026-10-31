@@ -48,6 +48,23 @@ test("BT3's serial points at BT3", async () => {
   expect(await library.list()).toEqual([]);
 });
 
+test("another copy, when asked: BT3's disc beside its port, and the same game again (a mod keeps its serial)", async () => {
+  const { dir, library } = await setup();
+  const bt3 = await library.reserve(ana, "SLUS-21678", "BT3 (PS2)", { copy: true });
+  expect(bt3.ok && bt3.game.id).toBe("slus-21678");
+  const mod = await library.reserve(bia, "SLUS-21678", "BT4 mod", { copy: true });
+  expect(mod.ok && mod.game).toMatchObject({ id: "slus-21678-2", serial: "SLUS-21678", name: "BT4 mod" });
+  // without asking, the game that's there
+  expect(await library.reserve(ana, "SLUS-21678", "x")).toEqual({ ok: false, exists: "bt3" });
+  expect((await library.reserve(ana, "SLES-12345", "A")).ok).toBe(true);
+  expect(await library.reserve(ana, "SLES-12345", "B")).toEqual({ ok: false, exists: "ps2/sles-12345" });
+  const two = await Promise.all([library.reserve(ana, "SLES-12345", "C", { copy: true }), library.reserve(bia, "SLES-12345", "D", { copy: true })]);
+  expect(two.map((r) => r.ok && r.game.id).sort()).toEqual(["sles-12345-2", "sles-12345-3"]);
+  expect((await readdir(join(dir, "ps2"))).sort()).toEqual(["sles-12345", "sles-12345-2", "sles-12345-3", "slus-21678", "slus-21678-2"]);
+  // a copy is a game like any: its disc is checked against the serial
+  expect((await library.get("slus-21678-2"))?.serial).toBe("SLUS-21678");
+});
+
 test("verify keeps a matching disc and drops a wrong or foreign one", async () => {
   const { library } = await setup();
   await library.reserve(ana, "SLES-12345", "A");

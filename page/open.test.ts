@@ -40,3 +40,10 @@ test("the library opened straight into a game (where to play: the browser), with
   for (const path of ["/p/abc/?play=evil", "/p/abc/?play=ps2%2F..%2Fx", "/p/abc/?play=bt3&join=<x>", "/p/abc/?play=bt3&next=//evil.com"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
+
+test("another copy of a game (its id: the serial, -2, -3…) opens like the first", () => {
+  for (const path of ["/p/abc/?play=ps2%2Fslus-21678-2", "/p/abc/?play=ps2%2Fslus-21678-12&join=XC7WWC", "/p/abc/ps2/slus-21678-2/game/", "/p/abc/ps2/slus-21678-2/watch/?room=XC7WWC"])
+    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
+  for (const path of ["/p/abc/?play=ps2%2Fslus-21678-123", "/p/abc/ps2/slus-21678-/game/", "/p/abc/ps2/slus-21678-x/game/"])
+    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
+});

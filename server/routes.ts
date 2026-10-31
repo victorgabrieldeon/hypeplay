@@ -663,9 +663,11 @@ export function createApp({
     }
     if (library && path === "/ps2") {
       if (req.method !== "POST") return text("Método não permitido", 405);
-      const b = await body<{ serial?: unknown; name?: unknown }>(req);
+      const b = await body<{ serial?: unknown; name?: unknown; copy?: unknown }>(req);
       if (typeof b?.serial !== "string" || !/^[A-Z]{4}-\d{5}$/.test(b.serial)) return json({ error: "Pedido inválido" }, 400);
-      const r = await library.reserve(pass, b.serial, typeof b.name === "string" ? b.name : "");
+      if (b.copy !== undefined && typeof b.copy !== "boolean") return json({ error: "Pedido inválido" }, 400);
+      // (copy: another copy of a game the library has, asked for in the home's "Enviar outra cópia")
+      const r = await library.reserve(pass, b.serial, typeof b.name === "string" ? b.name : "", { copy: b.copy === true });
       return r.ok ? json({ key: `ps2/${r.game.id}`, id: r.game.id }, 201) : json({ exists: r.exists }, 409);
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);

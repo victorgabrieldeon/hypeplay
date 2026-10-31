@@ -10,7 +10,7 @@ const layer = document.getElementById('layer');
 const BT3_SERIAL = 'SLUS-21678';
 const NAMES = { warn: 'Aviso', bios: 'BIOS', iso: 'ISO', name: 'Nome e capa' };
 
-let w = null; // { step, steps, ok, file, serial, name, cover, coverUrl, error, busy, exists }
+let w = null; // { step, steps, ok, file, serial, name, cover, coverUrl, error, busy, exists, copy }
 let returnFocus = null;
 
 function close() {
@@ -62,8 +62,10 @@ function body() {
           jogar no emulador de PS2, com save no servidor e sala da HypePlay.</p></div>
         <div class="row-actions"><button class="btn" data-w="upload-anyway">${icon('upload')}Enviar para o servidor</button>
           <button class="btn second" data-w="play">${icon('play')}Jogar a versão Testado</button></div>`
-        : existing ? `<p><strong>${esc(existing.name)}</strong> já está na biblioteca. Não precisa enviar de novo.</p>
-        <button class="btn" data-w="play">${icon('play')}Jogar</button>` : ''}
+        : existing ? `<p><strong>${esc(existing.name)}</strong> já está na biblioteca. Se esta ISO for outra versão (um mod, outra
+          tradução), envie como outra cópia: ela fica ao lado, com o nome que você der.</p>
+        <div class="row-actions"><button class="btn" data-w="play">${icon('play')}Jogar</button>
+          <button class="btn second" data-w="upload-anyway">${icon('upload')}Enviar outra cópia</button></div>` : ''}
       <footer><button class="btn quiet" data-w="back">Voltar</button></footer>`;
   }
   return `${steps()}
@@ -103,7 +105,7 @@ async function chooseBios(file) {
 }
 
 async function chooseDisc(file) {
-  Object.assign(w, { error: '', exists: null, busy: true });
+  Object.assign(w, { error: '', exists: null, busy: true, copy: false });
   render();
   const id = await globalThis.CordISO.fromFile(file).catch(() => null);
   w.busy = false;
@@ -121,10 +123,12 @@ async function chooseDisc(file) {
   render();
 }
 
-/** BT3 already has its tested port: send the disc to the PS2 library all the same. */
+/** The game's already there (BT3's tested port, or the library's copy): send this disc as another copy all the same. */
 function anyway() {
   const { file, serial } = w.found;
-  Object.assign(w, { file, serial, name: w.name || `${gameOf('bt3')?.name ?? serial} (PS2)`, step: 'name', exists: null, error: '' });
+  const there = gameOf(w.exists);
+  const name = there?.kind === 'port' ? `${there.name} (PS2)` : `${there?.name ?? serial} (cópia)`;
+  Object.assign(w, { file, serial, copy: true, name: w.name || name, step: 'name', exists: null, error: '' });
   render();
 }
 
@@ -140,7 +144,7 @@ async function submit() {
   w.name = document.getElementById('w-name').value.trim() || w.serial;
   Object.assign(w, { busy: true, error: '' });
   render();
-  const r = await fetch('ps2', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ serial: w.serial, name: w.name }) });
+  const r = await fetch('ps2', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ serial: w.serial, name: w.name, copy: !!w.copy }) });
   const res = await r.json().catch(() => ({}));
   if (r.status === 409) {
     await poll();

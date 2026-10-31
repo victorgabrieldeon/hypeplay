@@ -247,7 +247,8 @@ async function start() {
     if (document.title !== ours) document.title = ours;
   }).observe(document.head, { childList: true, subtree: true, characterData: true });
   // What anyone has seen this game draw, made ahead of time (pipesync.ts): the library's id is the serial, in lower case
-  const serial = /\/ps2\/([a-z]{4}-\d{5})\/game\//.exec(location.pathname)?.[1]?.toUpperCase();
+  // (another copy of the game: -2, -3… after it)
+  const serial = /\/ps2\/([a-z]{4}-\d{5})(?:-\d{1,2})?\/game\//.exec(location.pathname)?.[1]?.toUpperCase();
   if (serial) await syncPipelines(serial).catch((err) => console.warn("HypePlay: the pipeline list", err));
   loadApp();
 }

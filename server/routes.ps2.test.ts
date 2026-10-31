@@ -90,7 +90,12 @@ test("reserve, upload in pieces and the disc is checked when complete", async ()
   expect(await r.json()).toEqual({ key: "ps2/sles-22222", id: "sles-22222" });
   expect((await ana("ps2", json({ serial: "SLES-22222", name: "de novo" }))).status).toBe(409);
   expect(await (await ana("ps2", json({ serial: "SLUS-21678", name: "bt3" }))).json()).toEqual({ exists: "bt3" });
-  for (const bad of [{ serial: "slus-1" }, { serial: 5 }, {}]) expect((await ana("ps2", json(bad))).status).toBe(400);
+  // another copy, when asked: the same game again gets its own id, and plays like any other
+  const again = await ana("ps2", json({ serial: "SLES-22222", name: "Dois (mod)", copy: true }));
+  expect(again.status).toBe(201);
+  expect(await again.json()).toEqual({ key: "ps2/sles-22222-2", id: "sles-22222-2" });
+  expect((await ana("ps2/sles-22222-2/game/")).status).toBe(200);
+  for (const bad of [{ serial: "slus-1" }, { serial: 5 }, {}, { serial: "SLES-22222", copy: "sim" }]) expect((await ana("ps2", json(bad))).status).toBe(400);
 
   const disc = makeIso({ "SYSTEM.CNF": cnf("SLES_222.22") }, { pad: 64 * 1024 });
   expect(await (await ana("ps2/sles-22222/upload")).json()).toEqual({ received: 0, size: null, done: false });

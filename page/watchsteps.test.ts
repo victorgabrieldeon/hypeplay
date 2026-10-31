@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { stuckAt, whereAmI } from "./watchsteps";
+import { stuckAt, turnState, whereAmI } from "./watchsteps";
 
 test("player 2 is told where joining stopped, and what that usually means", () => {
   const start = stuckAt("start", "RTCPeerConnection is not defined");
@@ -33,6 +33,25 @@ test("networks that don't meet: the TURN, and the browser only offered to who is
   expect(inBrowser.text).not.toContain("No navegador");
   expect(inBrowser.browser).toBe(false);
   expect(stuckAt("linking", undefined, "discord").browser).toBe(true);
+});
+
+test("with a TURN on the server: whether it answered this browser says what to look at", () => {
+  const silent = stuckAt("linking", undefined, "browser", "silent");
+  expect(silent.title).toBe("O TURN do servidor não respondeu");
+  expect(silent.text).toContain("3478");
+  expect(silent.text).toContain("49160");
+  const answered = stuckAt("linking", undefined, "browser", "answered");
+  expect(answered.title).toBe("Sem conexão com o host");
+  expect(answered.text).toContain("Nem pelo TURN");
+  // (without one, as before)
+  expect(stuckAt("linking", undefined, "browser", "none").text).toContain("precisa ligar um TURN");
+});
+
+test("whether this browser got a way through the TURN: the server offered one, and a relay candidate came", () => {
+  const turn = [{ urls: ["stun:stun.cloudflare.com:3478"] }, { urls: ["turn:t.example:3478?transport=udp"], username: "u", credential: "c" }];
+  expect(turnState([{ urls: "stun:x" }], "a=candidate:1 1 udp 1 1.2.3.4 5 typ srflx")).toBe("none");
+  expect(turnState(turn, "a=candidate:1 1 udp 1 1.2.3.4 5 typ srflx")).toBe("silent");
+  expect(turnState(turn, "a=candidate:1 1 udp 1 1.2.3.4 5 typ relay raddr 0.0.0.0")).toBe("answered");
 });
 
 test("which window player 2 is in: Discord's, Discord's address in a browser tab, or the server's own", () => {

@@ -351,6 +351,22 @@ test("rooms: create, post, wait, listed in games; ice with and without TURN", as
   expect(ice[1]!.username).toEndWith(":42");
 });
 
+test("the relay: only the room's host and a guest that joined; the rest is refused before the upgrade", async () => {
+  const id = await built("SLES-15151", "SLES_151.51");
+  const { room } = (await (await ana(`ps2/${id}/room`, { method: "POST" })).json()) as { room: string };
+  await bia(`ps2/${id}/room/${room}/host`, json({ type: "join", from: "bia1" }));
+  const relay = (who: typeof ana, q: string, code = room) => who(`ps2/${id}/room/${code}/relay?${q}`);
+  // (allowed: 426, as there's no server to upgrade with in a test)
+  expect((await relay(ana, "role=host")).status).toBe(426);
+  expect((await relay(bia, "role=host")).status).toBe(403);
+  expect((await relay(bia, "role=guest&me=bia1")).status).toBe(426);
+  expect((await relay(bia, "role=guest&me=outro")).status).toBe(403);
+  expect((await relay(bia, "role=xx")).status).toBe(400);
+  expect((await relay(ana, "role=host", "ZZZZZZ")).status).toBe(404);
+  // (and "relay" isn't an inbox: nothing waits there)
+  expect((await bia(`ps2/${id}/room/${room}/relay`, json({ type: "x" }))).status).toBe(400);
+});
+
 test("the guest's page: ours, framed by Discord, not isolated and not sandboxed, with pad.js", async () => {
   const id = await built("SLES-14141", "SLES_141.41");
   const page = await ana(`ps2/${id}/watch/`);

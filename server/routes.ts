@@ -43,6 +43,7 @@ import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
 import { createHomebrew, type HomebrewShelf } from "./homebrew";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
+import { Relay } from "./relay";
 import { CARD_BYTES, type Saves } from "./saves";
 import { createDiscStore, MAX_PIECE, type DiscStore, type Status } from "./upload";
 
@@ -100,7 +101,11 @@ const INTRO_MAX = 64 * 1024 ** 2;
 /** An MP4 (ISO media) starts with its "ftyp" box: 4 bytes of size, then "ftyp". */
 const isMp4 = (b: Uint8Array) => b.length > 12 && String.fromCharCode(...b.subarray(4, 8)) === "ftyp";
 
-export type NetData = { game: string } & ({ kind: "room"; params: RoomParams } | { kind: "queue"; params: QueueParams });
+export type NetData = { game: string } & (
+  | { kind: "room"; params: RoomParams }
+  | { kind: "queue"; params: QueueParams }
+  | { kind: "relay"; room: string; role: "host" | "guest"; me: string }
+);
 
 const typeOf = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? TYPES.bin!;
 /** The last segment with a slash after it, relative: page addresses need the trailing slash. */
@@ -448,7 +453,7 @@ export function createApp({
   }
 
   /** ps2/<id>/room…, ice: the online's setting up, for the host's game page and the guest's page (rooms.ts' cousin). */
-  async function ps2Room(req: Request, pass: Pass, id: string, rest: string): Promise<Response> {
+  async function ps2Room(req: Request, pass: Pass, id: string, rest: string, server?: Server<NetData>): Promise<Response | undefined> {
     if (rest === "ice") return json(iceServers({ turnUrl: turn?.url, turnSecret: turn?.secret, user: pass.id, now: now() }));
     if (!ps2Rooms) return text("Não encontrado", 404);
     if (rest === "room") {
@@ -459,6 +464,21 @@ export function createApp({
     if (closing) {
       if (req.method !== "DELETE") return text("Método não permitido", 405);
       return ps2Rooms.close(closing[1]!, pass.id) ? respond(null, 204) : text("Não encontrado", 404);
+    }
+    // The relay (relay.ts), when WebRTC can't link them: before the inboxes, as "relay" is a good inbox name too
+    const relayed = /^room\/([A-Z2-9]{6})\/relay$/.exec(rest);
+    if (relayed) {
+      const code = relayed[1]!;
+      const q = new URL(req.url).searchParams;
+      const role = q.get("role");
+      const me = q.get("me") ?? "";
+      if ((role !== "host" && role !== "guest") || (role === "guest" && !INBOX.test(me))) return text("Pedido inválido", 400);
+      const host = ps2Rooms.hostOf(code);
+      if (host === null) return text("Não encontrado", 404);
+      if (role === "host" ? host !== pass.id : !ps2Rooms.hasGuest(code, me)) return text("Esta sala não é sua", 403);
+      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
+      const data: NetData = { game: id, kind: "relay", room: code, role, me: role === "host" ? "host" : me };
+      return server.upgrade(req, { data }) ? undefined : text("Não deu para abrir a conexão", 400);
     }
     const m = /^room\/([A-Z2-9]{6})\/([^/]+)$/.exec(rest);
     if (!m || !INBOX.test(m[2]!)) return text("Não encontrado", 404);
@@ -483,14 +503,14 @@ export function createApp({
   }
 
   /** Everything under ps2/<id>/ but the game itself. */
-  async function ps2(req: Request, pass: Pass, id: string, rest: string): Promise<Response | undefined> {
+  async function ps2(req: Request, pass: Pass, id: string, rest: string, server?: Server<NetData>): Promise<Response | undefined> {
     const lib = library!;
     if (!(await lib.get(id))) return text("Não encontrado", 404);
     const p = lib.paths(id);
     const disc = lib.disc(id);
     if (rest === "game") return respond(null, 301, { Location: "game/" });
     if (rest.startsWith("game/")) return ps2Game(req, id, rest.slice("game/".length));
-    if (rest === "ice" || rest === "room" || rest.startsWith("room/")) return ps2Room(req, pass, id, rest);
+    if (rest === "ice" || rest === "room" || rest.startsWith("room/")) return ps2Room(req, pass, id, rest, server);
     // The online guest's page: only video and their pad, so neither isolated (it opens inside Discord) nor sandboxed.
     if (rest === "watch") return respond(null, 301, { Location: "watch/" });
     if (rest === "watch/") return page(req, join(pageDir, "watch.html"), "../../../pad.js", ENTRY_HEADERS);
@@ -671,7 +691,7 @@ export function createApp({
       return r.ok ? json({ key: `ps2/${r.game.id}`, id: r.game.id }, 201) : json({ exists: r.exists }, 409);
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
-    if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "") : text("Não encontrado", 404);
+    if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "", server) : text("Não encontrado", 404);
     if (path === "/homebrew") return json({ games: homebrew.list() });
     const hb = /^\/homebrew\/([\w.-]+)\/(rom|cover)$/.exec(path);
     if (hb) return homebrewFile(hb[1]!, hb[2] as "rom" | "cover");
@@ -707,16 +727,22 @@ export function createApp({
   }
 
   const roomsOf = (ws: { data: NetData }) => shelf.get(ws.data.game)!.rooms;
+  // the PS2 games' online relay: one for the whole app, rooms by code
+  const relay = new Relay();
   const websocket: WebSocketHandler<NetData> = {
     open(ws) {
-      if (ws.data.kind === "room") roomsOf(ws).openRoom(ws, ws.data.params);
-      else roomsOf(ws).openQueue(ws, ws.data.params);
+      const d = ws.data;
+      if (d.kind === "relay") relay.open(ws, d.room, d.role, d.me);
+      else if (d.kind === "room") roomsOf(ws).openRoom(ws, d.params);
+      else roomsOf(ws).openQueue(ws, d.params);
     },
     message(ws, msg) {
-      roomsOf(ws).message(ws, msg);
+      if (ws.data.kind === "relay") relay.message(ws, typeof msg === "string" ? msg : new Uint8Array(msg));
+      else roomsOf(ws).message(ws, msg);
     },
     close(ws, code) {
-      roomsOf(ws).close(ws, code);
+      if (ws.data.kind === "relay") relay.close(ws);
+      else roomsOf(ws).close(ws, code);
     },
   };
 

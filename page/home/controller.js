@@ -162,12 +162,23 @@ function moved(p) {
   return null;
 }
 
+/**
+ * The browser (Chrome/Firefox on Linux) reads an axis as 0 until it first moves; a trigger then rests at -1. Taking
+ * that as its rest keeps it from counting as pressed forever (the wait for the release never ending after L2/R2) and
+ * the first touch of a trigger from mapping it the wrong way round.
+ */
+function settle(p) {
+  p.axes.forEach((v, i) => { if (Math.abs(s.rest[i] ?? 0) < 0.05 && v < -0.95) s.rest[i] = v; });
+}
+
 function tick() {
   if (!s) return;
   const p = pads()?.find((x) => x.id === s.pad || x.index === s.index);
   if (s.view === 'list') {
     if (layer.querySelector('.spin') && pads()?.length) list();
   } else if (s.view === 'map' && p) {
+    // (only on the button steps: the stick steps find their own middles)
+    if (s.step < 16) settle(p);
     const m = moved(p);
     const st = s.step >= 16 ? s.sticks[STICKS[s.step - 16].stick] : null;
     // (let go first: buttons up, and the stick back in its own middle once it's known)

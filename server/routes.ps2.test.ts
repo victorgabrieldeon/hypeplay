@@ -199,6 +199,16 @@ test("pad maps and the last game played round-trip", async () => {
   expect((await ana("pad", json({ "Pad X": { buttons: [] } }, "PUT"))).status).toBe(400);
   expect(await (await bia("pad")).json()).toEqual({});
 
+  const keys = { buttons: ["KeyK", ...Array(15).fill(null)], sticks: ["KeyA", "KeyD", "KeyW", "KeyS", null, null, null, null] };
+  expect(await (await ana("keys")).json()).toBeNull();
+  expect((await ana("keys", json(keys, "PUT"))).status).toBe(204);
+  expect(await (await ana("keys")).json()).toEqual(keys);
+  expect((await ana("keys", json({ ...keys, buttons: ["Escape", ...keys.buttons.slice(1)] }, "PUT"))).status).toBe(400);
+  expect((await ana("keys", json(null, "PUT"))).status).toBe(400);
+  expect(await (await bia("keys")).json()).toBeNull();
+  expect((await ana("keys", { method: "DELETE" })).status).toBe(204);
+  expect(await (await ana("keys")).json()).toBeNull();
+
   expect((await ana("played", json({ key: "bt3" }))).status).toBe(204);
   expect((await catalog()).last).toBe("bt3");
   expect((await ana("played", json({ key: "ps2/slus-00000" }))).status).toBe(400);

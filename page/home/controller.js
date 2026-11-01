@@ -1,12 +1,13 @@
 // "Controle": the connected pads, and mapping one the browser doesn't know (a USB PS2 adapter, say) once, a button at
 // a time over a drawing of the pad in hand (PS2, PS5 or Xbox: pads.js), named the way that pad names it. The map is
-// kept on the server (GET/PUT pad) and pad.js applies it in every game.
+// kept on the server (GET/PUT pad) and pad.js applies it in every game. Also the person's own keys for the PS2 games
+// (keymap.ts), a key per button and stick direction, kept the same way (GET/PUT/DELETE keys).
 import { hooks, state } from './app.js';
 import { esc, icon } from './library.js';
 import { DRAWINGS, FAMILIES, NAMES } from './pads.js';
 
 const layer = document.getElementById('layer');
-const { STANDARD, centered, padFamily, pushed, remap, turning, validMapping } = globalThis.CordPad;
+const { STANDARD, centered, keyAllowed, keyPad, padFamily, pushed, remap, turning, validMapping } = globalThis.CordPad;
 
 const PRESS = { l3: ' (aperte o analógico esquerdo)', r3: ' (aperte o analógico direito)' };
 /**
@@ -20,8 +21,12 @@ const STICKS = ['l', 'r'].flatMap((stick) => [
   { stick, kind: 'down', ask: `Empurre o analógico ${SIDE[stick]} para baixo`, hint: 'E segure até passar' },
 ]);
 const STEPS = 16 + STICKS.length;
+/** The keys' steps after the 16 buttons: each stick's four ways, in keymap.ts's order (left, right, up, down). */
+const KEY_DIRS = ['l', 'r'].flatMap((stick) => [['para a esquerda', -1, 0], ['para a direita', 1, 0], ['para cima', 0, -1], ['para baixo', 0, 1]]
+  .map(([way, x, y]) => ({ stick, x, y, name: `analógico ${SIDE[stick]} ${way}` })));
+const KEY_STEPS = 16 + KEY_DIRS.length;
 
-let s = null; // { view: 'list' | 'map' | 'test' | 'blocked', pad, maps, map, step, rest, waitRelease, unsaved, family, turn, sticks, x }
+let s = null; // { view: 'list' | 'map' | 'test' | 'blocked' | 'keys' | 'ktest', pad, maps, map, step, rest, waitRelease, unsaved, family, turn, sticks, x, keys, was, kmap, held, note }
 let timer = 0;
 /** Reads the pads this often: steady even when the browser slows animation frames down. */
 const EVERY_MS = 30;
@@ -47,11 +52,16 @@ function frame(inner) {
     <header><h2 id="c-title">Controle</h2><button class="btn quiet" data-c="close" aria-label="Fechar">${icon('close')}</button></header>${inner}</div></div>`;
 }
 
+/** The keyboard's row: always there, also where Discord hides the pads. */
+const keyRow = () => `<div class="pad-row"><div><b>Teclado</b><span class="chip">Jogos de PS2</span>${s.keys ? '<span class="state ok">Mapeado</span>' : '<span class="state">Teclas do jogo</span>'}</div>
+  <div class="row-actions"><button class="btn second small" data-c="keys">Mapear</button>
+  ${s.keys ? '<button class="btn quiet small" data-c="ktest">Testar</button><button class="btn quiet small" data-c="kforget">Esquecer</button>' : ''}</div></div>`;
+
 function list() {
   const ps = pads();
   if (ps === null) {
     s.view = 'blocked';
-    return frame(`<p>O Discord não liberou o controle nesta janela. No navegador ele funciona.</p>
+    return frame(`<p>O Discord não liberou o controle nesta janela. No navegador ele funciona.</p><div class="pads">${keyRow()}</div>
       <footer>${state.publicUrl ? '<button class="btn" data-c="browser">Abrir no navegador</button>' : ''}<button class="btn second" data-c="close">Fechar</button></footer>`);
   }
   s.view = 'list';
@@ -67,7 +77,7 @@ function list() {
   const f = s.family ?? 'ps2';
   frame(`<p>Vale controle de PS2 (num adaptador USB), de PS5 e de Xbox: nos jogos, os botões viram os do PS2. Se o navegador não
     reconhecer o seu, mapeie os botões uma vez: vale em todos os jogos, em qualquer computador.</p>
-    <div class="pads">${rows || `<div class="waiting">${switcher(f)}${DRAWINGS[f]}<div class="busy"><div class="spin"></div><p>Conecte o controle e aperte qualquer botão…</p></div></div>`}</div>
+    <div class="pads">${rows || `<div class="waiting">${switcher(f)}${DRAWINGS[f]}<div class="busy"><div class="spin"></div><p>Conecte o controle e aperte qualquer botão…</p></div></div>`}${keyRow()}</div>
     <footer><button class="btn second" data-c="close">Fechar</button></footer>`);
 }
 
@@ -199,13 +209,64 @@ function tick() {
         next();
       }
     } else if (stickStep(p)) next();
-  } else if (s.view === 'test' && p) {
-    const out = s.maps[s.pad] && validMapping(s.maps[s.pad]) ? remap(p, s.maps[s.pad]) : p;
-    STANDARD.forEach((name, i) => layer.querySelector(`#k-${name}`)?.classList.toggle('lit', !!out.buttons[i]?.pressed));
-    const [lx = 0, ly = 0, rx = 0, ry = 0] = out.axes;
-    layer.querySelector('#dot-l')?.setAttribute('transform', `translate(${lx * 22} ${ly * 22})`);
-    layer.querySelector('#dot-r')?.setAttribute('transform', `translate(${rx * 22} ${ry * 22})`);
-  }
+  } else if (s.view === 'test' && p) light(s.maps[s.pad] && validMapping(s.maps[s.pad]) ? remap(p, s.maps[s.pad]) : p);
+  else if (s.view === 'ktest') light(keyPad(s.keys, s.held, 0));
+}
+
+/** The test drawing: the buttons held lit, the sticks' dots where they point. */
+function light(out) {
+  STANDARD.forEach((name, i) => layer.querySelector(`#k-${name}`)?.classList.toggle('lit', !!out.buttons[i]?.pressed));
+  const [lx = 0, ly = 0, rx = 0, ry = 0] = out.axes;
+  layer.querySelector('#dot-l')?.setAttribute('transform', `translate(${lx * 22} ${ly * 22})`);
+  layer.querySelector('#dot-r')?.setAttribute('transform', `translate(${rx * 22} ${ry * 22})`);
+}
+
+const keyName = (i) => (i < 16 ? NAMES.ps2[STANDARD[i]] : KEY_DIRS[i - 16].name);
+
+function startKeys() {
+  Object.assign(s, { view: 'keys', kmap: { buttons: Array(16).fill(null), sticks: Array(8).fill(null) }, step: 0, note: '' });
+  drawKeys();
+}
+
+function drawKeys() {
+  const name = keyName(s.step);
+  frame(`<p class="ask" aria-live="polite">${esc(name[0].toUpperCase() + name.slice(1))}<small>${esc(s.note || 'Aperte a tecla para ele')} · Passo ${s.step + 1} de ${KEY_STEPS}</small></p>${DRAWINGS.ps2}
+    <footer><button class="btn quiet" data-c="list">Cancelar</button><button class="btn second" data-c="skip">Pular</button></footer>`);
+  if (s.step < 16) return layer.querySelector(`#k-${STANDARD[s.step]}`)?.classList.add('want');
+  const { stick, x, y } = KEY_DIRS[s.step - 16];
+  layer.querySelector(`#k-${stick}3`)?.classList.add('want');
+  layer.querySelector(`#dot-${stick}`)?.setAttribute('transform', `translate(${x * 22} ${y * 22})`);
+}
+
+function takeKey(code) {
+  if (!keyAllowed(code)) { s.note = 'Essa tecla não dá: escolha outra'; return drawKeys(); }
+  const taken = [...s.kmap.buttons, ...s.kmap.sticks].indexOf(code);
+  if (taken >= 0) { s.note = `Essa tecla já é ${keyName(taken)}`; return drawKeys(); }
+  if (s.step < 16) s.kmap.buttons[s.step] = code;
+  else s.kmap.sticks[s.step - 16] = code;
+  nextKey();
+}
+
+function nextKey() {
+  s.step++;
+  s.note = '';
+  if (s.step < KEY_STEPS) return drawKeys();
+  Object.assign(s, { was: s.keys, keys: s.kmap });
+  keyTest(true);
+}
+
+function keyTest(unsaved) {
+  Object.assign(s, { view: 'ktest', unsaved: !!unsaved, held: new Set() });
+  frame(`<p class="ask">Teste: aperte as teclas<small>${unsaved ? 'Se estiver tudo certo, salve.' : 'Teclado'}</small></p>${DRAWINGS.ps2}
+    <footer><button class="btn quiet" data-c="list">Voltar</button>${unsaved ? '<button class="btn" data-c="ksave">Salvar</button>' : ''}</footer>`);
+}
+
+async function saveKeys(keys) {
+  const r = await fetch('keys', keys ? { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(keys) } : { method: 'DELETE' });
+  if (!r.ok) { layer.querySelector('footer')?.insertAdjacentHTML('beforebegin', '<p class="error">Não deu para salvar as teclas. Tente de novo.</p>'); return; }
+  s.keys = keys;
+  s.unsaved = false;
+  list();
 }
 
 function next() {
@@ -227,6 +288,7 @@ function test(id, unsaved) {
 async function save() {
   const r = await fetch('pad', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(s.maps) });
   if (!r.ok) { layer.querySelector('footer')?.insertAdjacentHTML('beforebegin', '<p class="error">Não deu para salvar o mapa. Tente de novo.</p>'); return; }
+  s.unsaved = false;
   list();
 }
 
@@ -237,10 +299,20 @@ layer.addEventListener('click', async (e) => {
   if (!a || (a === 'scrim' && e.target !== el)) return;
   const index = Number(el.dataset.i);
   if (a === 'close' || a === 'scrim') return close();
-  if (a === 'list') { if (s.unsaved) delete s.maps[s.pad]; s.unsaved = false; return list(); }
+  if (a === 'list') {
+    if (s.unsaved && s.view === 'ktest') s.keys = s.was;
+    if (s.unsaved && s.view === 'test') delete s.maps[s.pad];
+    s.unsaved = false;
+    return list();
+  }
+  if (a === 'keys') return startKeys();
+  if (a === 'ktest') return keyTest(false);
+  if (a === 'ksave') return saveKeys(s.keys);
+  if (a === 'kforget') return saveKeys(null);
   if (a === 'map') return startMap(index);
   if (a === 'test') return test(pads().find((p) => p.index === index).id);
   if (a === 'skip') {
+    if (s.view === 'keys') return nextKey();
     // (a stick not turned can't be pushed: skipping its turn skips the whole stick)
     if (s.step >= 16 && STICKS[s.step - 16].kind === 'turn') {
       s.turn = null;
@@ -256,12 +328,28 @@ layer.addEventListener('click', async (e) => {
   if (a === 'forget') { delete s.maps[pads().find((p) => p.index === index).id]; await save(); }
   if (a === 'browser') parent.postMessage({ t: 'cordplay:open', path: location.pathname }, '*');
 });
-document.addEventListener('keydown', (e) => { if (s && e.key === 'Escape') { e.stopPropagation(); close(); } }, true);
+document.addEventListener('keydown', (e) => {
+  if (!s) return;
+  if (e.key === 'Escape') { e.stopPropagation(); return close(); }
+  // (mapping or testing keys: they're the keys', not the home's nor the focused button's; Tab still moves on)
+  if ((s.view !== 'keys' && s.view !== 'ktest') || e.code === 'Tab') return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (s.view === 'ktest') s.held.add(e.code);
+  else if (!e.repeat) takeKey(e.code);
+}, true);
+document.addEventListener('keyup', (e) => {
+  if ((s?.view !== 'keys' && s?.view !== 'ktest') || e.code === 'Tab') return;
+  e.preventDefault();
+  e.stopPropagation();
+  s.held?.delete(e.code);
+}, true);
 window.addEventListener('gamepadconnected', () => { if (s?.view === 'list') list(); });
 
 hooks.controller = async () => {
-  s = { view: 'list', maps: {}, family: null };
+  s = { view: 'list', maps: {}, family: null, keys: null };
   try { const r = await fetch('pad', { cache: 'no-store' }); if (r.ok) s.maps = await r.json(); } catch (e) {}
+  try { const r = await fetch('keys', { cache: 'no-store' }); if (r.ok) s.keys = await r.json(); } catch (e) {}
   list();
   clearInterval(timer);
   timer = setInterval(tick, EVERY_MS);

@@ -1,9 +1,11 @@
 /**
- * What the server keeps per person: their controller maps (pads/<id>.json, by the browser's gamepad id), the last
+ * What the server keeps per person: their controller maps (pads/<id>.json, by the browser's gamepad id), their keys
+ * for the PS2 games (keys/<id>.json), the last
  * game they opened (users/<id>.json, for the home's spotlight), and their volume and screen filter (prefs/<id>.json).
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { validKeyMap, type KeyMap } from "../page/keymap";
 import { validMapping, type Mapping } from "../page/padmap";
 import { USER } from "./saves";
 
@@ -34,6 +36,7 @@ async function writeJson(path: string, value: unknown) {
 
 export function createPeople(dir: string) {
   const pads = (user: string) => join(dir, "pads", `${user}.json`);
+  const keys = (user: string) => join(dir, "keys", `${user}.json`);
   const users = (user: string) => join(dir, "users", `${user}.json`);
   const prefs = (user: string) => join(dir, "prefs", `${user}.json`);
 
@@ -49,6 +52,19 @@ export function createPeople(dir: string) {
       const entries = Object.entries(maps);
       if (entries.length > MOST_PADS || !entries.every(([id, m]) => id.length <= 200 && validMapping(m))) return false;
       await writeJson(pads(user), maps);
+      return true;
+    },
+
+    async keys(user: string): Promise<KeyMap | null> {
+      const m = USER.test(user) ? await readJson<unknown>(keys(user)) : null;
+      return validKeyMap(m) ? m : null;
+    },
+
+    /** null forgets them. */
+    async setKeys(user: string, m: unknown): Promise<boolean> {
+      if (!USER.test(user) || (m !== null && !validKeyMap(m))) return false;
+      if (m === null) await rm(keys(user), { force: true });
+      else await writeJson(keys(user), m);
       return true;
     },
 

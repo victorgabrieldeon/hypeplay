@@ -15,6 +15,7 @@
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
  *             ps2/<id>/fast/<file>         the "versão rápida" (ps2-builder/), its disc, and the code it met untranslated
+ *             vimm                         POST { link }: download a PS2 game from vimm.net into the library; GET: how it goes (vimm.ts)
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
  *             homebrew                     the homebrew shelf (homebrew.ts): Homebrew Hub's games
@@ -48,6 +49,7 @@ import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type Roo
 import { Relay } from "./relay";
 import { CARD_BYTES, type Saves } from "./saves";
 import { createDiscStore, MAX_PIECE, type DiscStore, type Status } from "./upload";
+import type { Vimm } from "./vimm";
 
 export const PIECE = 1024 * 1024;
 
@@ -152,6 +154,8 @@ export interface AppOptions {
   turn?: { url: string; secret: string };
   /** The page's bundled scripts by name (iso.js, pad.js…), served under /p/<pass>/. */
   scripts?: Record<string, string>;
+  /** Downloads from vimm.net into the library (vimm.ts); without it, /vimm answers 404. */
+  vimm?: Vimm;
 }
 
 /** One game of the home's catalog: BT3's port or a PS2 game of the library. */
@@ -201,6 +205,7 @@ export function createApp({
   scripts = {},
   bios,
   ps2Engine = join(import.meta.dir, "..", "emulator", "ps2"),
+  vimm,
 }: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
@@ -746,6 +751,13 @@ export function createApp({
       // (copy: another copy of a game the library has, asked for in the home's "Enviar outra cópia")
       const r = await library.reserve(pass, b.serial, typeof b.name === "string" ? b.name : "", { copy: b.copy === true });
       return r.ok ? json({ key: `ps2/${r.game.id}`, id: r.game.id }, 201) : json({ exists: r.exists }, 409);
+    }
+    if (vimm && path === "/vimm") {
+      if (req.method === "GET") return json(vimm.status());
+      if (req.method !== "POST") return text("Método não permitido", 405);
+      const link = (await body<{ link?: unknown }>(req))?.link;
+      const r = vimm.start(pass, typeof link === "string" ? link : "");
+      return r.ok ? json(vimm.status(), 202) : json({ error: r.error }, r.status);
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
     if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "", server) : text("Não encontrado", 404);

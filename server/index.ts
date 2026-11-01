@@ -7,6 +7,7 @@ import { createPeople } from "./people";
 import { Ps2Rooms } from "./ps2rooms";
 import { createApp, type NetData } from "./routes";
 import { createSaves } from "./saves";
+import { createVimm } from "./vimm";
 
 const env = (name: string) => {
   const value = process.env[name];
@@ -33,6 +34,7 @@ async function bundle(entry: string, define: Record<string, string> = {}) {
 }
 
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
+const library = createLibrary(dir);
 const app = createApp({
   // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/, the PS2 games live in /app/data/ps2/.
   dir,
@@ -45,7 +47,8 @@ const app = createApp({
   passes: createPasses(DISCORD_CLIENT_SECRET),
   discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET }),
   clientId: DISCORD_CLIENT_ID,
-  library: createLibrary(dir),
+  library,
+  vimm: createVimm(dir, library),
   saves: createSaves(dir),
   people: createPeople(dir),
   ps2Rooms: new Ps2Rooms(),

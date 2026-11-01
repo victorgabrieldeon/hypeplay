@@ -2,18 +2,62 @@
 // PS2 BIOS when the server has none yet (once for the whole server); then the disc image, whose serial is read here
 // (iso.js) so a game already in the library is never sent again (BT3, which has its tested port, can still go to
 // the PS2 library too); then its name and cover. Sending is the library's
-// own upload, in the game's drawer; once the image is in, the game plays.
+// own upload, in the game's drawer; once the image is in, the game plays. Or, on the ISO step, a vimm.net download
+// link: the server downloads the game itself (server/vimm.ts) and it shows up in the library.
 import { gameOf, hooks, poll, send, state } from './app.js';
-import { esc, gb, icon, sendBios } from './library.js';
+import { esc, gb, icon, pct, sendBios } from './library.js';
 
 const layer = document.getElementById('layer');
 const BT3_SERIAL = 'SLUS-21678';
 const NAMES = { warn: 'Aviso', bios: 'BIOS', iso: 'ISO', name: 'Nome e capa' };
 
-let w = null; // { step, steps, ok, file, serial, name, cover, coverUrl, error, busy, exists, copy }
+let w = null; // { step, steps, ok, file, serial, name, cover, coverUrl, error, busy, exists, copy, link, vimm }
 let returnFocus = null;
 
+/** The server's vimm.net download, as GET vimm gives it. */
+function vimmBox() {
+  const v = w.vimm;
+  const there = v?.state === 'done' && gameOf(v.key);
+  // (a finished download's result is for whoever asked for it)
+  const line = !v || v.state === 'idle' || ((v.state === 'done' || v.state === 'failed') && v.by !== state.me) ? ''
+    : v.state === 'downloading' ? `<div class="busy"><div class="spin"></div><p>${esc(v.by)} está baixando ${esc(v.name || 'o jogo')}: ${gb(v.received)}${v.size ? ` de ${gb(v.size)} (${Math.floor(pct(v.received, v.size))}%)` : ''}</p></div>`
+    : v.state === 'extracting' ? `<div class="busy"><div class="spin"></div><p>Abrindo ${esc(v.name || 'o arquivo')}…</p></div>`
+    : v.state === 'done' ? `<div class="callout ok">${icon('check')}<p><strong>${esc(gameOf(v.key)?.name ?? v.name)}</strong> ${v.existed ? 'já estava' : 'entrou'} na biblioteca.</p></div>
+        ${there?.status.state === 'ready' ? `<div class="row-actions"><button class="btn" data-w="vimm-play">${icon('play')}Jogar</button></div>` : ''}`
+    : `<p class="error">${esc(v.message)}</p>`;
+  const busy = v?.state === 'downloading' || v?.state === 'extracting';
+  return `<div class="block">
+      <h3>Ou baixe do vimm.net, direto no servidor</h3>
+      <p>Na página do jogo no vimm.net, clique em Download, cancele o download e copie o link dele na lista de downloads do
+        navegador. Cole aqui: o servidor baixa o jogo sozinho, sem passar pelo seu PC.</p>
+      <div class="row-actions"><input class="field" id="w-link" placeholder="https://dl3.vimm.net/?mediaId=…" value="${esc(w.link || '')}">
+        <button class="btn second" data-w="vimm"${busy ? ' disabled' : ''}>Baixar no servidor</button></div>
+      ${line}</div>`;
+}
+
+let vimmTimer = 0;
+async function vimmPoll() {
+  clearTimeout(vimmTimer);
+  const v = await fetch('vimm', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!w || !v) return;
+  const was = w.vimm?.state;
+  w.vimm = v;
+  if (v.state === 'done' && was !== 'done') await poll();
+  if (w.step === 'iso') render();
+  if (v.state === 'downloading' || v.state === 'extracting') vimmTimer = setTimeout(vimmPoll, 1000);
+}
+
+async function vimmStart() {
+  w.link = document.getElementById('w-link').value.trim();
+  const r = await fetch('vimm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ link: w.link }) });
+  const res = await r.json().catch(() => ({}));
+  w.vimm = r.ok ? res : { state: 'failed', message: res.error || `Erro ${r.status}` };
+  render();
+  if (r.ok) vimmPoll();
+}
+
 function close() {
+  clearTimeout(vimmTimer);
   if (w?.coverUrl) URL.revokeObjectURL(w.coverUrl);
   w = null;
   layer.innerHTML = '';
@@ -57,6 +101,7 @@ function body() {
         <button class="btn" data-w="pick">Escolher a ISO</button><p>Um disco de PS2 (.iso). Fica no servidor para todo mundo.</p></div>
       ${w.busy ? '<div class="busy"><div class="spin"></div><p>Lendo o disco…</p></div>' : ''}
       ${w.error ? `<p class="error">${esc(w.error)}</p>` : ''}
+      ${vimmBox()}
       ${existing && existing.kind === 'port' ? `<div class="callout ok">${icon('check')}<p><strong>${esc(existing.name)}</strong> já está na biblioteca
           na versão <strong>Testado</strong>: roda liso e tem online pelo menu do jogo. Você também pode guardar esta ISO no servidor e
           jogar no emulador de PS2, com save no servidor e sala da HypePlay.</p></div>
@@ -176,6 +221,8 @@ layer.addEventListener('click', (e) => {
   if (a === 'pick') return pick('.iso,.bin,.img', chooseDisc);
   if (a === 'play') { const g = gameOf(w.exists); close(); if (g) hooks.play(g); return; }
   if (a === 'upload-anyway') return anyway();
+  if (a === 'vimm') return vimmStart();
+  if (a === 'vimm-play') { const g = gameOf(w.vimm?.key); close(); if (g) hooks.play(g); return; }
   if (a === 'cover') return pick('image/png,image/jpeg,image/webp', (f) => {
     if (f.size > 5 * 1024 ** 2) { w.error = 'A capa pode ter até 5 MB.'; return render(); }
     if (w.coverUrl) URL.revokeObjectURL(w.coverUrl);
@@ -185,6 +232,7 @@ layer.addEventListener('click', (e) => {
   if (a === 'nocover') { URL.revokeObjectURL(w.coverUrl); Object.assign(w, { cover: null, coverUrl: null }); return render(); }
   if (a === 'send') return submit();
 });
+layer.addEventListener('input', (e) => { if (w && e.target.id === 'w-link') w.link = e.target.value; });
 layer.addEventListener('change', (e) => {
   if (w && e.target.id === 'w-ok') { w.ok = e.target.checked; render(); }
 });
@@ -213,6 +261,7 @@ hooks.add = async () => {
   returnFocus = document.activeElement;
   const bios = await fetch('bios', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : { present: true })).catch(() => ({ present: true }));
   const flow = bios.present ? ['warn', 'iso', 'name'] : ['warn', 'bios', 'iso', 'name'];
-  w = { step: 'warn', steps: flow, ok: false, file: null, serial: '', name: '', cover: null, coverUrl: null, error: '', busy: false, exists: null };
+  w = { step: 'warn', steps: flow, ok: false, file: null, serial: '', name: '', cover: null, coverUrl: null, error: '', busy: false, exists: null, link: '', vimm: null };
   render();
+  vimmPoll();
 };

@@ -77,7 +77,7 @@ function startMap(index) {
   const p = pads()?.find((x) => x.index === index);
   if (!p) return list();
   Object.assign(s, { view: 'map', pad: p.id, index, map: { buttons: Array(16).fill(null), axes: Array(4).fill(null) }, step: 0, rest: axesOf(p),
-    waitRelease: true, turn: null, sticks: {}, x: {} });
+    waitRelease: true, turn: null, sticks: {}, x: {}, high: new Set(), pending: null });
   drawMap();
 }
 
@@ -163,12 +163,16 @@ function moved(p) {
 }
 
 /**
- * The browser (Chrome/Firefox on Linux) reads an axis as 0 until it first moves; a trigger then rests at -1. Taking
- * that as its rest keeps it from counting as pressed forever (the wait for the release never ending after L2/R2) and
- * the first touch of a trigger from mapping it the wrong way round.
+ * The browser (Chrome/Firefox on Linux) reads an axis as 0 until it first moves; a trigger then rests at -1 once let
+ * go. Taking that as its rest keeps it from counting as pressed forever (the wait for the release never ending after
+ * L2/R2). Only while waiting for the release, or on an axis already seen going up: on a d-pad read as an axis, 0 to -1
+ * is up or left being pressed.
  */
 function settle(p) {
-  p.axes.forEach((v, i) => { if (Math.abs(s.rest[i] ?? 0) < 0.05 && v < -0.95) s.rest[i] = v; });
+  p.axes.forEach((v, i) => {
+    if (v > 0.5) s.high.add(i);
+    if ((s.waitRelease || s.high.has(i)) && Math.abs(s.rest[i] ?? 0) < 0.05 && v < -0.95) s.rest[i] = v;
+  });
 }
 
 function tick() {
@@ -184,8 +188,14 @@ function tick() {
     // (let go first: buttons up, and the stick back in its own middle once it's known)
     if (s.waitRelease) { if (!m || (st && centered(p.axes, st) && !p.buttons.some((x) => x.pressed))) s.waitRelease = false; }
     else if (s.step < 16) {
-      if (m) {
-        s.map.buttons[s.step] = m;
+      // (0 to -1 waits: back at 0 a while it's that press (d-pad up/left), going on up it's a trigger touched for the
+      // first time, passing 0 on its way)
+      const wait = m && 'axis' in m && m.dir < 0 && Math.abs(s.rest[m.axis] ?? 0) < 0.05;
+      if (wait) Object.assign(s, { pending: m, still: 0 });
+      else if (s.pending && !m) s.still = Math.abs(p.axes[s.pending.axis]) < 0.05 ? s.still + 1 : 0;
+      const got = wait ? null : m ?? (s.still >= 3 ? s.pending : null);
+      if (got) {
+        s.map.buttons[s.step] = got;
         next();
       }
     } else if (stickStep(p)) next();
@@ -201,6 +211,7 @@ function tick() {
 function next() {
   s.step++;
   s.waitRelease = true;
+  s.pending = null;
   if (s.step < STEPS) return drawMap();
   s.maps[s.pad] = s.map;
   test(s.pad, true);

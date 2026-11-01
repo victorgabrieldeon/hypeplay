@@ -57,6 +57,19 @@ test("a corrupted pads file reads as none", async () => {
   expect(await people.pads("42")).toEqual({});
 });
 
+test("keys round-trip, a bad map is refused, null forgets them", async () => {
+  const { people } = await setup();
+  const keys = { buttons: ["KeyK", ...Array(15).fill(null)], sticks: Array(8).fill(null) };
+  expect(await people.keys("42")).toBeNull();
+  expect(await people.setKeys("42", keys)).toBe(true);
+  expect(await people.keys("42")).toEqual(keys);
+  expect(await people.setKeys("42", { ...keys, sticks: [] })).toBe(false);
+  expect(await people.setKeys("../x", keys)).toBe(false);
+  expect(await people.keys("43")).toBeNull();
+  expect(await people.setKeys("42", null)).toBe(true);
+  expect(await people.keys("42")).toBeNull();
+});
+
 test("ids that aren't plain are refused", async () => {
   const { people } = await setup();
   expect(await people.setPads("../x", { a: adapter })).toBe(false);

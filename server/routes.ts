@@ -10,7 +10,7 @@
  *             <id>/game/disc/...           the disc image in 1 MiB pieces, read straight from it
  *             <id>/game/net/ws, net/queue  online rooms (rooms.ts), one set per game
  *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
- *             pad, played                  the person's controller maps and last game (people.ts)
+ *             pad, keys, played            the person's controller maps, keys and last game (people.ts)
  *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
@@ -718,6 +718,13 @@ export function createApp({
       if (req.method === "GET") return json(await people.pads(pass.id));
       if (req.method !== "PUT") return text("Método não permitido", 405);
       return (await people.setPads(pass.id, await body(req))) ? respond(null, 204) : text("Pedido inválido", 400);
+    }
+    if (path === "/keys" && people) {
+      if (req.method === "GET") return json(await people.keys(pass.id));
+      if (req.method === "DELETE") return (await people.setKeys(pass.id, null)) ? respond(null, 204) : text("Pedido inválido", 400);
+      if (req.method !== "PUT") return text("Método não permitido", 405);
+      const m = await body(req);
+      return m !== null && (await people.setKeys(pass.id, m)) ? respond(null, 204) : text("Pedido inválido", 400);
     }
     if (path === "/bios" && bios) {
       if (req.method === "GET") return json(await bios.info());

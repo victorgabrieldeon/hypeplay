@@ -68,6 +68,10 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
   qualquer computador.
 - **Controle:** sempre um controle de PS2. Se o navegador não reconhecer (adaptador USB genérico), "Controle" na
   biblioteca mapeia os botões uma vez; o mapa fica no servidor e vale em todos os jogos, BT3 incluso.
+- **Teclado:** sem mapa, valem as teclas de cada jogo. Em "Controle" → Teclado → Mapear, escolha uma tecla para cada botão
+  e para cada direção dos dois analógicos (Pular deixa sem tecla). O mapa fica no servidor e vale no emulador e na
+  versão rápida, como jogador 1 junto com o primeiro controle; as teclas mapeadas deixam de ir para o jogo, as outras
+  continuam com o que o jogo faz com elas. Esc e Tab não podem ser mapeadas. BT3 e homebrew seguem com o teclado deles.
 - **Intro:** ao abrir um jogo de PS2 (o BT3 incluso; homebrew não) toca a intro, se o servidor tiver uma (enviada uma vez pela tela **Servidor** da home, que também troca a BIOS; fica em `/app/data/intro.mp4`); clique ou
   tecla pula. Não vai para o git: é material da Sony.
 - **Online:** dentro do jogo, "Abrir sala"; na biblioteca os amigos veem "Fulano está jogando — Entrar como

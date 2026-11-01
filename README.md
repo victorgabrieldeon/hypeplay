@@ -52,6 +52,13 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
   em teste, a maioria dos jogos roda e alguns podem travar ou ficar lentos. A página lê o serial da ISO
   (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. O servidor confere o serial de
   novo com a ISO inteira e guarda a ISO.
+- **Ou baixar do vimm.net, sem passar pelo PC:** no passo da ISO, cole o link de download do jogo no
+  [vimm.net](https://vimm.net/vault/PS2) e o servidor baixa sozinho (um download por vez, com o progresso ali mesmo),
+  abre o `.7z` (o `7z` vem na imagem), lê o serial e põe o jogo na biblioteca, com o nome do arquivo. Como pegar o link:
+  na página do jogo, clique em Download, cancele o download e copie o endereço dele na lista de downloads do navegador
+  (`https://dl3.vimm.net/?mediaId=…`). A página do jogo no vimm.net pede uma verificação de humano: quem passa por ela
+  é você, o servidor só baixa o arquivo do link. Só jogos em ISO (os de CD, em `.bin/.cue`, não). O servidor precisa de
+  espaço para o arquivo e a ISO ao mesmo tempo (em `/app/data/vimm/`, apagados no fim).
 - **Jogar:** assim que a ISO entra (e o servidor tem a BIOS), o jogo está pronto para todo mundo, para sempre. A
   página do jogo é a do TabStationToo no nosso design: só o jogo na tela, a nossa barra e o painel de som e imagem.
   "Remover" tira o jogo para todo mundo (os saves ficam guardados).

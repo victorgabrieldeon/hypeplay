@@ -11,6 +11,7 @@
  *             <id>/game/net/ws, net/queue  online rooms (rooms.ts), one set per game
  *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
  *             pad, keys, played            the person's controller maps, keys and last game (people.ts)
+ *             here                         POST: a game's page is still open (its path; empty, it closed): presence.ts
  *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
@@ -39,8 +40,9 @@ import { authorizeUrl, type Discord } from "./discord";
 import { FAST_STEPS, GAMES, type Game } from "./games";
 import { BT3_SERIAL } from "./iso9660";
 import { ID, PS2_MAX, PS2_MIN, type Fast, type Library, type Ps2Game } from "./library";
-import type { Pass, Passes } from "./pass";
+import { CALL, type Pass, type Passes } from "./pass";
 import type { People } from "./people";
+import { gameFrom, Presence } from "./presence";
 import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
 import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
@@ -115,7 +117,7 @@ const isMp4 = (b: Uint8Array) => b.length > 12 && String.fromCharCode(...b.subar
 export type NetData = { game: string } & (
   | { kind: "room"; params: RoomParams }
   | { kind: "queue"; params: QueueParams }
-  | { kind: "relay"; room: string; role: "host" | "guest"; me: string }
+  | { kind: "relay"; room: string; role: "host" | "guest"; me: string; watch: boolean }
 );
 
 const typeOf = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? TYPES.bin!;
@@ -177,7 +179,7 @@ export interface CatalogEntry {
   colors?: [string, string];
   status: Status;
   rooms: number;
-  open: { code: string; host: string; since: number; busy: boolean }[];
+  open: { code: string; host: string; since: number; busy: boolean; watchers?: number }[];
   by?: string;
   /** (PS2 games) its "versão rápida" */
   fast?: Fast;
@@ -211,6 +213,7 @@ export function createApp({
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
   );
   type Shelf = NonNullable<ReturnType<typeof shelf.get>>;
+  const presence = new Presence(now);
   function respond(body: ConstructorParameters<typeof Response>[0], status = 200, headers: Record<string, string> = {}) {
     return new Response(body, { status, headers: { ...HEADERS, ...headers } });
   }
@@ -394,7 +397,36 @@ export function createApp({
       }),
     );
     const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
-    return { me: pass.name, last: (await people?.last(pass.id)) ?? null, publicUrl: publicFor(req), games: [...ports, ...ps2] };
+    presence.library(pass);
+    return { me: pass.name, last: (await people?.last(pass.id)) ?? null, publicUrl: publicFor(req), games: [...ports, ...ps2], people: peopleFor(pass) };
+  }
+
+  /**
+   * The home's "Pessoas": who else is around, those in the same Discord call first, each with the game open and the
+   * room they host (a PS2 game's: to join as player 2, or watch). The room says the game even without its page's beat.
+   */
+  function peopleFor(pass: Pass) {
+    return presence
+      .others(pass.id)
+      .map((p) => {
+        const r = ps2Rooms?.byHost(p.id)[0];
+        const room = r ? { key: `ps2/${r.game}`, code: r.code, busy: r.busy, watchers: r.watchers } : null;
+        return { id: p.id, name: p.name, call: !!pass.call && p.call === pass.call, game: p.game, room };
+      })
+      .sort((a, b) => Number(b.call) - Number(a.call) || a.name.localeCompare(b.name));
+  }
+
+  /** A game's page saying it's open (overlay.ts): its path, the game and its name from it; anything else, not a game. */
+  async function here(req: Request, pass: Pass): Promise<Response> {
+    if (req.method !== "POST") return text("Método não permitido", 405);
+    const path = (await req.text()).slice(0, 300);
+    const g = gameFrom(path);
+    let title: string | null = null;
+    if (g?.slug) title = homebrew.get(g.slug)?.title ?? null;
+    else if (g && shelf.has(g.key)) title = shelf.get(g.key)!.game.name;
+    else if (g?.key.startsWith("ps2/") && library) title = (await library.get(g.key.slice(4)))?.name ?? null;
+    presence.playing(pass, g && title ? { key: g.key, title, watch: g.watch } : null);
+    return respond(null, 204);
   }
 
   async function cover(key: string): Promise<Response> {
@@ -525,12 +557,14 @@ export function createApp({
       const q = new URL(req.url).searchParams;
       const role = q.get("role");
       const me = q.get("me") ?? "";
-      if ((role !== "host" && role !== "guest") || (role === "guest" && !INBOX.test(me))) return text("Pedido inválido", 400);
+      // (`me`, either side: the guest, the host opening one socket per guest)
+      if ((role !== "host" && role !== "guest") || !INBOX.test(me)) return text("Pedido inválido", 400);
       const host = ps2Rooms.hostOf(code);
       if (host === null) return text("Não encontrado", 404);
-      if (role === "host" ? host !== pass.id : !ps2Rooms.hasGuest(code, me)) return text("Esta sala não é sua", 403);
+      const guest = ps2Rooms.guestOf(code, me);
+      if (role === "host" ? host !== pass.id : !guest) return text("Esta sala não é sua", 403);
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
-      const data: NetData = { game: id, kind: "relay", room: code, role, me: role === "host" ? "host" : me };
+      const data: NetData = { game: id, kind: "relay", room: code, role, me, watch: guest === "watch" };
       return server.upgrade(req, { data }) ? undefined : text("Não deu para abrir a conexão", 400);
     }
     const m = /^room\/([A-Z2-9]{6})\/([^/]+)$/.exec(rest);
@@ -629,10 +663,13 @@ export function createApp({
 
   async function token(req: Request): Promise<Response> {
     if (req.method !== "POST") return text("Método não permitido", 405);
-    const code = ((await req.json().catch(() => null)) as { code?: unknown } | null)?.code;
+    const sent = (await req.json().catch(() => null)) as { code?: unknown; call?: unknown } | null;
+    const code = sent?.code;
     if (typeof code !== "string" || !code || code.length > 200) return json({ error: "Pedido inválido" }, 400);
+    // (the voice channel the Activity runs in, as the SDK says: who's "na mesma call"; only a grouping, not a right)
+    const call = typeof sent?.call === "string" && CALL.test(sent.call) ? sent.call : undefined;
     try {
-      const user = await discord.signIn(code);
+      const user = { ...(await discord.signIn(code)), call };
       // (the access token goes back to the entry page, which authenticates the Discord SDK with it: opening a link
       // outside Discord, for one, needs that), and the app's public address, what that link opens (publicFor)
       return json({ pass: passes.issue(user), access_token: user.accessToken, public_url: publicFor(req) });
@@ -687,6 +724,7 @@ export function createApp({
     if (path === undefined) return respond(null, 301, { Location: slashed(pathname) });
     if (path === "/") return file(join(pageDir, "index.html"));
     if (path === "/games") return json(await catalog(pass, req));
+    if (path === "/here") return here(req, pass);
     if (path === "/intro.mp4") {
       const where = join(dir, "intro.mp4");
       // sent once from the home's "Servidor" screen, for everyone (like the BIOS); anyone may replace or take it off
@@ -808,7 +846,7 @@ export function createApp({
   const websocket: WebSocketHandler<NetData> = {
     open(ws) {
       const d = ws.data;
-      if (d.kind === "relay") relay.open(ws, d.room, d.role, d.me);
+      if (d.kind === "relay") relay.open(ws, d.room, d.role, d.me, d.watch);
       else if (d.kind === "room") roomsOf(ws).openRoom(ws, d.params);
       else roomsOf(ws).openQueue(ws, d.params);
     },

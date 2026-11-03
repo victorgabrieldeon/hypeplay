@@ -118,7 +118,7 @@ function bar(open: boolean) {
   sync();
   mirror.addEventListener("click", () => room.click());
   (window as unknown as { hypeplayOverlay?: OverlayApi }).hypeplayOverlay?.online(
-    "Abra uma sala: um amigo entra pela <b>biblioteca</b>, em <b>Entrar como jogador 2</b>, e joga com o controle dele.",
+    "Abra uma sala: um amigo entra pela <b>biblioteca</b>, em <b>Entrar como jogador 2</b>, e joga com o controle dele; outros podem <b>Assistir</b>.",
     mirror,
   );
   if (open) room.click();

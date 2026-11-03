@@ -1,6 +1,7 @@
 // The online host's side, in the PS2 game's page (ps2play.ts puts "Abrir sala" in its bar): opens a room (../room),
 // and for the guest who joins sends the game's picture (the canvas) and sound (overlay.js's gain, volume.ts) over
-// WebRTC; what the guest sends back on the "pad" channel becomes player 2 through pad.js (guestpad.ts). When WebRTC
+// WebRTC; what the guest sends back on the "pad" channel becomes player 2 through pad.js (guestpad.ts). Others may join
+// only to watch (join with watch: true): the same picture and sound, no controller. When WebRTC
 // can't link them (player 2 asks: "relay"), or this side has none (then "relay-only"), the same goes through the
 // server instead (relayhost.ts); a browser that can't encode says so ("relay-no").
 import { canRelay, startRelay } from "./relayhost";
@@ -12,7 +13,7 @@ interface Guest {
 }
 const w = window as unknown as { cordplayGuest?: Guest; cordplayVolume?: { tap(): MediaStream | null } };
 
-type Msg = { type?: string; from?: string; sdp?: string };
+type Msg = { type?: string; from?: string; sdp?: string; watch?: boolean };
 
 async function post(code: string, to: string, msg: object) {
   await fetch(`../room/${code}/${to}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(msg) });
@@ -26,47 +27,70 @@ function gathered(pc: RTCPeerConnection) {
   });
 }
 
-/** One guest at a time: player 2. A second one hears the room is full. */
+/** Each watcher costs this page one more stream (an encode and some 2.5 Mbps up): a few at most. */
+// shortcut: one encoder per guest (WebRTC or relay), switch the relay to a server fan-out if watchers grow or the
+// graphics card runs out of encoder sessions (player 2 plus 4 watchers is 5).
+const MAX_WATCHERS = 4;
+
+type Visitor = { id: string; watch: boolean; linked: boolean; pc?: RTCPeerConnection; video?: MediaStreamTrack; relay?: { stop(): void } };
+
+/** One player 2 at a time (a second hears the room is full), and up to MAX_WATCHERS who only watch. */
 async function serve(code: string, button: HTMLButtonElement) {
   const ice = await fetch("../ice").then((r) => r.json()).catch(() => [{ urls: ["stun:stun.cloudflare.com:3478"] }]);
-  let guest: { id: string; pc?: RTCPeerConnection; relay?: { stop(): void } } | null = null;
-  const drop = () => {
-    guest?.pc?.close();
-    guest?.relay?.stop();
-    guest = null;
-    w.cordplayGuest?.leave();
-    button.textContent = `Sala ${code} · esperando`;
+  const guests = new Map<string, Visitor>();
+  const player = () => [...guests.values()].find((g) => !g.watch);
+  const label = () => {
+    const p = player();
+    const watching = [...guests.values()].filter((g) => g.watch && g.linked).length;
+    const two = p?.linked ? `jogador 2 conectado${p.relay ? " pelo servidor" : ""}` : "esperando";
+    button.textContent = `Sala ${code} · ${two}${watching ? ` · ${watching} assistindo` : ""}`;
   };
-  /** Player 2 by the server: its WebRTC connection, if any, goes (its controller mustn't come twice). */
-  const relayTo = (id: string) => {
-    const old = guest?.pc;
-    if (!canRelay()) {
-      void post(code, id, { type: "relay-no" });
-      return;
-    }
-    const url = new URL(`../room/${code}/relay?role=host`, location.href);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  const linked = (g: Visitor) => {
+    g.linked = true;
+    if (!g.watch) w.cordplayGuest?.join();
+    label();
+  };
+  const drop = (id: string) => {
+    const g = guests.get(id);
+    if (!g) return;
+    guests.delete(id);
+    g.pc?.close();
+    // (its own canvas capture; the sound's tracks are everyone's, volume.ts' tap)
+    g.video?.stop();
+    g.relay?.stop();
+    if (!g.watch) w.cordplayGuest?.leave();
+    label();
+  };
+  /** A guest by the server: its WebRTC connection, if any, goes (its controller mustn't come twice). false: can't. */
+  const relayTo = (id: string, watch: boolean): boolean => {
     const canvas = document.querySelector<HTMLCanvasElement>("#screen canvas, canvas");
-    if (!canvas) return void post(code, id, { type: "relay-no" });
-    const relay = startRelay({
+    if (!canRelay() || !canvas) {
+      void post(code, id, { type: "relay-no" });
+      return false;
+    }
+    const old = guests.get(id);
+    const url = new URL(`../room/${code}/relay?role=host&me=${id}`, location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const g: Visitor = { id, watch, linked: false };
+    const relay = (g.relay = startRelay({
       url: url.href,
       canvas,
       audio: w.cordplayVolume?.tap() ?? null,
-      onPad: (pad) => w.cordplayGuest?.set(pad),
-      onJoin: () => {
-        w.cordplayGuest?.join();
-        button.textContent = `Sala ${code} · jogador 2 conectado pelo servidor`;
-      },
-      onLeave: () => guest?.relay === relay && drop(),
+      // (a watcher's controller is dropped on the way, server/relay.ts; and here)
+      onPad: (pad) => !watch && w.cordplayGuest?.set(pad),
+      onJoin: () => linked(g),
+      onLeave: () => guests.get(id)?.relay === relay && drop(id),
       onNoCodec: () => void post(code, id, { type: "relay-no" }),
-    });
-    guest = { id, relay };
-    old?.close();
+    }));
+    guests.set(id, g);
+    old?.pc?.close();
+    old?.video?.stop();
+    return true;
   };
   for (let after = 0; ; ) {
     const r = await fetch(`../room/${code}/host?after=${after}`, { cache: "no-store" }).catch(() => null);
     if (r?.status === 404) {
-      drop();
+      for (const id of [...guests.keys()]) drop(id);
       button.textContent = "Abrir sala";
       button.disabled = false;
       return;
@@ -78,50 +102,59 @@ async function serve(code: string, button: HTMLButtonElement) {
     const { messages, next } = (await r.json()) as { messages: Msg[]; next: number };
     after = next;
     for (const m of messages) {
-      if (m.type === "join" && m.from && guest && m.from !== guest.id) {
-        // one player 2 at a time: a second guest hears the room is full
-        await post(code, m.from, { type: "full" });
-      } else if (m.type === "join" && m.from && !guest && typeof RTCPeerConnection !== "function") {
-        // (no WebRTC here, inside Discord say: by the server from the start)
-        relayTo(m.from);
-        if (guest) await post(code, m.from, { type: "relay-only" });
-      } else if (m.type === "relay" && m.from && (!guest || m.from === guest.id)) {
-        if (!guest?.relay) relayTo(m.from);
-      } else if (m.type === "join" && m.from && !guest) {
-        const pc = new RTCPeerConnection({ iceServers: ice });
-        guest = { id: m.from, pc };
-        // picture (the game's canvas) and sound (the game's gain) in one stream
-        const out = new MediaStream();
-        const canvas = document.querySelector<HTMLCanvasElement>("#screen canvas, canvas");
-        const video = canvas?.captureStream(60).getVideoTracks()[0];
-        if (video) {
-          video.contentHint = "motion";
-          out.addTrack(video);
-        }
-        for (const t of w.cordplayVolume?.tap()?.getAudioTracks() ?? []) out.addTrack(t);
-        for (const t of out.getTracks()) pc.addTrack(t, out);
-        const channel = pc.createDataChannel("pad", { ordered: false, maxRetransmits: 0 });
-        channel.onopen = () => {
-          w.cordplayGuest?.join();
-          button.textContent = `Sala ${code} · jogador 2 conectado`;
-        };
-        channel.onmessage = (e) => {
-          try {
-            w.cordplayGuest?.set(JSON.parse(String(e.data)));
-          } catch {
-            // (a broken message is dropped)
+      const from = m.from;
+      if (!from) continue;
+      const known = guests.get(from);
+      if (m.type === "join" && !known) {
+        const watch = m.watch === true;
+        const full = watch ? [...guests.values()].filter((g) => g.watch).length >= MAX_WATCHERS : !!player();
+        if (full) {
+          await post(code, from, { type: "full", watch });
+        } else if (typeof RTCPeerConnection !== "function") {
+          // (no WebRTC here, inside Discord say: by the server from the start)
+          if (relayTo(from, watch)) await post(code, from, { type: "relay-only" });
+        } else {
+          const pc = new RTCPeerConnection({ iceServers: ice });
+          const g: Visitor = { id: from, watch, linked: false, pc };
+          guests.set(from, g);
+          // picture (the game's canvas) and sound (the game's gain) in one stream
+          const out = new MediaStream();
+          const canvas = document.querySelector<HTMLCanvasElement>("#screen canvas, canvas");
+          const video = canvas?.captureStream(60).getVideoTracks()[0];
+          if (video) {
+            video.contentHint = "motion";
+            out.addTrack(video);
+            g.video = video;
           }
-        };
-        // (only this connection's end drops its guest; "disconnected" is often a moment, "failed" is not)
-        channel.onclose = () => guest?.pc === pc && drop();
-        pc.onconnectionstatechange = () => ["failed", "closed"].includes(pc.connectionState) && guest?.pc === pc && drop();
-        await pc.setLocalDescription(await pc.createOffer());
-        await gathered(pc);
-        await post(code, m.from, { type: "offer", sdp: pc.localDescription!.sdp });
-      } else if (m.type === "answer" && guest && m.from === guest.id && m.sdp) {
-        await guest.pc?.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => drop());
-      } else if (m.type === "bye" && guest && m.from === guest.id) {
-        drop();
+          for (const t of w.cordplayVolume?.tap()?.getAudioTracks() ?? []) out.addTrack(t);
+          for (const t of out.getTracks()) pc.addTrack(t, out);
+          if (watch) {
+            // (a watcher sends nothing back: linked once the connection is)
+            pc.addEventListener("connectionstatechange", () => pc.connectionState === "connected" && !g.linked && linked(g));
+          } else {
+            const channel = pc.createDataChannel("pad", { ordered: false, maxRetransmits: 0 });
+            channel.onopen = () => linked(g);
+            channel.onmessage = (e) => {
+              try {
+                w.cordplayGuest?.set(JSON.parse(String(e.data)));
+              } catch {
+                // (a broken message is dropped)
+              }
+            };
+            // (only this connection's end drops its guest; "disconnected" is often a moment, "failed" is not)
+            channel.onclose = () => guests.get(from)?.pc === pc && drop(from);
+          }
+          pc.addEventListener("connectionstatechange", () => ["failed", "closed"].includes(pc.connectionState) && guests.get(from)?.pc === pc && drop(from));
+          await pc.setLocalDescription(await pc.createOffer());
+          await gathered(pc);
+          await post(code, from, { type: "offer", sdp: pc.localDescription!.sdp });
+        }
+      } else if (m.type === "relay" && known && !known.relay) {
+        relayTo(from, known.watch);
+      } else if (m.type === "answer" && known?.pc && m.sdp) {
+        await known.pc.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => drop(from));
+      } else if (m.type === "bye" && known) {
+        drop(from);
       }
     }
   }
@@ -132,7 +165,7 @@ export function roomButton(): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = "Abrir sala";
-  button.title = "Abre uma sala: um amigo entra pela biblioteca como jogador 2";
+  button.title = "Abre uma sala: um amigo entra pela biblioteca como jogador 2, e outros podem assistir";
   button.addEventListener("click", async () => {
     if (button.disabled) return;
     button.disabled = true;

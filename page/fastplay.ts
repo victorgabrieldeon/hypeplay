@@ -9,7 +9,7 @@ async function main() {
   if (document.readyState === "loading") await new Promise((ok) => document.addEventListener("DOMContentLoaded", ok, { once: true }));
   const room = roomButton();
   (window as unknown as { hypeplayOverlay?: OverlayApi }).hypeplayOverlay?.online(
-    "Abra uma sala: um amigo entra pela <b>biblioteca</b>, em <b>Entrar como jogador 2</b>, e joga com o controle dele.",
+    "Abra uma sala: um amigo entra pela <b>biblioteca</b>, em <b>Entrar como jogador 2</b>, e joga com o controle dele; outros podem <b>Assistir</b>.",
     room,
   );
   if (new URLSearchParams(location.search).get("online") === "host") room.click();

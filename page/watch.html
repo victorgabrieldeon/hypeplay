@@ -6,7 +6,7 @@
 <title>Jogador 2 · HypePlay</title>
 <!--
   The online guest's page (server/routes.ts serves it at /p/<pass>/ps2/<id>/watch/?room=<code>): the host's game
-  as video, and this person's pad and keyboard sent back as player 2 (watch.ts). No emulator, no disc, no BIOS: it
+  as video, and this person's pad and keyboard sent back as player 2 (watch.ts); with &watch=1, only the video. No emulator, no disc, no BIOS: it
   needs neither isolation nor WebGPU, so it opens inside Discord. Tokens: DESIGN.md.
 -->
 <style>
@@ -47,7 +47,7 @@
 <body>
 <video id="video" autoplay playsinline muted></video>
 <canvas id="relay" hidden></canvas>
-<div id="bar"><a href="../../../">← Biblioteca</a><b>Jogador 2</b><span class="dot" id="dot" aria-hidden="true"></span></div>
+<div id="bar"><a href="../../../">← Biblioteca</a><b id="role">Jogador 2</b><span class="dot" id="dot" aria-hidden="true"></span></div>
 <section id="status" role="status" aria-live="polite"><div class="spin"></div><h1>Conectando…</h1><p>Entrando na sala.</p></section>
 <button id="sound" type="button" hidden>Ligar o som</button>
 <script src="../../../watch.js"></script>

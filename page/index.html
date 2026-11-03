@@ -85,6 +85,16 @@
   .tip h3 { font: var(--t-lg); font-size: 14px; }
   .tip p { color: var(--soft); font: var(--t-sm); }
 
+  /* people around: the same call first (app.js' people) */
+  .people-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: var(--s3); }
+  .person { display: flex; align-items: center; gap: var(--s3); padding: var(--s3); border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface); min-width: 0; }
+  .person .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .person .who b { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .person .who .state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .person .who small { color: var(--soft); font: var(--t-sm); font-size: 12px; }
+  .person .acts { display: flex; flex-direction: column; gap: 6px; flex: none; }
+  .person .tag { font: 800 9px/1 var(--body); letter-spacing: 0.08em; padding: 3px 5px; border-radius: 4px; background: rgb(118 85 255 / 0.25); color: var(--accent); margin-left: 6px; vertical-align: 2px; }
+
   main { padding: var(--s6) var(--gutter) var(--s7); display: flex; flex-direction: column; gap: 40px; min-width: 0; }
   .top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s4); }
   .top h1 { font: 600 26px/1.2 var(--display); letter-spacing: -0.02em; margin: 6px 0 4px; }
@@ -446,6 +456,7 @@
     </div>
     <nav aria-label="Seções">
       <button type="button" class="on" data-nav="library"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>
+      <button type="button" data-nav="people" hidden><svg class="i"><use href="#i-users"/></svg><span class="t">Pessoas</span><span class="count num" id="n-people"></span></button>
       <button type="button" data-nav="homebrew"><svg class="i"><use href="#i-play"/></svg><span class="t">Homebrew</span><span class="count num" id="n-hb"></span></button>
       <button type="button" data-add><svg class="i"><use href="#i-plus"/></svg><span class="t">Adicionar jogo</span></button>
       <button type="button" data-controller><svg class="i"><use href="#i-pad"/></svg><span class="t">Controle</span></button>
@@ -471,6 +482,10 @@
     </header>
     <section class="hero loading" id="hero" aria-label="Em destaque" aria-busy="true">
       <div class="text"><span class="sk l1"></span><span class="sk l2"></span><span class="sk l3"></span><span class="sk l4"></span></div>
+    </section>
+    <section id="people" aria-labelledby="people-title" hidden>
+      <div class="section-head"><h2 id="people-title">Pessoas</h2><span id="people-sub"></span></div>
+      <div class="people-list" id="people-list"></div>
     </section>
     <section aria-labelledby="games-title">
       <div class="section-head"><h2 id="games-title">Seus jogos</h2><span>Enviados uma vez, para todo mundo</span></div>

@@ -4,6 +4,7 @@
 // Each step says where it is, and a join that stops (an error, or no picture after a while) says where and why
 // (watchsteps.ts), with "Abrir no navegador" inside Discord. When WebRTC isn't there (inside Discord), or doesn't link
 // in time (relayWhen), the game comes through the server instead (relayguest.ts); ?relay=1 goes that way at once.
+// ?watch=1 only watches: the same game, no controller sent (the host gives a watcher no pad channel either).
 import { encodePad, KEYS } from "./guestpad";
 import { joinRelay } from "./relayguest";
 import { relayStuck, relayWhen, stuckAt, turnState, whereAmI, type Step, type Turn } from "./watchsteps";
@@ -16,6 +17,7 @@ const NO_LINK_MS = 15_000;
 const RELAY_MS = 10_000;
 const framed = window.parent !== window;
 const forceRelay = new URLSearchParams(location.search).get("relay") === "1";
+const watching = new URLSearchParams(location.search).get("watch") === "1";
 
 type Action = { label: string; run: () => void };
 
@@ -84,7 +86,8 @@ function goRelay(tell: boolean, pc: RTCPeerConnection | null) {
   relaying = joinRelay({
     url: url.href,
     canvas,
-    pad: () => encodePad(firstPad() as never, keys),
+    // (a watcher's pad is neutral, and dropped on the way all the same: it only keeps the socket alive)
+    pad: () => (watching ? encodePad(null, new Set()) : encodePad(firstPad() as never, keys)),
     onLinked: () => {
       linked = true;
       video.hidden = true;
@@ -133,6 +136,10 @@ function firstPad() {
 }
 
 async function start() {
+  if (watching) {
+    document.title = "Assistindo · HypePlay";
+    $("role").textContent = "Assistindo";
+  }
   if (!/^[A-Z2-9]{6}$/.test(room)) return status("Sala inválida", "Volte para a biblioteca e escolha a sala de novo.", "error");
   // (from the very start: a step that never ends is said too)
   setTimeout(() => stuck(), NO_LINK_MS);
@@ -186,7 +193,7 @@ async function start() {
 
     step = "joining";
     status("Conectando…", "Avisando o host.");
-    await send("host", { type: "join", from: me });
+    await send("host", { type: "join", from: me, ...(watching ? { watch: true } : {}) });
     step = "waiting";
     status("Conectando…", "Esperando o host aceitar.");
     // by the server when WebRTC isn't here, failed, or didn't link in time
@@ -207,7 +214,9 @@ async function start() {
       for (const m of messages) {
         if (m.type === "full") {
           linked = true; // (said here; nothing more to say later)
-          return status("A sala está cheia", "Já tem alguém jogando como jogador 2. Tente de novo quando a vaga abrir.", "error");
+          if (watching) return status("A sala está cheia", "Já tem o máximo de pessoas assistindo. Tente de novo daqui a pouco.", "error", [retry]);
+          const watch: Action = { label: "Assistir", run: () => (location.search += "&watch=1") };
+          return status("A sala está cheia", "Já tem alguém jogando como jogador 2. Dá para assistir a partida enquanto isso.", "error", [watch, retry]);
         }
         // the host has no WebRTC (inside Discord): by the server from the start
         if (m.type === "relay-only") goRelay(false, pc);

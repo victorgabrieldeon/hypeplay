@@ -10,8 +10,10 @@ import { createApp, PIECE } from "./routes";
 const PAGE_DIR = join(import.meta.dir, "..", "page");
 // The one valid pass, issued to whoever signs in with code "ana" (Discord is faked: discord.test.ts covers it).
 const pass = "Ana-body.Ana_mac";
+/** What the last pass was issued for. */
+let issued: unknown = null;
 const passes: Passes = {
-  issue: () => pass,
+  issue: (u) => ((issued = u), pass),
   verify: async (p) => (p === pass ? { id: "42", name: "Ana", exp: Infinity } : null),
 };
 const discord = {
@@ -95,6 +97,11 @@ test("token: a Discord code for a pass", async () => {
   expect((await post({ code: "forged" })).status).toBe(502);
   for (const bad of [{}, { code: 1 }, { code: "" }, { code: "x".repeat(201) }]) expect((await post(bad)).status).toBe(400);
   expect((await get("/token")).status).toBe(405);
+  // the voice channel goes into the pass when it looks like one
+  await post({ code: "ana", call: "123456789012345678" });
+  expect(issued).toMatchObject({ id: "42", call: "123456789012345678" });
+  await post({ code: "ana", call: "../x" });
+  expect(issued).toMatchObject({ call: undefined });
 });
 
 test("the home, with the sandbox and CORS headers; the trailing slash is added", async () => {

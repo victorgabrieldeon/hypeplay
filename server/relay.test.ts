@@ -26,12 +26,12 @@ const video = (key: boolean) => encode({ t: "video", key, time: 1, data: Uint8Ar
 const audio = encode({ t: "audio", time: 1, data: Uint8Array.of(3) });
 const hello = encode({ t: "hello", video: ["vp8"], audio: ["opus"] });
 
-function pair() {
+function pair(watch = false) {
   const relay = new Relay();
   const host = new Fake();
   const guest = new Fake();
-  relay.open(host, "ABCDEF", "host", "42");
-  relay.open(guest, "ABCDEF", "guest", "g1");
+  relay.open(host, "ABCDEF", "host", "g1");
+  relay.open(guest, "ABCDEF", "guest", "g1", watch);
   return { relay, host, guest };
 }
 
@@ -72,7 +72,7 @@ test("a guest that came first: its hello reaches the host when it opens", () => 
   relay.open(guest, "ABCDEF", "guest", "g1");
   relay.message(guest, hello);
   const host = new Fake();
-  relay.open(host, "ABCDEF", "host", "42");
+  relay.open(host, "ABCDEF", "host", "g1");
   expect(host.got).toEqual([hello]);
 });
 
@@ -81,18 +81,18 @@ test("a host that comes again gets the guest's hello again", () => {
   relay.message(guest, hello);
   expect(host.got).toEqual([hello]);
   const again = new Fake();
-  relay.open(again, "ABCDEF", "host", "42");
+  relay.open(again, "ABCDEF", "host", "g1");
   expect(host.closed).not.toBeNull();
   expect(again.got).toEqual([hello]);
   relay.message(again, video(true));
   expect(guest.kinds).toEqual([VIDEO]);
 });
 
-test("one player 2: another guest is refused, the same one again takes its place", () => {
+test("a pair per guest: another guest never sees this one's stream; the same one again takes its place", () => {
   const { relay, host, guest } = pair();
   const other = new Fake();
   relay.open(other, "ABCDEF", "guest", "g2");
-  expect(other.closed).toEqual([4001, "full"]);
+  expect(other.closed).toBeNull();
   relay.message(host, video(true));
   expect(other.got).toEqual([]);
   const back = new Fake();
@@ -100,6 +100,16 @@ test("one player 2: another guest is refused, the same one again takes its place
   expect(guest.closed).not.toBeNull();
   relay.message(host, video(true));
   expect(back.kinds).toEqual([VIDEO]);
+});
+
+test("a watcher gets the stream but its controller never reaches the host", () => {
+  const { relay, host, guest } = pair(true);
+  relay.message(guest, hello);
+  relay.message(guest, encode({ t: "pad", pad: { b: [1] } }));
+  relay.message(guest, encode({ t: "key" }));
+  expect(host.kinds).toEqual([HELLO, KEY]);
+  relay.message(host, video(true));
+  expect(guest.kinds).toEqual([VIDEO]);
 });
 
 test("a slow guest loses video and audio until a key frame, and the host is asked for one", () => {

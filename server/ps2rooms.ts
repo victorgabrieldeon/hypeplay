@@ -7,7 +7,8 @@
  *   POST room/<code>/<to>          a JSON message into someone's inbox
  *   GET  room/<code>/<me>?after=N  the messages past N, waiting up to 20 s for one (long-poll)
  *
- * Rooms are listed per game in the home, so friends join from there. Clock and timers are injectable for tests.
+ * Rooms are listed per game in the home, so friends join from there. A join with `watch: true` only watches: any number
+ * may (the host caps them), and they never make the room busy. Clock and timers are injectable for tests.
  */
 
 export const ROOM_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -39,9 +40,13 @@ interface Room {
   seen: number;
   inboxes: Map<string, unknown[]>;
   waiters: Set<Waiter>;
-  /** guests that joined and haven't said bye, by when last heard from */
+  /** players that joined and haven't said bye, by when last heard from */
   guests: Map<string, number>;
+  /** the same for those who only watch */
+  watchers: Map<string, number>;
 }
+
+export type RoomInfo = { code: string; host: string; since: number; busy: boolean; watchers: number };
 
 export class Ps2Rooms {
   private rooms = new Map<string, Room>();
@@ -59,7 +64,7 @@ export class Ps2Rooms {
     do code = Array.from({ length: 6 }, () => ROOM_LETTERS[Math.floor(this.random() * ROOM_LETTERS.length)]).join("");
     while (this.rooms.has(code));
     const t = this.now();
-    this.rooms.set(code, { game, host: host.name, hostId: host.id, hostSeen: t, since: t, seen: t, inboxes: new Map(), waiters: new Set(), guests: new Map() });
+    this.rooms.set(code, { game, host: host.name, hostId: host.id, hostSeen: t, since: t, seen: t, inboxes: new Map(), waiters: new Set(), guests: new Map(), watchers: new Map() });
     return code;
   }
 
@@ -69,14 +74,20 @@ export class Ps2Rooms {
     if (!room) return false;
     const m = message as { type?: unknown; from?: unknown };
     if (to === "host" && typeof m?.from === "string") {
-      // a playing guest's heartbeat: keeps the room busy, nothing for the host to read
+      const heard = (from: string) => {
+        if (room.guests.has(from)) room.guests.set(from, room.seen);
+        if (room.watchers.has(from)) room.watchers.set(from, room.seen);
+      };
+      // a playing (or watching) guest's heartbeat: keeps the room busy, nothing for the host to read
       if (m.type === "here") {
-        if (room.guests.has(m.from)) room.guests.set(m.from, room.seen);
+        heard(m.from);
         return true;
       }
-      if (m.type === "join") room.guests.set(m.from, room.seen);
-      else if (m.type === "bye") room.guests.delete(m.from);
-      else if (room.guests.has(m.from)) room.guests.set(m.from, room.seen);
+      if (m.type === "join") ((message as { watch?: unknown }).watch === true ? room.watchers : room.guests).set(m.from, room.seen);
+      else if (m.type === "bye") {
+        room.guests.delete(m.from);
+        room.watchers.delete(m.from);
+      } else heard(m.from);
     }
     const inbox = room.inboxes.get(to) ?? [];
     inbox.push(message);
@@ -91,6 +102,7 @@ export class Ps2Rooms {
     if (!room) return Promise.resolve(null);
     if (me === "host") room.hostSeen = room.seen;
     if (room.guests.has(me)) room.guests.set(me, room.seen);
+    if (room.watchers.has(me)) room.watchers.set(me, room.seen);
     const inbox = room.inboxes.get(me) ?? [];
     if (inbox.length > after) return Promise.resolve({ messages: inbox.slice(after), next: inbox.length });
     return new Promise((done) => {
@@ -114,18 +126,28 @@ export class Ps2Rooms {
     return this.rooms.get(code)?.hostId ?? null;
   }
 
-  /** Who may open the relay as player 2: a guest that joined and hasn't said bye. */
-  hasGuest(code: string, me: string): boolean {
+  /** Who may open the relay as a guest: one that joined and hasn't said bye, to play or only to watch; null, neither. */
+  guestOf(code: string, me: string): "player" | "watch" | null {
     this.sweep();
-    return this.rooms.get(code)?.guests.has(me) ?? false;
+    const r = this.rooms.get(code);
+    return r?.guests.has(me) ? "player" : r?.watchers.has(me) ? "watch" : null;
   }
 
-  list(game: string): { code: string; host: string; since: number; busy: boolean }[] {
+  list(game: string): RoomInfo[] {
     this.sweep();
+    return [...this.rooms].filter(([, r]) => r.game === game).map(([code, r]) => this.info(code, r));
+  }
+
+  /** The rooms a person hosts, with their game: what their friends may join or watch. */
+  byHost(hostId: string): (RoomInfo & { game: string })[] {
+    this.sweep();
+    return [...this.rooms].filter(([, r]) => r.hostId === hostId).map(([code, r]) => ({ ...this.info(code, r), game: r.game }));
+  }
+
+  private info(code: string, r: Room): RoomInfo {
     const t = this.now();
-    return [...this.rooms]
-      .filter(([, r]) => r.game === game)
-      .map(([code, r]) => ({ code, host: r.host, since: r.since, busy: [...r.guests.values()].some((seen) => t - seen <= GUEST_QUIET_MS) }));
+    const live = (m: Map<string, number>) => [...m.values()].filter((seen) => t - seen <= GUEST_QUIET_MS).length;
+    return { code, host: r.host, since: r.since, busy: live(r.guests) > 0, watchers: live(r.watchers) };
   }
 
   private wake(room: Room, w: Waiter) {

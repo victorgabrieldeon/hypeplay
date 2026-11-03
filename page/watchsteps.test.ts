@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { relayStuck, relayWhen, stuckAt, turnState, whereAmI } from "./watchsteps";
+import { hostNoP2p, relayStuck, relayWhen, stuckAt, turnState, whereAmI } from "./watchsteps";
 
 test("player 2 is told where joining stopped, and what that usually means", () => {
   const start = stuckAt("start", "RTCPeerConnection is not defined");
@@ -67,6 +67,22 @@ test("when to go by the server: no WebRTC at once, 6 s after the offer without a
   expect(relayWhen({ webrtc: true, offerAt: 1000, now: 7000, state: "connecting" })).toBe("now");
   expect(relayWhen({ webrtc: true, offerAt: 1000, now: 1500, state: "failed" })).toBe("now");
   expect(relayWhen({ webrtc: true, offerAt: 1000, now: 60_000, state: "connected" })).toBe("stay");
+});
+
+test("P2P only: never by the server, and a link that doesn't come says so without asking for a TURN", () => {
+  expect(relayWhen({ webrtc: false, offerAt: null, now: 0, state: null }, true)).toBe("stay");
+  expect(relayWhen({ webrtc: true, offerAt: 1000, now: 60_000, state: "failed" }, true)).toBe("stay");
+  const off = stuckAt("linking", undefined, "browser", "off");
+  expect(off.title).toBe("Sem conexão direta com o host");
+  expect(off.text).toContain("4G");
+  expect(off.text).not.toContain("TURN");
+  expect(stuckAt("linking", undefined, "discord", "off").browser).toBe(true);
+});
+
+test("P2P only, a host inside Discord: it has to open the game in the browser", () => {
+  const s = hostNoP2p();
+  expect(s.title).toBe("O host está no Discord");
+  expect(s.text).toContain("navegador");
 });
 
 test("what player 2 hears when the server's way stops", () => {

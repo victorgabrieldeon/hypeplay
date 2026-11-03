@@ -25,6 +25,11 @@
   #bar b { font: 600 14px/20px Unbounded, ui-sans-serif, system-ui, sans-serif; padding: 0 6px; }
   #bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--soft); margin-left: 4px; }
   #bar .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  #net { padding: 0 8px; font: 600 13px/30px ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #net[hidden] { display: none; }
+  #net.good { color: var(--ok); }
+  #net.meh { color: #ffc24b; }
+  #net.bad { color: var(--danger); }
   #status { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4; width: min(440px, calc(100% - 32px)); padding: 20px;
     border-radius: 18px; background: rgb(15 13 26 / 0.94); box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08); text-align: center; }
   #status h1 { margin: 0 0 4px; font: 600 20px/28px Unbounded, ui-sans-serif, system-ui, sans-serif; }
@@ -47,7 +52,7 @@
 <body>
 <video id="video" autoplay playsinline muted></video>
 <canvas id="relay" hidden></canvas>
-<div id="bar"><a href="../../../">← Biblioteca</a><b id="role">Jogador 2</b><span class="dot" id="dot" aria-hidden="true"></span></div>
+<div id="bar"><a href="../../../">← Biblioteca</a><b id="role">Jogador 2</b><span class="dot" id="dot" aria-hidden="true"></span><span id="net" hidden></span></div>
 <section id="status" role="status" aria-live="polite"><div class="spin"></div><h1>Conectando…</h1><p>Entrando na sala.</p></section>
 <button id="sound" type="button" hidden>Ligar o som</button>
 <script src="../../../watch.js"></script>

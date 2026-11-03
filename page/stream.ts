@@ -4,6 +4,9 @@
 // only to watch (join with watch: true): the same picture and sound, no controller. When WebRTC
 // can't link them (player 2 asks: "relay"), or this side has none (then "relay-only"), the same goes through the
 // server instead (relayhost.ts); a browser that can't encode says so ("relay-no").
+// P2P only (online.ts): no TURN, no relay; a host without WebRTC tells the guest so ("relay-only", and the guest says
+// the host has to open the game in the browser).
+import { P2P_ONLY, p2pIce, videoBitrate } from "./online";
 import { canRelay, startRelay } from "./relayhost";
 
 interface Guest {
@@ -27,16 +30,36 @@ function gathered(pc: RTCPeerConnection) {
   });
 }
 
+/**
+ * The game's canvas as it is (its size, 1x or 2x, is what player 1 sees) at 60 fps: room to send it (videoBitrate),
+ * and frames dropped before the size is.
+ */
+async function sharp(sender: RTCRtpSender) {
+  try {
+    const p = sender.getParameters();
+    if (!p.encodings?.length) p.encodings = [{}];
+    const s = sender.track?.getSettings();
+    const bitrate = videoBitrate(s?.width ?? 0, s?.height ?? 0);
+    // (looked at again every few seconds, as player 1 may switch Nativa / 2×: only a change goes)
+    if (p.encodings.every((e) => e.maxBitrate === bitrate)) return;
+    for (const e of p.encodings) Object.assign(e, { maxBitrate: bitrate, maxFramerate: 60, scaleResolutionDownBy: 1 });
+    (p as RTCRtpSendParameters & { degradationPreference?: string }).degradationPreference = "maintain-resolution";
+    await sender.setParameters(p);
+  } catch {
+    // (a browser that won't: its own choices)
+  }
+}
+
 /** Each watcher costs this page one more stream (an encode and some 2.5 Mbps up): a few at most. */
 // shortcut: one encoder per guest (WebRTC or relay), switch the relay to a server fan-out if watchers grow or the
 // graphics card runs out of encoder sessions (player 2 plus 4 watchers is 5).
 const MAX_WATCHERS = 4;
 
-type Visitor = { id: string; watch: boolean; linked: boolean; pc?: RTCPeerConnection; video?: MediaStreamTrack; relay?: { stop(): void } };
+type Visitor = { id: string; watch: boolean; linked: boolean; pc?: RTCPeerConnection; video?: MediaStreamTrack; relay?: { stop(): void }; sharp?: number };
 
 /** One player 2 at a time (a second hears the room is full), and up to MAX_WATCHERS who only watch. */
 async function serve(code: string, button: HTMLButtonElement) {
-  const ice = await fetch("../ice").then((r) => r.json()).catch(() => [{ urls: ["stun:stun.cloudflare.com:3478"] }]);
+  const ice = p2pIce(await fetch("../ice").then((r) => r.json()).catch(() => [{ urls: ["stun:stun.cloudflare.com:3478"] }]));
   const guests = new Map<string, Visitor>();
   const player = () => [...guests.values()].find((g) => !g.watch);
   const label = () => {
@@ -57,6 +80,7 @@ async function serve(code: string, button: HTMLButtonElement) {
     g.pc?.close();
     // (its own canvas capture; the sound's tracks are everyone's, volume.ts' tap)
     g.video?.stop();
+    clearInterval(g.sharp);
     g.relay?.stop();
     if (!g.watch) w.cordplayGuest?.leave();
     label();
@@ -112,7 +136,8 @@ async function serve(code: string, button: HTMLButtonElement) {
           await post(code, from, { type: "full", watch });
         } else if (typeof RTCPeerConnection !== "function" || m.relay === true) {
           // (no WebRTC here or there, inside Discord say: by the server from the start, no offer to wait on)
-          if (relayTo(from, watch)) await post(code, from, { type: "relay-only" });
+          if (P2P_ONLY) await post(code, from, { type: "relay-only" });
+          else if (relayTo(from, watch)) await post(code, from, { type: "relay-only" });
         } else {
           const pc = new RTCPeerConnection({ iceServers: ice });
           const g: Visitor = { id: from, watch, linked: false, pc };
@@ -146,10 +171,16 @@ async function serve(code: string, button: HTMLButtonElement) {
           }
           pc.addEventListener("connectionstatechange", () => ["failed", "closed"].includes(pc.connectionState) && guests.get(from)?.pc === pc && drop(from));
           await pc.setLocalDescription(await pc.createOffer());
+          // (once negotiating: before, a browser may refuse new encodings)
+          const resharp = () => {
+            for (const sender of pc.getSenders()) if (sender.track?.kind === "video") void sharp(sender);
+          };
+          resharp();
+          g.sharp = window.setInterval(resharp, 2000);
           await gathered(pc);
           await post(code, from, { type: "offer", sdp: pc.localDescription!.sdp });
         }
-      } else if (m.type === "relay" && known && !known.relay) {
+      } else if (m.type === "relay" && known && !known.relay && !P2P_ONLY) {
         relayTo(from, known.watch);
       } else if (m.type === "answer" && known?.pc && m.sdp) {
         await known.pc.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => drop(from));

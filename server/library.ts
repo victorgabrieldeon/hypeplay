@@ -5,7 +5,7 @@
  *
  *   ps2/<id>/game.json          { id, serial, name, by, at, cover }   written here
  *   ps2/<id>/cover.webp         its cover, when someone sent one
- *   ps2/<id>/upload/, disc.iso  as BT3's (upload.ts)
+ *   ps2/<id>/upload/, disc.iso  as BT3's (upload.ts); a game sent with R2 on: disc.iso.r2 instead, its disc in R2 (discs.ts)
  *   ps2/<id>/fast/              its "versão rápida", when someone asked for one: request, retry and misses.txt written
  *                               here, status.json and build/ by ps2-builder/ (see there)
  *   ps2-work/<id>/              port.sh's intermediate files (ps2-builder's)
@@ -15,6 +15,8 @@
  */
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { S3Client } from "bun";
+import { dropFromR2, markOf, moveToR2 } from "./discs";
 import { BT3_SERIAL, fileRead, readDiscId } from "./iso9660";
 import type { Pass } from "./pass";
 import { createDiscStore, QUIET_MS, type DiscStore } from "./upload";
@@ -71,7 +73,7 @@ const MISSES_MAX = 256;
 
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
-export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX } = {}) {
+export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null } = {}) {
   const stores = new Map<string, DiscStore>();
   /** Reservations between making their folder and writing their game.json: not orphans. */
   const reserving = new Set<string>();
@@ -123,10 +125,25 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     return s;
   }
 
+  /** Its disc here or in R2. */
+  const hasDisc = async (id: string) => (await exists(paths(id).iso)) || (await exists(markOf(paths(id).iso)));
+
+  /**
+   * A disc just in and checked goes to R2, in the background (minutes for a DVD); until it's there it plays from here.
+   * shortcut: a move cut short (a deploy, an error) leaves the game here for good; a sweep at startup would retry them.
+   */
+  function settle(id: string) {
+    if (!r2) return;
+    void moveToR2(r2, dir, paths(id).iso, () => exists(paths(id).game))
+      .then((moved) => console.log(`R2: ${id} ${moved ? "moved" : "removed meanwhile"}`))
+      .catch((err) => console.error(`R2: ${id} stays here:`, err));
+  }
+
   async function remove(id: string) {
     if (!ID.test(id)) return;
     const p = paths(id);
     stores.delete(id);
+    await dropFromR2(r2, dir, p.iso).catch((err) => console.error(`R2: ${id}'s disc stays there:`, err));
     await rm(p.root, { recursive: true, force: true });
     await rm(p.work, { recursive: true, force: true });
   }
@@ -135,7 +152,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
   async function abandoned(g: Ps2Game) {
     if (now() - g.at <= ABANDONED_MS) return false;
     const p = paths(g.id);
-    return !(await exists(p.iso)) && !(await exists(join(p.root, "upload")));
+    return !(await hasDisc(g.id)) && !(await exists(join(p.root, "upload")));
   }
 
   return {
@@ -143,6 +160,9 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     get,
     disc,
     remove,
+    hasDisc,
+
+    settle,
 
     async list(): Promise<Ps2Game[]> {
       const ids = await readdir(join(dir, "ps2")).catch(() => [] as string[]);
@@ -210,7 +230,10 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     async verify(id: string): Promise<{ ok: true } | { ok: false; message: string }> {
       const g = await get(id);
       const found = g && (await readDiscId(fileRead(paths(id).iso)));
-      if (g && found?.serial === g.serial) return { ok: true };
+      if (g && found?.serial === g.serial) {
+        settle(id);
+        return { ok: true };
+      }
       await remove(id);
       return { ok: false, message: found ? "A ISO não é do jogo escolhido" : "Isso não parece um disco de PS2" };
     },
@@ -246,7 +269,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
 
     /** "Compilar versão rápida", or "Tentar de novo" after it failed: ps2-builder picks it up. */
     async askFast(id: string) {
-      if (!(await get(id)) || !(await exists(paths(id).iso))) return false;
+      if (!(await get(id)) || !(await hasDisc(id))) return false;
       const f = paths(id).fast;
       await mkdir(f, { recursive: true });
       const failed = (await this.fast(id)).state === "failed";

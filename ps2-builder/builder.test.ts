@@ -221,3 +221,22 @@ test("Tentar de novo over a build redoes its code too (what failed may have been
   await builder.tick();
   expect(tools.seen[1]).toContain("--no-explore");
 });
+
+test("a game whose disc is in R2: brought here for port.sh, gone again after", async () => {
+  const asked: string[] = [];
+  // (R2 faked: a Blob for any key, as Bun.write takes an S3 file)
+  const r2 = { file: (key: string) => (asked.push(key), new Blob(["iso from r2"])) } as unknown as import("bun").S3Client;
+  let during = "";
+  const tools = fakeTools({ during: async (id) => void (during = await readFile(join(root, "ps2", id, "disc.iso"), "utf8")) });
+  const { data, repo, game } = await setup(tools);
+  const root = data;
+  await game("slus-20001");
+  const iso = join(data, "ps2", "slus-20001", "disc.iso");
+  await rm(iso);
+  await writeFile(`${iso}.r2`, "10");
+  await createPs2Builder({ data, repo, run: tools.run, r2 }).tick();
+  expect(asked).toEqual(["ps2/slus-20001/disc.iso"]);
+  expect(during).toBe("iso from r2");
+  expect(await exists(iso)).toBe(false);
+  expect(await exists(`${iso}.r2`)).toBe(true);
+});

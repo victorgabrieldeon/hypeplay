@@ -4,7 +4,8 @@
  * into a page that is much faster in heavy games, for the games the recompiler supports. Only the games asked for, one
  * at a time, oldest request first:
  *
- *   ps2/<id>/disc.iso            the game's disc (the app checked it)
+ *   ps2/<id>/disc.iso            the game's disc (the app checked it); or disc.iso.r2, the disc in R2 (server/discs.ts),
+ *                                brought here for a build and gone again after
  *   ps2/<id>/fast/request        "Compilar versão rápida" (routes.ts): without it nothing is built; gone = removed
  *   ps2/<id>/fast/retry          "Tentar de novo" after a failure
  *   ps2/<id>/fast/misses.txt     code the players' pages met untranslated (routes.ts): added, then built again
@@ -21,7 +22,9 @@
 import { createHash } from "node:crypto";
 import { appendFile, cp, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { S3Client } from "bun";
 import { spawnRunner, type Runner } from "../builder/builder";
+import { fetchFromR2, markOf, r2FromEnv } from "../server/discs";
 import { FAST_STEPS } from "../server/games";
 import { MARK, patchShell } from "./patch";
 
@@ -95,12 +98,14 @@ export interface Ps2BuilderOptions {
   rounds?: number;
   frames?: number;
   now?: () => number;
+  /** R2, where the games sent with it on keep their disc (server/discs.ts) */
+  r2?: S3Client | null;
 }
 
 /** How much a build takes: all of it, code the players met, a new recompiler (or a retry), or the page alone. */
 type Mode = "full" | "learn" | "recomp" | "page";
 
-export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, frames = 3600, now = () => Date.now() }: Ps2BuilderOptions) {
+export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, frames = 3600, now = () => Date.now(), r2 = null }: Ps2BuilderOptions) {
   const statuses = new Map<string, FastStatus>();
   /** The patched shell's hash, once patched. */
   let shell = "";
@@ -174,7 +179,7 @@ export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, fra
     const found: { id: string; at: number }[] = [];
     for (const id of ids) {
       const p = game(id);
-      const [meta, iso, request] = await Promise.all([exists(p.json), exists(p.iso), exists(p.request)]);
+      const [meta, iso, request] = await Promise.all([exists(p.json), exists(p.iso).then((s) => s ?? exists(markOf(p.iso))), exists(p.request)]);
       if (meta && iso && request) found.push({ id, at: request.mtimeMs });
     }
     for (const id of statuses.keys()) if (!found.some((g) => g.id === id)) statuses.delete(id);
@@ -311,7 +316,13 @@ export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, fra
       else if (s.shell !== shell) mode = (await exists(join(p.work, "web", "build.ninja"))) ? "page" : translated ? "recomp" : "full";
       else continue;
       if (retry) await rm(p.retry, { force: true });
+      let fetched = false;
       try {
+        // (a disc in R2: here for port.sh while it builds, gone again after; the page alone doesn't read it)
+        if (mode !== "page" && r2 && !(await exists(p.iso))) {
+          await fetchFromR2(r2, data, p.iso, p.iso);
+          fetched = true;
+        }
         await build(g.id, mode, learn);
       } catch (err) {
         if (err instanceof Gone) {
@@ -324,6 +335,8 @@ export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, fra
         if (failed.message === "Sem espaço no servidor") await rm(p.work, { recursive: true, force: true });
         await rm(p.tmp, { recursive: true, force: true });
         statuses.set(g.id, { at: now(), state: "failed", message: failed.message, ...(failed.reason ? { reason: failed.reason } : {}) });
+      } finally {
+        if (fetched) await rm(p.iso, { force: true });
       }
       await save(g.id);
       return;
@@ -343,6 +356,7 @@ if (import.meta.main) {
     commit: process.env.RECOMP_COMMIT ?? "",
     rounds: Number(process.env.PS2_ROUNDS ?? 4),
     frames: Number(process.env.PS2_FRAMES ?? 3600),
+    r2: r2FromEnv(),
   });
   // The heartbeat goes on during a build, which takes many minutes.
   setInterval(() => void builder.beat().catch((err) => console.error("status.json:", err)), LOOK_MS);

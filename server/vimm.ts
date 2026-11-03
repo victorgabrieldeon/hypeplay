@@ -131,6 +131,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
       await library.remove(r.game.id);
       throw err;
     }
+    library.settle(r.game.id);
     return { state: "done", by, name: r.game.name, key: `ps2/${r.game.id}`, existed: false } as const;
   }
 

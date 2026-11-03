@@ -11,6 +11,7 @@
  * from the last piece taken. Someone else may take over an upload only after it went quiet.
  */
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { markOf } from "./discs";
 import { join } from "node:path";
 import type { Pass } from "./pass";
 
@@ -98,13 +99,15 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
   };
 
   const readUpload = () => readJsonFile<UploadState>(paths.state);
+  /** The image, here or moved to R2 (its mark, discs.ts). */
+  const hasIso = () => exists(paths.iso).then((s) => s ?? exists(markOf(paths.iso)));
 
   return {
     paths,
 
     /** How much of the image the server has, for picking an upload up where it stopped. */
     async progress(): Promise<{ received: number; size: number | null; done: boolean }> {
-      if (await exists(paths.iso)) return { received: 0, size: null, done: true };
+      if (await hasIso()) return { received: 0, size: null, done: true };
       const up = await readUpload();
       return { received: up?.received ?? 0, size: up?.size ?? null, done: false };
     },
@@ -113,7 +116,7 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
       return serial(async () => {
         // (removed while this piece was on its way: don't bring its folder back)
         if (alive && !(await alive())) return { ok: false, status: 404, code: "gone", error: "Esse jogo foi removido" };
-        if (await exists(paths.iso)) return { ok: false, status: 409, code: "done", error: "O servidor já tem a ISO" };
+        if (await hasIso()) return { ok: false, status: 409, code: "done", error: "O servidor já tem a ISO" };
         if (!Number.isSafeInteger(size) || size < min || size > max)
           return { ok: false, status: 400, code: "size", error: "Esse arquivo não parece a ISO do jogo (tamanho fora do esperado)" };
         if (body.length > maxPiece) return { ok: false, status: 413, code: "size", error: "Pedaço grande demais" };
@@ -160,7 +163,7 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
 
     async status(pass: Pass): Promise<Status> {
       const [iso, built, builder] = await Promise.all([
-        exists(paths.iso),
+        hasIso(),
         exists(join(paths.build, page)),
         readJsonFile<BuilderStatus>(paths.status),
       ]);

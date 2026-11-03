@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { createBios } from "./bios";
-import { createDiscs } from "./discs";
+import { createDiscs, r2FromEnv } from "./discs";
 import { createDiscord } from "./discord";
 import { createLibrary } from "./library";
 import { createPasses } from "./pass";
@@ -35,7 +35,9 @@ async function bundle(entry: string, define: Record<string, string> = {}) {
 }
 
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
-const library = createLibrary(dir);
+// R2 for the new games' discs when S3_BUCKET is set (discs.ts): sent ones go there, the ones on this disk stay.
+const r2 = r2FromEnv();
+const library = createLibrary(dir, { r2 });
 const app = createApp({
   // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/, the PS2 games live in /app/data/ps2/.
   dir,
@@ -50,8 +52,7 @@ const app = createApp({
   clientId: DISCORD_CLIENT_ID,
   library,
   vimm: createVimm(dir, library),
-  // The discs played from R2 when S3_BUCKET is set (discs.ts); the local file otherwise, or when R2 lacks one.
-  discs: createDiscs(dir),
+  discs: createDiscs(dir, r2),
   saves: createSaves(dir),
   people: createPeople(dir),
   ps2Rooms: new Ps2Rooms(),

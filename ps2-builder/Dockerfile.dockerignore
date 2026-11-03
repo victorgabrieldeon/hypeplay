@@ -3,5 +3,6 @@
 !builder/builder.ts
 !builder/patch.ts
 !server/games.ts
+!server/discs.ts
 !ps2-builder/builder.ts
 !ps2-builder/patch.ts

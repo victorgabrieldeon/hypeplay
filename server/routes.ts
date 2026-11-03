@@ -343,7 +343,7 @@ export function createApp({
   async function ps2Status(id: string, pass: Pass): Promise<Status> {
     const s = await library!.disc(id).status(pass);
     if (s.state === "empty" || s.state === "uploading" || (s.state === "failed" && s.refused)) return s;
-    if (!(await Bun.file(library!.paths(id).iso).exists())) return s;
+    if (!(await library!.hasDisc(id))) return s;
     return (await bios?.info())?.present ? { state: "ready" } : { state: "needs-bios" };
   }
 

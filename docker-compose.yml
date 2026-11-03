@@ -16,7 +16,8 @@ services:
       # A TURN relay for the PS2 games' online (the turn service below, or any coturn with --use-auth-secret).
       TURN_URL: ${TURN_URL:-}
       TURN_SECRET: ${TURN_SECRET:-}
-      # Optional: play the discs from R2 (server/discs.ts), key = path under /app/data (ps2/<id>/disc.iso). Empty: local.
+      # Optional: the new PS2 games' discs go to R2 once checked (server/discs.ts), key = path under /app/data
+      # (ps2/<id>/disc.iso); the games already here stay. Empty: everything stays here.
       S3_BUCKET: ${S3_BUCKET:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
@@ -43,6 +44,11 @@ services:
       # test runs of each game while building (more find more code, take longer) and frames per run
       PS2_ROUNDS: ${PS2_ROUNDS:-4}
       PS2_FRAMES: ${PS2_FRAMES:-3600}
+      # (a game whose disc is in R2 is brought here for its build: server/discs.ts)
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
     volumes: [*data]
 
   # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly

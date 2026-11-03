@@ -82,6 +82,16 @@ enviar nada. Cada jogo vem com a licença do autor (alguns não declaram nenhuma
   app, sem nada para configurar: um pouco mais de atraso (a ida e volta até o servidor) e cerca de 3 Mbps de banda
   do servidor por sala ([spec](docs/superpowers/specs/2026-10-31-online-rele-design.md)). Com um TURN
   ([Ligar o TURN](#ligar-o-turn)), mais conexões ficam diretas e o servidor repassa menos.
+- **Pessoas:** a seção "Pessoas" da biblioteca mostra quem mais está com o HypePlay aberto, primeiro quem está **na
+  mesma call** (o canal de voz em que a atividade foi aberta; quem entrou pelo navegador aparece como online), e o que
+  cada um tem aberto: a biblioteca, o jogo em que está, ou o jogo que está assistindo. Quem abriu uma sala num jogo de
+  PS2 aparece com **Entrar** (como jogador 2, se a vaga estiver livre) e **Assistir**. Nada fica gravado: o servidor
+  só lembra quem falou com ele nos últimos 40 s (a biblioteca a cada 2 s, a página do jogo a cada 15 s).
+- **Assistir:** além do jogador 2, até 4 pessoas podem assistir a uma sala (na gaveta do jogo, em Pessoas, ou pelo
+  "A sala está cheia" de quem chegou depois). Elas veem e ouvem o jogo, sem controle. Cada pessoa assistindo é mais
+  uma transmissão saindo do PC do host (cerca de 2,5 Mbps de upload a mais), ou do servidor no relé.
+- **Até 2 jogadores:** os dois motores de PS2 têm só as portas 1 e 2 (o TabStationToo fixa `NUM_PAD_PORTS = 2`,
+  e o ps2-web-recomp lê só dois controles), sem multitap. Jogos de 3 ou 4 jogadores vão só até 2 por enquanto.
 - **Isolamento e navegador:** o runtime usa threads, então a página do jogo é servida *cross-origin isolated*
   (`Document-Isolation-Policy`, COOP/COEP), sem o sandbox das outras páginas. Se o Discord não isolar a janela, o
   jogo mostra "Abrir no navegador" (precisa de `PUBLIC_URL`). Precisa de WebGPU e JSPI: Chrome ou Edge atualizado.

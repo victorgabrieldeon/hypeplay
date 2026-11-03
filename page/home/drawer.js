@@ -113,15 +113,16 @@ export function drawer(g, ctx) {
   const rooms = g.open.length
     ? `<div class="rooms">${g.open.map((r) => `<div class="room">
         <span><strong>${esc(r.host)}</strong> ${port ? `abriu a sala <strong class="code">${esc(r.code)}</strong>` : 'está jogando'}</span>
-        ${r.busy ? `<span class="state">${port ? 'Em partida' : 'Cheia'}</span>`
+        <span class="row-actions">${r.busy ? `<span class="state">${port ? 'Em partida' : 'Jogador 2 ocupado'}</span>`
           : `<button class="btn small" data-play="${esc(g.key)}" data-join="${esc(r.code)}">${icon('users')}${port ? 'Entrar na sala' : 'Entrar como jogador 2'}</button>`}
+          ${port ? '' : `<button class="btn second small" data-play="${esc(g.key)}" data-join="${esc(r.code)}" data-watch>${icon('play')}Assistir${r.watchers ? ` (${r.watchers})` : ''}</button>`}</span>
       </div>`).join('')}</div>`
     : '';
   const online = g.status.state === 'ready'
     ? `<div class="block"><h3>Jogar online</h3>${rooms}
         <p>${port
           ? 'O online é do próprio jogo: no menu principal, <strong>Dragon Net Battle</strong>. <strong>Host a Match</strong> cria uma sala com um código de 4 letras, que aparece aqui para os amigos; quem entra usa <strong>Join a Match</strong> com o código. <strong>Quick Match</strong> acha outra pessoa procurando.'
-          : 'Abra uma sala: um amigo entra por aqui, em <strong>Entrar como jogador 2</strong>, e joga com o controle dele.'}</p>
+          : 'Abra uma sala: um amigo entra por aqui, em <strong>Entrar como jogador 2</strong>, e joga com o controle dele. Os outros podem <strong>Assistir</strong>. Este emulador tem só duas portas de controle: o jogo vai até 2 jogadores.'}</p>
         <button class="btn second" data-play="${esc(g.key)}" data-online>${icon('users')}${port ? 'Jogar online' : 'Abrir uma sala'}</button></div>`
     : g.open.length ? `<div class="block"><h3>Salas abertas</h3>${rooms}</div>` : '';
   const manage = `<div class="block"><h3>Jogo</h3><div class="row-actions">

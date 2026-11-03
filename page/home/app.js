@@ -3,7 +3,7 @@
 // controller screen and the intro live in their own modules.
 import { drawer } from './drawer.js';
 import { loadHomebrew } from './homebrew.js';
-import { addCard, card, esc, hero, initials, meter, needsDisc, sendBios, upload } from './library.js';
+import { addCard, card, esc, hero, icon, initials, meter, needsDisc, sendBios, upload } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,6 +12,8 @@ export const state = {
   last: null,
   publicUrl: '',
   games: null,
+  /** who else is around (server/presence.ts): the same call first */
+  people: [],
   /** the drawer's game, by key */
   open: null,
   /** this window's upload: { key, size, received, inflight, meter, retrying } */
@@ -39,6 +41,33 @@ function spotlight() {
 
 const greeting = (h) => (h >= 5 && h < 12 ? 'Bom dia' : h >= 12 && h < 18 ? 'Boa tarde' : 'Boa noite');
 
+/**
+ * One person around: what they have open, and their PS2 room (to join as player 2 while the place is free, or watch).
+ * BT3's rooms and homebrew aren't anyone's to join from here: those only say the game.
+ */
+function person(p) {
+  const room = p.room && gameOf(p.room.key) ? p.room : null;
+  const title = p.game?.title ?? (room && gameOf(room.key).name);
+  const doing = p.game?.watch ? `Assistindo ${title}` : title ? `Jogando ${title}` : 'Na biblioteca';
+  const about = room ? `${room.busy ? 'Jogador 2 ocupado' : 'Vaga de jogador 2'}${room.watchers ? ` · ${room.watchers} assistindo` : ''}` : '';
+  const join = (label, cls, watch) =>
+    `<button class="btn ${cls} small" data-play="${esc(room.key)}" data-join="${esc(room.code)}"${watch ? ' data-watch' : ''} aria-label="${esc(`${label} na sala de ${p.name}`)}">${icon(watch ? 'play' : 'users')}${label}</button>`;
+  const acts = room ? `<div class="acts">${room.busy ? '' : join('Entrar', '', false)}${join('Assistir', 'second', true)}</div>` : '';
+  return `<div class="person"><div class="avatar" aria-hidden="true">${esc(initials(p.name))}</div>
+    <div class="who"><b>${esc(p.name)}${p.call ? '<span class="tag">NA CALL</span>' : ''}</b>
+      <span class="state ${title ? 'ok live' : ''}">${esc(doing)}</span>${about ? `<small>${esc(about)}</small>` : ''}</div>${acts}</div>`;
+}
+
+function renderPeople() {
+  const ps = state.people;
+  const inCall = ps.filter((p) => p.call).length;
+  $('people').hidden = !ps.length;
+  document.querySelector('[data-nav="people"]').hidden = !ps.length;
+  set($('n-people'), ps.length ? String(ps.length) : '');
+  set($('people-sub'), [inCall && `${inCall} na sua call`, ps.length - inCall && `${ps.length - inCall} ${inCall ? 'fora dela' : 'online'}`].filter(Boolean).join(' · '));
+  set($('people-list'), ps.map(person).join(''));
+}
+
 let entered = false;
 export function render() {
   $('expired').hidden = !state.expired;
@@ -63,6 +92,7 @@ export function render() {
     $('hero').removeAttribute('aria-busy');
   }
   set($('grid'), state.games.map((g, i) => card(g, state.sending, state.open, i)).join('') + addCard(n));
+  renderPeople();
   const g = state.open && gameOf(state.open);
   if (state.open && !g) closeDrawer(); // removed meanwhile
   else if (g) {
@@ -84,7 +114,7 @@ export async function poll() {
     if (r.status === 403) { state.expired = true; render(); return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const body = await r.json();
-    Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games });
+    Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [] });
     for (const g of state.games) {
       const s = g.status;
       if (s.state === 'uploading' && !s.mine && !s.stale) {
@@ -122,11 +152,12 @@ export async function send(key, file) {
 }
 
 /**
- * Where a game opens: a PS2 game's player 2 watches the host's stream (watch/); `join` is a friend's room, `online`
- * opens one (for BT3's port, both point the way to its own Dragon Net Battle); else the game itself.
+ * Where a game opens: a PS2 game's player 2 watches the host's stream (watch/); `join` is a friend's room (`watch`:
+ * only to watch it), `online` opens one (for BT3's port, both point the way to its own Dragon Net Battle); else the
+ * game itself.
  */
-export function gameUrl(g, join, online, fast) {
-  if (join && g.kind === 'recomp') return `${g.key}/watch/?room=${encodeURIComponent(join)}`;
+export function gameUrl(g, join, online, fast, watch) {
+  if (join && g.kind === 'recomp') return `${g.key}/watch/?room=${encodeURIComponent(join)}${watch ? '&watch=1' : ''}`;
   // (a PS2 game's "versão rápida": the same rooms as the emulator's, opened from its panel)
   if (fast) return `${g.key}/fast/${online ? '?online=host' : ''}`;
   return `${g.key}/game/${join ? `?join=${encodeURIComponent(join)}` : online ? '?online=host' : ''}`;
@@ -137,7 +168,7 @@ export const fastPlays = (g) => !!g.fast && (g.fast.state === 'ready' || !!g.fas
 
 /** Opens a game: the intro (intro.js, when it's there) first. Replaced by intro.js's own when loaded. */
 export const hooks = {
-  play: (g, join, online, fast) => { location.href = gameUrl(g, join, online, fast); },
+  play: (g, join, online, fast, watch) => { location.href = gameUrl(g, join, online, fast, watch); },
   add: () => {},
   controller: () => {},
   settings: () => {},
@@ -205,7 +236,7 @@ document.addEventListener('click', async (e) => {
   }
   if (d.open) return openDrawer(d.open);
   // (player 2 watches the host's page, whichever it is; data-emulator: the drawer's "Jogar no emulador")
-  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d, !d.join && !('emulator' in d) && fastPlays(g)); return; }
+  if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d, !d.join && !('emulator' in d) && fastPlays(g), 'watch' in d); return; }
   if (d.pick) return pickFile(d.pick, 'disc');
   if (d.cover) return pickFile(d.cover, 'cover');
   if ('bios' in d) return pickFile(state.open, 'bios');

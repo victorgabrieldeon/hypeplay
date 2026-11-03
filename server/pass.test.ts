@@ -23,3 +23,10 @@ test("pass: forged, tampered, another secret's, or malformed", async () => {
   for (const bad of [`${evil}.${mac}`, `${body}.${mac.slice(1)}`, `${body}.${mac}.x`, body, "", createPasses("other", { now }).issue(ana)])
     expect(await p.verify(bad)).toBeNull();
 });
+
+test("pass: carries the voice channel it was opened in, when it looks like one", async () => {
+  clock = 1_000_000;
+  const p = createPasses("secret", { now });
+  expect((await p.verify(p.issue({ ...ana, call: "998877665544332211" })))?.call).toBe("998877665544332211");
+  expect(await p.verify(p.issue({ ...ana, call: "not a channel" }))).toEqual({ ...ana, exp: 1_000_000 + PASS_TTL_MS });
+});

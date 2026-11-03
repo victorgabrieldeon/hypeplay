@@ -383,3 +383,11 @@ fetch(prefsUrl, { cache: "no-store" })
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build);
 else build();
+
+// The home's "Pessoas" (server/presence.ts): this game's page is open, every HERE_MS, and closed (empty) on leaving.
+const hereUrl = new URL("here", home);
+const where = location.pathname.slice(home.pathname.length) + location.search;
+const beat = () => fetch(hereUrl, { method: "POST", body: where, keepalive: true }).catch(() => {});
+void beat();
+setInterval(beat, 15_000);
+addEventListener("pagehide", () => navigator.sendBeacon?.(hereUrl, ""));

@@ -21,7 +21,7 @@ const ANA = "Ana-body.Ana_mac";
 const BIA = "Bia-body.Bia_mac";
 const passes: Passes = {
   issue: () => ANA,
-  verify: async (p) => (p === ANA ? { id: "42", name: "Ana", exp: Infinity } : p === BIA ? { id: "43", name: "Bia", exp: Infinity } : null),
+  verify: async (p) => (p === ANA ? { id: "42", name: "Ana", exp: Infinity, call: "7" } : p === BIA ? { id: "43", name: "Bia", exp: Infinity, call: "7" } : null),
 };
 const discord = { signIn: async () => ({ id: "42", name: "Ana", accessToken: "tok" }) };
 
@@ -422,7 +422,7 @@ test("rooms: create, post, wait, listed in games; ice with and without TURN", as
   expect((await bia(`ps2/${id}/room/${room}/host`, { method: "POST", body: "[1]" })).status).toBe(400);
   expect((await bia(`ps2/${id}/room/${room}/host`, { method: "POST", body: "x".repeat(65_537) })).status).toBe(413);
   const entry = (await catalog()).games.find((g) => g.id === id)!;
-  expect(entry.open).toEqual([{ code: room, host: "Ana", since: expect.any(Number), busy: true }]);
+  expect(entry.open).toEqual([{ code: room, host: "Ana", since: expect.any(Number), busy: true, watchers: 0 }]);
 
   // only its host closes it, and then it's gone
   expect((await bia(`ps2/${id}/room/${room}`, { method: "DELETE" })).status).toBe(404);
@@ -441,12 +441,13 @@ test("the relay: only the room's host and a guest that joined; the rest is refus
   await bia(`ps2/${id}/room/${room}/host`, json({ type: "join", from: "bia1" }));
   const relay = (who: typeof ana, q: string, code = room) => who(`ps2/${id}/room/${code}/relay?${q}`);
   // (allowed: 426, as there's no server to upgrade with in a test)
-  expect((await relay(ana, "role=host")).status).toBe(426);
-  expect((await relay(bia, "role=host")).status).toBe(403);
+  expect((await relay(ana, "role=host&me=bia1")).status).toBe(426);
+  expect((await relay(ana, "role=host")).status).toBe(400);
+  expect((await relay(bia, "role=host&me=bia1")).status).toBe(403);
   expect((await relay(bia, "role=guest&me=bia1")).status).toBe(426);
   expect((await relay(bia, "role=guest&me=outro")).status).toBe(403);
   expect((await relay(bia, "role=xx")).status).toBe(400);
-  expect((await relay(ana, "role=host", "ZZZZZZ")).status).toBe(404);
+  expect((await relay(ana, "role=host&me=bia1", "ZZZZZZ")).status).toBe(404);
   // (and "relay" isn't an inbox: nothing waits there)
   expect((await bia(`ps2/${id}/room/${room}/relay`, json({ type: "x" }))).status).toBe(400);
 });
@@ -557,4 +558,23 @@ test("BT3's rooms (the game's Dragon Net Battle) are listed in the library, with
   expect((await bt3()).open).toEqual([{ code: "QRST", host: "Ana", since: expect.any(Number), busy: false }]);
   rooms.close(ws, 1000);
   expect((await bt3()).open).toEqual([]);
+});
+
+test("people: who else is around, the game their page says, and the room they host", async () => {
+  const id = await built("SLES-16161", "SLES_161.61");
+  type People = { name: string; call: boolean; game: { key: string; title: string; watch: boolean } | null; room: { key: string; code: string; busy: boolean; watchers: number } | null }[];
+  const people = async (who = ana) => ((await (await who("games")).json()) as { people: People }).people;
+  await bia("games");
+  expect((await people()).find((p) => p.name === "Bia")).toMatchObject({ call: true, game: null, room: null });
+  expect((await people()).some((p) => p.name === "Ana")).toBe(false);
+  // Bia's game page beats; a path that isn't a game is nothing
+  expect((await bia("here", { method: "POST", body: `ps2/${id}/game/` })).status).toBe(204);
+  expect((await people()).find((p) => p.name === "Bia")!.game).toMatchObject({ key: `ps2/${id}`, watch: false });
+  await bia("here", { method: "POST", body: "games" });
+  expect((await people()).find((p) => p.name === "Bia")!.game).toBeNull();
+  // her room, to join or watch
+  const { room } = (await (await bia(`ps2/${id}/room`, { method: "POST" })).json()) as { room: string };
+  expect((await people()).find((p) => p.name === "Bia")!.room).toEqual({ key: `ps2/${id}`, code: room, busy: false, watchers: 0 });
+  await bia(`ps2/${id}/room/${room}`, { method: "DELETE" });
+  expect((await bia("here")).status).toBe(405);
 });

@@ -6,7 +6,7 @@
  * the app's public address (PUBLIC_URL) in front. Only our own pages, never anywhere else.
  */
 const PAGES =
-  /^\/p\/[\w.-]+\/(?:\?play=(?:bt3|ps2%2F[a-z]{4}-\d{5}(?:-\d{1,2})?)(?:&join=[A-Z2-9]{4,6}|&fast=1(?:&online=1)?|&online=1)?|ps2\/[a-z]{4}-\d{5}(?:-\d{1,2})?\/(?:game\/|fast\/|watch\/\?room=[A-Z2-9]{6})|bt3\/game\/|play\/\?[\w%.+=&-]{1,300})?$/;
+  /^\/p\/[\w.-]+\/(?:\?play=(?:bt3|ps2%2F[a-z]{4}-\d{5}(?:-\d{1,2})?)(?:&join=[A-Z2-9]{4,6}(?:&watch=1)?|&fast=1(?:&online=1)?|&online=1)?|ps2\/[a-z]{4}-\d{5}(?:-\d{1,2})?\/(?:game\/|fast\/|watch\/\?room=[A-Z2-9]{6}(?:&watch=1)?)|bt3\/game\/|play\/\?[\w%.+=&-]{1,300})?$/;
 
 export function openRequest(data: unknown, publicUrl: string): string | null {
   if (!publicUrl || !data || typeof data !== "object") return null;

@@ -11,14 +11,14 @@ import { esc, icon } from './library.js';
 const layer = document.getElementById('layer');
 const framed = window.parent !== window;
 
-function run(g, join, online, fast) {
+function run(g, join, online, fast, watch) {
   fetch('played', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: g.key }) }).catch(() => {});
   let gone = false;
   const leave = () => {
     if (gone) return;
     gone = true;
     removeEventListener('keydown', onKey, true);
-    location.href = gameUrl(g, join, online, fast);
+    location.href = gameUrl(g, join, online, fast, watch);
   };
   const onKey = (e) => { e.preventDefault(); leave(); };
   layer.innerHTML = `<div class="intro" role="dialog" aria-label="Abrindo ${g.name.replace(/[<>&"]/g, '')}">
@@ -33,8 +33,8 @@ function run(g, join, online, fast) {
 }
 
 /** The library in the browser, straight into this game (open.ts lets exactly these through). */
-const playPath = (g, join, online, fast) =>
-  `${location.pathname}?play=${encodeURIComponent(g.key)}${join ? `&join=${encodeURIComponent(join)}` : `${fast ? '&fast=1' : ''}${online ? '&online=1' : ''}`}`;
+const playPath = (g, join, online, fast, watch) =>
+  `${location.pathname}?play=${encodeURIComponent(g.key)}${join ? `&join=${encodeURIComponent(join)}${watch ? '&watch=1' : ''}` : `${fast ? '&fast=1' : ''}${online ? '&online=1' : ''}`}`;
 
 let choice = null; // { here, path }
 
@@ -151,11 +151,11 @@ window.addEventListener('message', (e) => {
   if (m?.t === 'cordplay:cant-open') linkBox(`Não abriu sozinho. ${typeof m.why === 'string' ? m.why : ''}${url ? ' Copie o link e cole no navegador:' : ''}`, url, true);
 });
 
-hooks.play = (g, join, online, fast) => {
-  if (!framed) return run(g, join, online, fast);
+hooks.play = (g, join, online, fast, watch) => {
+  if (!framed) return run(g, join, online, fast, watch);
   // Every game can try here (a Discord that can't isolate a PS2 game, the game's page says so and offers the
   // browser), player 2 too: without WebRTC (some Discords take it away) its picture comes through the server.
-  where({ name: g.name, here: () => run(g, join, online, fast), path: playPath(g, join, online, fast) });
+  where({ name: g.name, here: () => run(g, join, online, fast, watch), path: playPath(g, join, online, fast, watch) });
 };
 /** For the homebrew shelf: where to play one of its games. */
 hooks.where = (name, here, path) => (framed ? where({ name, here, path }) : here());
@@ -168,6 +168,6 @@ if (!framed && asked.has('play')) {
     if (!state.games) return;
     clearInterval(wait);
     const g = gameOf(asked.get('play'));
-    if (g) run(g, asked.get('join') || undefined, asked.get('online') === '1', asked.get('fast') === '1');
+    if (g) run(g, asked.get('join') || undefined, asked.get('online') === '1', asked.get('fast') === '1', asked.get('watch') === '1');
   }, 200);
 }

@@ -50,7 +50,7 @@ async function start() {
     prompt: "none",
     scope: ["identify"],
   });
-  const res = await fetch("token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+  const res = await fetch("token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, call: sdk.channelId }) });
   const body = (await res.json().catch(() => ({}))) as { pass?: string; error?: string; access_token?: string; public_url?: string };
   if (!res.ok || !body.pass) throw new Error(body.error ?? `Erro ${res.status}`);
   if (!base && /^https?:\/\//.test(body.public_url ?? "")) base = body.public_url!;

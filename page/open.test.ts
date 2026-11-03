@@ -23,6 +23,8 @@ test("only our own pages are opened outside", () => {
 test("player 2's page opens outside too, with its room and nothing else", () => {
   const watch = "/p/abc/ps2/slus-21678/watch/?room=XC7WWC";
   expect(openRequest({ t: "cordplay:open", path: watch }, PUBLIC)).toBe(PUBLIC + watch);
+  // (only watching: from the guest's page, and the library opened straight into it)
+  for (const path of [`${watch}&watch=1`, "/p/abc/?play=ps2%2Fslus-21678&join=XC7WWC&watch=1"]) expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
   for (const path of ["/p/abc/ps2/slus-21678/watch/?room=XC7WWC&x=1", "/p/abc/ps2/slus-21678/watch/?room=../x", "/p/abc/ps2/slus-21678/game/?room=XC7WWC"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });

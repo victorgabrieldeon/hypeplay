@@ -40,7 +40,7 @@ test("a room gets a fresh 6-letter code and is listed for its game only", () => 
   expect(code).toMatch(new RegExp(`^[${ROOM_LETTERS}]{6}$`));
   expect(r.create("sles-12345", ana)).not.toBe(code);
   expect(r.list("sles-12345").map((x) => x.code)).toContain(code);
-  expect(r.list("sles-12345")[0]).toEqual({ code, host: "Ana", since: 1_000_000, busy: false });
+  expect(r.list("sles-12345")[0]).toEqual({ code, host: "Ana", since: 1_000_000, busy: false, watchers: 0 });
   expect(r.list("scus-97481")).toEqual([]);
 });
 
@@ -132,16 +132,39 @@ test("only its host closes a room", async () => {
   expect(await r.wait(code, "g1", 0)).toBeNull();
 });
 
-test("who may use a room's relay: its host, and a guest that joined and hasn't left", () => {
+test("who may use a room's relay: its host, and a guest that joined and hasn't left, as player or watcher", () => {
   const r = rooms();
   const code = r.create("sles-12345", ana);
   expect(r.hostOf(code)).toBe("42");
   expect(r.hostOf("ZZZZZZ")).toBeNull();
-  expect(r.hasGuest(code, "g1")).toBe(false);
+  expect(r.guestOf(code, "g1")).toBeNull();
   r.post(code, "host", { type: "join", from: "g1" });
-  expect(r.hasGuest(code, "g1")).toBe(true);
-  expect(r.hasGuest(code, "g2")).toBe(false);
+  r.post(code, "host", { type: "join", from: "w1", watch: true });
+  expect(r.guestOf(code, "g1")).toBe("player");
+  expect(r.guestOf(code, "w1")).toBe("watch");
+  expect(r.guestOf(code, "g2")).toBeNull();
   r.post(code, "host", { type: "bye", from: "g1" });
-  expect(r.hasGuest(code, "g1")).toBe(false);
-  expect(r.hasGuest("ZZZZZZ", "g1")).toBe(false);
+  r.post(code, "host", { type: "bye", from: "w1" });
+  expect(r.guestOf(code, "g1")).toBeNull();
+  expect(r.guestOf(code, "w1")).toBeNull();
+  expect(r.guestOf("ZZZZZZ", "g1")).toBeNull();
+});
+
+test("watchers are counted but never make the room busy; byHost finds a person's rooms", () => {
+  const t = fakeTime();
+  const r = rooms(t);
+  const code = r.create("sles-12345", ana);
+  r.post(code, "host", { type: "join", from: "w1", watch: true });
+  r.post(code, "host", { type: "join", from: "w2", watch: true });
+  expect(r.list("sles-12345")[0]).toMatchObject({ busy: false, watchers: 2 });
+  r.post(code, "host", { type: "join", from: "g1" });
+  expect(r.byHost("42")).toEqual([{ code, host: "Ana", since: 1_000_000, busy: true, watchers: 2, game: "sles-12345" }]);
+  expect(r.byHost("7")).toEqual([]);
+  // one watcher keeps saying "here"; the other went quiet
+  t.advance(GUEST_QUIET_MS - 1000);
+  void r.wait(code, "host", 0, 1);
+  r.post(code, "host", { type: "here", from: "w1" });
+  t.advance(2000);
+  void r.wait(code, "host", 0, 1);
+  expect(r.list("sles-12345")[0]).toMatchObject({ busy: false, watchers: 1 });
 });

@@ -446,6 +446,8 @@ test("the relay: only the room's host and a guest that joined; the rest is refus
   expect((await relay(bia, "role=host&me=bia1")).status).toBe(403);
   expect((await relay(bia, "role=guest&me=bia1")).status).toBe(426);
   expect((await relay(bia, "role=guest&me=outro")).status).toBe(403);
+  // (player 2's id is readable in the host's inbox: someone else's login with it is refused)
+  expect((await relay(ana, "role=guest&me=bia1")).status).toBe(403);
   expect((await relay(bia, "role=xx")).status).toBe(400);
   expect((await relay(ana, "role=host&me=bia1", "ZZZZZZ")).status).toBe(404);
   // (and "relay" isn't an inbox: nothing waits there)

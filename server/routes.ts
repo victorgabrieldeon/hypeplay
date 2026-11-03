@@ -572,7 +572,7 @@ export function createApp({
       if ((role !== "host" && role !== "guest") || !INBOX.test(me)) return text("Pedido inválido", 400);
       const host = ps2Rooms.hostOf(code);
       if (host === null) return text("Não encontrado", 404);
-      const guest = ps2Rooms.guestOf(code, me);
+      const guest = ps2Rooms.guestOf(code, me, pass.id);
       if (role === "host" ? host !== pass.id : !guest) return text("Esta sala não é sua", 403);
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
       const data: NetData = { game: id, kind: "relay", room: code, role, me, watch: guest === "watch" };
@@ -597,7 +597,7 @@ export function createApp({
       return json({ error: "bad message" }, 400);
     }
     if (!message || typeof message !== "object" || Array.isArray(message)) return json({ error: "bad message" }, 400);
-    return ps2Rooms.post(code!, who!, message) ? json({}) : json({ error: "no such room" }, 404);
+    return ps2Rooms.post(code!, who!, message, pass.id) ? json({}) : json({ error: "no such room" }, 404);
   }
 
   /** Everything under ps2/<id>/ but the game itself. */

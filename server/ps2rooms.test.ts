@@ -132,22 +132,25 @@ test("only its host closes a room", async () => {
   expect(await r.wait(code, "g1", 0)).toBeNull();
 });
 
-test("who may use a room's relay: its host, and a guest that joined and hasn't left, as player or watcher", () => {
+test("who may use a room's relay: its host, and a guest that joined with this login and hasn't left, as player or watcher", () => {
   const r = rooms();
   const code = r.create("sles-12345", ana);
   expect(r.hostOf(code)).toBe("42");
   expect(r.hostOf("ZZZZZZ")).toBeNull();
-  expect(r.guestOf(code, "g1")).toBeNull();
-  r.post(code, "host", { type: "join", from: "g1" });
-  r.post(code, "host", { type: "join", from: "w1", watch: true });
-  expect(r.guestOf(code, "g1")).toBe("player");
-  expect(r.guestOf(code, "w1")).toBe("watch");
-  expect(r.guestOf(code, "g2")).toBeNull();
-  r.post(code, "host", { type: "bye", from: "g1" });
-  r.post(code, "host", { type: "bye", from: "w1" });
-  expect(r.guestOf(code, "g1")).toBeNull();
-  expect(r.guestOf(code, "w1")).toBeNull();
-  expect(r.guestOf("ZZZZZZ", "g1")).toBeNull();
+  expect(r.guestOf(code, "g1", "43")).toBeNull();
+  r.post(code, "host", { type: "join", from: "g1" }, "43");
+  r.post(code, "host", { type: "join", from: "w1", watch: true }, "44");
+  expect(r.guestOf(code, "g1", "43")).toBe("player");
+  expect(r.guestOf(code, "w1", "44")).toBe("watch");
+  expect(r.guestOf(code, "g2", "43")).toBeNull();
+  // (a guest's id is readable in the host's inbox: no password, another login with it is refused)
+  expect(r.guestOf(code, "g1", "44")).toBeNull();
+  expect(r.guestOf(code, "w1", "43")).toBeNull();
+  r.post(code, "host", { type: "bye", from: "g1" }, "43");
+  r.post(code, "host", { type: "bye", from: "w1" }, "44");
+  expect(r.guestOf(code, "g1", "43")).toBeNull();
+  expect(r.guestOf(code, "w1", "44")).toBeNull();
+  expect(r.guestOf("ZZZZZZ", "g1", "43")).toBeNull();
 });
 
 test("watchers are counted but never make the room busy; byHost finds a person's rooms", () => {

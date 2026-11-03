@@ -115,7 +115,12 @@ registerProcessor("hypeplay-player", Player);
  * Player 2's speaker: blocks of 48 kHz stereo interleaved PCM in, played with a small buffer. Silent until resume()
  * (the browser wants a click first: the page's "Ligar o som").
  */
-export async function playAudio(): Promise<{ push(pcm: Float32Array<ArrayBuffer>, frames: number): void; resume(): Promise<void>; close(): void }> {
+export async function playAudio(): Promise<{
+  push(pcm: Float32Array<ArrayBuffer>, frames: number): void;
+  resume(): Promise<void>;
+  close(): void;
+  state(): AudioContextState;
+}> {
   const ctx = new AudioContext({ sampleRate: RATE });
   await load(ctx, PLAYER);
   const node = new AudioWorkletNode(ctx, "hypeplay-player", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
@@ -124,5 +129,6 @@ export async function playAudio(): Promise<{ push(pcm: Float32Array<ArrayBuffer>
     push: (pcm) => node.port.postMessage(pcm, [pcm.buffer]),
     resume: () => ctx.resume(),
     close: () => void ctx.close().catch(() => {}),
+    state: () => ctx.state,
   };
 }

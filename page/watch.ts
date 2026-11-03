@@ -78,10 +78,16 @@ function goRelay(tell: boolean, pc: RTCPeerConnection | null) {
   const url = new URL(`../room/${room}/relay?role=guest&me=${me}`, location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   const stop = (why: "closed" | "no-decoder") => {
-    const s = relayStuck(why);
     $("dot").classList.remove("on");
     clearInterval(beat);
-    status(s.title, s.text, "error", [retry]);
+    const say = () => {
+      const s = relayStuck(why);
+      status(s.title, s.text, "error", [retry]);
+    };
+    if (why !== "closed") return say();
+    // (the host leaving the game ends the relay too: once its room is gone, that's the room ending, as without the
+    // relay; a moment first, as the room goes just after the relay)
+    setTimeout(() => void send("host", { type: "here", from: me }).then(say, (err) => (err instanceof Error && err.message === "gone" ? gone() : say())), 1000);
   };
   relaying = joinRelay({
     url: url.href,
@@ -193,9 +199,11 @@ async function start() {
 
     step = "joining";
     status("Conectando…", "Avisando o host.");
-    await send("host", { type: "join", from: me, ...(watching ? { watch: true } : {}) });
+    // (without WebRTC here, the join says so: the host goes by the server without an offer first)
+    await send("host", { type: "join", from: me, ...(watching ? { watch: true } : {}), relay: !webrtc });
     step = "waiting";
     status("Conectando…", "Esperando o host aceitar.");
+    if (!webrtc) goRelay(false, null);
     // by the server when WebRTC isn't here, failed, or didn't link in time
     const check = window.setInterval(() => {
       if (linked || relaying) return clearInterval(check);

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { createBios } from "./bios";
+import { createDiscs } from "./discs";
 import { createDiscord } from "./discord";
 import { createLibrary } from "./library";
 import { createPasses } from "./pass";
@@ -49,6 +50,8 @@ const app = createApp({
   clientId: DISCORD_CLIENT_ID,
   library,
   vimm: createVimm(dir, library),
+  // The discs played from R2 when S3_BUCKET is set (discs.ts); the local file otherwise, or when R2 lacks one.
+  discs: createDiscs(dir),
   saves: createSaves(dir),
   people: createPeople(dir),
   ps2Rooms: new Ps2Rooms(),

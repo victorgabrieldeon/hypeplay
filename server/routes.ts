@@ -34,6 +34,7 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bios } from "./bios";
 import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
+import { createDiscs, type Discs } from "./discs";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { iceServers } from "./ice";
 import { authorizeUrl, type Discord } from "./discord";
@@ -158,6 +159,8 @@ export interface AppOptions {
   scripts?: Record<string, string>;
   /** Downloads from vimm.net into the library (vimm.ts); without it, /vimm answers 404. */
   vimm?: Vimm;
+  /** Where the discs are played from (discs.ts): R2 when index.ts says so, the local file by default. */
+  discs?: Discs;
 }
 
 /** One game of the home's catalog: BT3's port or a PS2 game of the library. */
@@ -208,6 +211,7 @@ export function createApp({
   bios,
   ps2Engine = join(import.meta.dir, "..", "emulator", "ps2"),
   vimm,
+  discs = createDiscs(dir, null),
 }: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
@@ -267,8 +271,8 @@ export function createApp({
   }
 
   async function discIndex({ disc }: Shelf) {
-    const f = Bun.file(disc.paths.iso);
-    return (await f.exists()) ? { size: f.size, piece: PIECE } : null;
+    const d = await discs(disc.paths.iso);
+    return d && { size: d.size, piece: PIECE, d };
   }
 
   async function game(on: Shelf, rest: string, req: Request, server: Server<NetData> | undefined): Promise<Response | undefined> {
@@ -279,15 +283,22 @@ export function createApp({
     if (on.game.files.has(rest)) return file(join(disc.paths.build, rest));
     if (rest === "disc/index.json") {
       const index = await discIndex(on);
-      return index ? json(index) : text("Sem ISO no servidor", 404);
+      return index ? json({ size: index.size, piece: index.piece }) : text("Sem ISO no servidor", 404);
     }
     const piece = /^disc\/(\d{5})\.bin$/.exec(rest);
     if (piece) {
       const index = await discIndex(on);
       const n = Number(piece[1]);
       if (!index || n * PIECE >= index.size) return text("Não encontrado", 404);
-      const blob = Bun.file(disc.paths.iso).slice(n * PIECE, Math.min(index.size, (n + 1) * PIECE));
-      return respond(blob, 200, { "Content-Type": TYPES.bin!, "Cache-Control": "private, max-age=31536000, immutable" });
+      const end = Math.min(index.size, (n + 1) * PIECE);
+      const blob = index.d.file.slice(n * PIECE, end);
+      // (an R2 piece streamed, not as it is: that would be a redirect to R2, http.ts' rangeResponse)
+      return respond(index.d.from === "r2" ? blob.stream() : blob, 200, {
+        "Content-Type": TYPES.bin!,
+        "Content-Length": String(end - n * PIECE),
+        "Cache-Control": "private, max-age=31536000, immutable",
+        "X-Disc-Source": index.d.from,
+      });
     }
     if (rest === "net/ws" || rest === "net/queue") {
       const q = new URL(req.url).searchParams;
@@ -465,8 +476,8 @@ export function createApp({
       return isolated(cache ? `${await f.text()}\n${cache}` : f, 200, typeOf(rest));
     }
     if (rest === "disc.iso") {
-      const f = Bun.file(p.iso);
-      return (await f.exists()) ? rangeResponse(req, f, { ...ISOLATED, "Content-Type": TYPES.bin! }) : notFound();
+      const d = await discs(p.iso);
+      return d ? rangeResponse(req, d.file, { ...ISOLATED, "Content-Type": TYPES.bin!, "X-Disc-Source": d.from }, d.size) : notFound();
     }
     if (rest === "pipelines") return pipelines(req, join(p.root, "pipelines.bin"));
     return notFound();
@@ -497,8 +508,8 @@ export function createApp({
       return (await f.exists()) ? isolated(f, 200, { "Content-Type": type, "Cache-Control": "no-cache" }) : isolated("Não encontrado", 404);
     }
     if (rest === "disc.iso") {
-      const f = Bun.file(p.iso);
-      return (await f.exists()) ? rangeResponse(req, f, { ...ISOLATED, "Content-Type": TYPES.bin! }) : isolated("Não encontrado", 404);
+      const d = await discs(p.iso);
+      return d ? rangeResponse(req, d.file, { ...ISOLATED, "Content-Type": TYPES.bin!, "X-Disc-Source": d.from }, d.size) : isolated("Não encontrado", 404);
     }
     if (rest === "miss") {
       if (req.method !== "POST") return isolated("Método não permitido", 405);

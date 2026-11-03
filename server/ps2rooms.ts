@@ -44,6 +44,8 @@ interface Room {
   guests: Map<string, number>;
   /** the same for those who only watch */
   watchers: Map<string, number>;
+  /** whose login each guest joined with: the relay lets only that login in as them (a guest's id is readable) */
+  logins: Map<string, string>;
 }
 
 export type RoomInfo = { code: string; host: string; since: number; busy: boolean; watchers: number };
@@ -64,12 +66,12 @@ export class Ps2Rooms {
     do code = Array.from({ length: 6 }, () => ROOM_LETTERS[Math.floor(this.random() * ROOM_LETTERS.length)]).join("");
     while (this.rooms.has(code));
     const t = this.now();
-    this.rooms.set(code, { game, host: host.name, hostId: host.id, hostSeen: t, since: t, seen: t, inboxes: new Map(), waiters: new Set(), guests: new Map(), watchers: new Map() });
+    this.rooms.set(code, { game, host: host.name, hostId: host.id, hostSeen: t, since: t, seen: t, inboxes: new Map(), waiters: new Set(), guests: new Map(), watchers: new Map(), logins: new Map() });
     return code;
   }
 
-  /** false: no such room */
-  post(code: string, to: string, message: unknown): boolean {
+  /** false: no such room. `by`: the login posting it, kept with a join. */
+  post(code: string, to: string, message: unknown, by?: string): boolean {
     const room = this.room(code);
     if (!room) return false;
     const m = message as { type?: unknown; from?: unknown };
@@ -83,10 +85,13 @@ export class Ps2Rooms {
         heard(m.from);
         return true;
       }
-      if (m.type === "join") ((message as { watch?: unknown }).watch === true ? room.watchers : room.guests).set(m.from, room.seen);
-      else if (m.type === "bye") {
+      if (m.type === "join") {
+        ((message as { watch?: unknown }).watch === true ? room.watchers : room.guests).set(m.from, room.seen);
+        if (by) room.logins.set(m.from, by);
+      } else if (m.type === "bye") {
         room.guests.delete(m.from);
         room.watchers.delete(m.from);
+        room.logins.delete(m.from);
       } else heard(m.from);
     }
     const inbox = room.inboxes.get(to) ?? [];
@@ -126,11 +131,13 @@ export class Ps2Rooms {
     return this.rooms.get(code)?.hostId ?? null;
   }
 
-  /** Who may open the relay as a guest: one that joined and hasn't said bye, to play or only to watch; null, neither. */
-  guestOf(code: string, me: string): "player" | "watch" | null {
+  /** Who may open the relay as a guest: one that joined, with this login, and hasn't said bye, to play or only to
+   * watch; null, neither. */
+  guestOf(code: string, me: string, by: string): "player" | "watch" | null {
     this.sweep();
     const r = this.rooms.get(code);
-    return r?.guests.has(me) ? "player" : r?.watchers.has(me) ? "watch" : null;
+    if (!r || r.logins.get(me) !== by) return null;
+    return r.guests.has(me) ? "player" : r.watchers.has(me) ? "watch" : null;
   }
 
   list(game: string): RoomInfo[] {

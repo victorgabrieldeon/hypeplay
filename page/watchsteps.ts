@@ -21,7 +21,7 @@ export const whereAmI = (framed: boolean, host: string): Where =>
  * The server's TURN, for this browser: none offered (the ICE servers from ../ice), offered but no relay candidate came
  * (coturn down, or its ports closed), or answered (a relay candidate in this side's description).
  */
-export type Turn = "none" | "silent" | "answered";
+export type Turn = "none" | "silent" | "answered" | "off";
 export function turnState(ice: { urls: string | string[] }[], sdp: string): Turn {
   if (!ice.some((s) => [s.urls].flat().some((u) => /^turns?:/.test(u)))) return "none";
   return / typ relay( |$)/m.test(sdp) ? "answered" : "silent";
@@ -49,6 +49,13 @@ export function stuckAt(step: Step, error?: string, where: Where = "discord", tu
         browser: false,
       };
     case "linking":
+      // (P2P only, online.ts: no TURN to blame or to ask for)
+      if (turn === "off")
+        return {
+          title: "Sem conexão direta com o host",
+          text: `As redes de vocês não se alcançaram direto${why}. Acontece com 4G e com algumas operadoras (CGNAT). Tente de novo, ou outra rede (um Wi-Fi no lugar do 4G).${where === "discord" ? " No navegador às vezes passa." : ""}`,
+          browser: where === "discord",
+        };
       if (turn === "silent")
         return {
           title: "O TURN do servidor não respondeu",
@@ -76,12 +83,22 @@ export const LINK_MS = 6000;
  * Whether player 2 goes by the server's relay now: at once without WebRTC; once linked, never; failed, or not linked
  * LINK_MS after the host's offer came, now; before the offer (or within those 6 s), it waits.
  */
-export function relayWhen(s: { webrtc: boolean; offerAt: number | null; now: number; state: string | null }): "now" | "wait" | "stay" {
+export function relayWhen(s: { webrtc: boolean; offerAt: number | null; now: number; state: string | null }, p2pOnly = false): "now" | "wait" | "stay" {
+  // (P2P only, online.ts: never)
+  if (p2pOnly) return "stay";
   if (!s.webrtc) return "now";
   if (s.state === "connected") return "stay";
   if (s.state === "failed") return "now";
   if (s.offerAt === null) return "wait";
   return s.now - s.offerAt >= LINK_MS ? "now" : "wait";
+}
+
+/** P2P only, and the host's page has no WebRTC (it's inside Discord): what player 2 hears. */
+export function hostNoP2p(): { title: string; text: string } {
+  return {
+    title: "O host está no Discord",
+    text: "Dentro do Discord o jogo não faz a conexão direta. O host precisa abrir o jogo no navegador (Abrir no navegador) e abrir a sala de lá.",
+  };
 }
 
 /** What player 2 hears when the server's way stops. */

@@ -4,10 +4,12 @@
 // Each step says where it is, and a join that stops (an error, or no picture after a while) says where and why
 // (watchsteps.ts), with "Abrir no navegador" inside Discord. When WebRTC isn't there (inside Discord), or doesn't link
 // in time (relayWhen), the game comes through the server instead (relayguest.ts); ?relay=1 goes that way at once.
+// Unless P2P only (online.ts): then neither the TURN nor the server, and #net shows the link (ping, fps, size, way).
 // ?watch=1 only watches: the same game, no controller sent (the host gives a watcher no pad channel either).
 import { encodePad, KEYS } from "./guestpad";
+import { linkLabel, linkStats, P2P_ONLY, p2pIce } from "./online";
 import { joinRelay } from "./relayguest";
-import { relayStuck, relayWhen, stuckAt, turnState, whereAmI, type Step, type Turn } from "./watchsteps";
+import { hostNoP2p, relayStuck, relayWhen, stuckAt, turnState, whereAmI, type Step, type Turn } from "./watchsteps";
 
 const $ = (id: string) => document.getElementById(id)!;
 const room = new URLSearchParams(location.search).get("room") ?? "";
@@ -16,7 +18,7 @@ const NO_LINK_MS = 15_000;
 /** How long the server's way may take to show a picture. */
 const RELAY_MS = 10_000;
 const framed = window.parent !== window;
-const forceRelay = new URLSearchParams(location.search).get("relay") === "1";
+const forceRelay = !P2P_ONLY && new URLSearchParams(location.search).get("relay") === "1";
 const watching = new URLSearchParams(location.search).get("watch") === "1";
 
 type Action = { label: string; run: () => void };
@@ -150,12 +152,14 @@ async function start() {
   // (from the very start: a step that never ends is said too)
   setTimeout(() => stuck(), NO_LINK_MS);
   const webrtc = typeof RTCPeerConnection === "function" && !forceRelay;
+  // (P2P only, without WebRTC here, inside Discord say: nothing else to go by)
+  if (!webrtc && P2P_ONLY) return stuck("sem WebRTC nesta janela");
   let pc: RTCPeerConnection | null = null;
   /** When the host's offer came: WebRTC has LINK_MS from then (relayWhen). */
   let offerAt: number | null = null;
   try {
     status("Conectando…", "Preparando a conexão.");
-    const ice = await fetch("../ice").then((r) => r.json()).catch(() => [{ urls: ["stun:stun.cloudflare.com:3478"] }]);
+    const ice = p2pIce(await fetch("../ice").then((r) => r.json()).catch(() => [{ urls: ["stun:stun.cloudflare.com:3478"] }]));
     const video = $("video") as HTMLVideoElement;
     if (webrtc) {
       const p = (pc = new RTCPeerConnection({ iceServers: ice }));
@@ -183,6 +187,7 @@ async function start() {
           linked = true;
           status("", "", "hide");
           here();
+          showLink(p);
         } else if (linked && (p.connectionState === "disconnected" || p.connectionState === "closed")) {
           clearInterval(beat);
           gone();
@@ -207,7 +212,7 @@ async function start() {
     // by the server when WebRTC isn't here, failed, or didn't link in time
     const check = window.setInterval(() => {
       if (linked || relaying) return clearInterval(check);
-      if (relayWhen({ webrtc, offerAt, now: performance.now(), state: pc?.connectionState ?? null }) === "now") goRelay(true, pc);
+      if (relayWhen({ webrtc, offerAt, now: performance.now(), state: pc?.connectionState ?? null }, P2P_ONLY) === "now") goRelay(true, pc);
     }, 500);
     for (let after = 0; !linked; ) {
       // (a dropped request is retried: only the server saying the room is gone ends it)
@@ -227,6 +232,11 @@ async function start() {
           return status("A sala está cheia", "Já tem alguém jogando como jogador 2. Dá para assistir a partida enquanto isso.", "error", [watch, retry]);
         }
         // the host has no WebRTC (inside Discord): by the server from the start
+        if (m.type === "relay-only" && P2P_ONLY) {
+          linked = true; // (said here)
+          const s = hostNoP2p();
+          return status(s.title, s.text, "error", [retry]);
+        }
         if (m.type === "relay-only") goRelay(false, pc);
         if (m.type === "relay-no") {
           linked = true; // (said here)
@@ -241,7 +251,7 @@ async function start() {
         await pc.setRemoteDescription({ type: "offer", sdp: m.sdp });
         await pc.setLocalDescription(await pc.createAnswer());
         await gathered(pc);
-        turn = turnState(ice, pc.localDescription?.sdp ?? "");
+        turn = P2P_ONLY ? "off" : turnState(ice, pc.localDescription?.sdp ?? "");
         await send("host", { type: "answer", from: me, sdp: pc.localDescription!.sdp });
       }
     }
@@ -250,6 +260,25 @@ async function start() {
     console.warn("HypePlay: player 2 stopped at", step, err);
     stuck(err instanceof Error ? err.message : String(err));
   }
+}
+
+/** The link's ping, fps, size and way in the bar, every second while it lasts. */
+let shown = 0;
+function showLink(pc: RTCPeerConnection) {
+  clearInterval(shown);
+  const net = $("net");
+  let last: ReturnType<typeof linkStats> | undefined;
+  const tick = () => {
+    if (pc.connectionState === "closed") return clearInterval(shown);
+    void pc.getStats().then((r) => {
+      const l = (last = linkStats(r, last));
+      net.textContent = linkLabel(l);
+      net.hidden = !net.textContent;
+      net.className = l.ping === null ? "" : l.ping > 150 ? "bad" : l.ping > 80 ? "meh" : "good";
+    }, () => {});
+  };
+  tick();
+  shown = window.setInterval(tick, 1000);
 }
 
 /** Every candidate in the description (no trickle: the room carries whole messages). */

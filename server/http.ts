@@ -3,8 +3,6 @@
  * intro video seeks), the cross-origin isolation headers the PS2 games need for their threads, and pad.js slipped into
  * a game's page.
  */
-import type { BunFile } from "bun";
-
 /** Only Discord may frame it: the Activity, and in it the entry page (on *.discordsays.com). */
 export const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.com https://*.discordsays.com";
 
@@ -21,9 +19,11 @@ export const ISOLATED = {
   "Cache-Control": "no-cache",
 };
 
-/** A file, whole or by one `Range: bytes=…`; anything else in Range (several, malformed, outside) is 416. */
-export function rangeResponse(req: Request, file: BunFile, headers: Record<string, string>): Response {
-  const size = file.size;
+/**
+ * A file, whole or by one `Range: bytes=…`; anything else in Range (several, malformed, outside) is 416. `size` given
+ * for an R2 file (discs.ts), whose own size isn't known until asked.
+ */
+export function rangeResponse(req: Request, file: Blob, headers: Record<string, string>, size = file.size): Response {
   const base = { ...headers, "Accept-Ranges": "bytes" };
   const range = req.headers.get("range");
   let start = 0;
@@ -50,7 +50,9 @@ export function rangeResponse(req: Request, file: BunFile, headers: Record<strin
     "Content-Length": String(length),
     ...(partial ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {}),
   };
-  const body = req.method === "HEAD" ? null : partial ? file.slice(start, end + 1) : file;
+  const part = partial ? file.slice(start, end + 1) : file;
+  // (an R2 file as it is would answer with a redirect to R2: Discord's proxy and the isolation headers don't allow it)
+  const body = req.method === "HEAD" ? null : "presign" in part ? part.stream() : part;
   return new Response(body, { status: partial ? 206 : 200, headers: out });
 }
 

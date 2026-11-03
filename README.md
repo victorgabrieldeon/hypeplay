@@ -125,7 +125,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 
 ## Deploy (Dokploy)
 
-`docker-compose.yml` sobe três serviços que dividem a pasta `/mnt/disk/bt3-data` do servidor (o segundo disco):
+`docker-compose.yml` sobe três serviços que dividem a pasta `/srv/bt3-data` do servidor (no disco do sistema: o segundo disco, `/mnt/disk`, é de rede e lento demais para os jogos):
 
 | Serviço | Domínio | O que faz |
 | --- | --- | --- |

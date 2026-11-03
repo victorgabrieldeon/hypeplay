@@ -1,8 +1,8 @@
 # Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET; optional PUBLIC_URL, and for the online's
-# TURN COMPOSE_PROFILES=turn, TURN_URL, TURN_SECRET (README). The data (games, saves, builds) is the host's /mnt/disk/bt3-data,
-# the server's second disk, not a Docker volume on the system disk. Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
-# (never created when missing: without the second disk mounted the services don't start, rather than start empty)
-x-data: &data { type: bind, source: /mnt/disk/bt3-data, target: /app/data, bind: { create_host_path: false } }
+# TURN COMPOSE_PROFILES=turn, TURN_URL, TURN_SECRET (README). The data (games, saves, builds) is the host's /srv/bt3-data,
+# on the system disk: the second one (/mnt/disk) is a network disk of ~250 reads/s, games stutter on it. Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
+# (never created when missing: without it the services don't start, rather than start empty)
+x-data: &data { type: bind, source: /srv/bt3-data, target: /app/data, bind: { create_host_path: false } }
 
 services:
   app:

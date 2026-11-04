@@ -6,6 +6,7 @@ import { createLibrary } from "./library";
 import { createPasses } from "./pass";
 import { createPeople } from "./people";
 import { Ps2Rooms } from "./ps2rooms";
+import { cloudflareTurn } from "./ice";
 import { createApp, type NetData } from "./routes";
 import { createSaves } from "./saves";
 import { createVimm } from "./vimm";
@@ -24,6 +25,8 @@ const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
 // Optional: a TURN relay for the PS2 games' online (coturn with --use-auth-secret).
 const TURN = process.env.TURN_URL && process.env.TURN_SECRET ? { url: process.env.TURN_URL, secret: process.env.TURN_SECRET } : undefined;
+// Optional, preferred: Cloudflare's TURN (Realtime → TURN in its dashboard), near the players wherever they are.
+const CLOUDFLARE = process.env.TURN_CF_KEY_ID && process.env.TURN_CF_TOKEN ? cloudflareTurn({ keyId: process.env.TURN_CF_KEY_ID, token: process.env.TURN_CF_TOKEN }) : undefined;
 
 const pageDir = join(import.meta.dir, "..", "page");
 
@@ -59,6 +62,7 @@ const app = createApp({
   bios: createBios(dir),
   publicUrl: PUBLIC_URL,
   turn: TURN,
+  cloudflare: CLOUDFLARE,
   scripts: {
     "iso.js": await bundle("iso.ts"),
     "pad.js": await bundle("pad.ts"),

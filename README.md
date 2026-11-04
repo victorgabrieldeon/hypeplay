@@ -138,15 +138,35 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
-| `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. O TURN do online dos jogos de PS2, para redes que não se alcançam: veja [Ligar o TURN](#ligar-o-turn) |
+| `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
+| `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
 ### Ligar o TURN
 
 O vídeo do jogador 2 vai direto do navegador do host para o do convidado. Quando uma das redes não aceita conexão
-de fora (CGNAT, roteador fechado), os dois só se falam por um retransmissor, o TURN. O compose já traz um
-(coturn, serviço `turn`), desligado até ser pedido. No Dokploy:
+de fora (CGNAT, 4G, roteador fechado), os dois só se falam por um retransmissor, o TURN. O app oferece **um** TURN
+por vez aos navegadores: o da Cloudflare, se tiver chave; senão o coturn da máquina, se estiver ligado; senão só
+STUN (e a tela do jogador 2 diz que faltou um TURN). O relé pelo próprio servidor fica desligado (`NO_RELAY` em
+`page/online.ts`): de longe (o servidor fica no Canadá) ele passa de 300 ms.
+
+**Cloudflare (recomendado).** O TURN da Cloudflare é anycast: cada jogador cai no ponto de presença mais perto dele
+(São Paulo, Rio, Fortaleza…), uns 40 a 80 ms entre dois jogadores no Brasil, sem servidor no Brasil. 1.000 GB por
+mês de graça, depois US$ 0,05 por GB; só conta o que passa pelo TURN.
+
+1. Em [dash.cloudflare.com](https://dash.cloudflare.com), **Realtime → TURN → Create**. Nome livre (`hypeplay`).
+   A Cloudflare mostra o **Turn Token ID** e o **API Token** uma única vez.
+2. No Dokploy, em **Environment**:
+   ```
+   TURN_CF_KEY_ID=<Turn Token ID>
+   TURN_CF_TOKEN=<API Token>
+   ```
+   O token fica só aí: nunca no git, em chat ou em log. Se se perder, apague a chave e crie outra.
+3. Faça o deploy de novo. O app pede à Cloudflare uma credencial de 12 h, uma para todos os jogadores, e renova uma
+   hora antes de vencer. Se a Cloudflare não responder, o jogo segue com o que mais houver e tenta de novo em 30 s.
+
+**Coturn na máquina (reserva).** O compose já traz um (serviço `turn`), desligado até ser pedido. No Dokploy:
 
 1. Em **Environment**, acrescente:
    ```
@@ -166,8 +186,10 @@ Em nuvens que põem a máquina atrás de NAT (AWS, Google Cloud, Oracle), o cotu
 
 O coturn só repassa para a internet: nunca para a própria máquina nem para redes privadas.
 
-**Conferir:** se mesmo assim o jogador 2 não conectar, a tela dele diz se o TURN respondeu. "O TURN do servidor
-não respondeu" quer dizer coturn parado ou portas fechadas.
+**Conferir:** `GET /p/<passe>/ps2/<jogo>/ice` devolve a lista que vai aos navegadores: o segundo item é o TURN em
+uso (`turn.cloudflare.com` ou o seu). Se mesmo assim o jogador 2 não conectar, a tela dele diz se o TURN respondeu
+("O TURN não respondeu": a rede dele bloqueia tudo que não é web, ou o coturn está parado ou com portas fechadas) e a
+barra dele mostra o caminho em uso (`direto`, `TURN`, `rede local`), o ping e os fps.
 
 ## Acesso
 

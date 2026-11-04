@@ -1,10 +1,11 @@
-// How the PS2 games' online links host and guest (stream.ts, watch.ts). P2P only: the server's TURN is in Canada
-// (~160 ms from Brazil each way, over 300 ms between two players), and so is its relay; a direct link between two homes
-// is some 20-50 ms. So the TURN servers ../ice offers are left out, and the relay isn't used: a link that doesn't come
-// says so (watchsteps.ts). P2P_ONLY = false brings both back.
+// How the PS2 games' online links host and guest (stream.ts, watch.ts): direct between the two homes (some 20-50 ms)
+// when their routers allow it, else by the TURN ../ice gives (Cloudflare's, anycast, near the players: 40-80 ms). Never
+// by the server's relay: it's in Canada (~300 ms between two players in Brazil), and so is the coturn there, which
+// ../ice only gives when Cloudflare's doesn't answer. A link that doesn't come says so (watchsteps.ts).
+// NO_RELAY = false brings the server's relay back.
 // And the link's numbers for the guest's bar: ping, fps, picture size and which way it goes, from getStats().
 
-export const P2P_ONLY = true;
+export const NO_RELAY = true;
 
 /**
  * Up to this for the picture, for the host's canvas as it is (1x, 2x...: the guest sees what player 1 sees): some 0.12
@@ -17,11 +18,9 @@ export function videoBitrate(width: number, height: number): number {
 
 type Ice = { urls: string | string[]; username?: string; credential?: string };
 
-/** The ICE servers to use: P2P only, the STUN ones (a TURN's urls left out); none left, a public STUN. */
-export function p2pIce(ice: Ice[]): Ice[] {
-  if (!P2P_ONLY) return ice;
-  const stun = ice.filter((s) => [s.urls].flat().every((u) => /^stuns?:/.test(u)));
-  return stun.length ? stun : [{ urls: ["stun:stun.cloudflare.com:3478"] }];
+/** The ICE servers to use, as ../ice gave them (its STUN and one TURN); none came, a public STUN. */
+export function onlineIce(ice: Ice[] | null | undefined): Ice[] {
+  return Array.isArray(ice) && ice.length ? ice : [{ urls: ["stun:stun.cloudflare.com:3478"] }];
 }
 
 export type Link = {

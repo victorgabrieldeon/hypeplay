@@ -18,10 +18,10 @@ export const whereAmI = (framed: boolean, host: string): Where =>
   framed ? "discord" : /(^|\.)discordsays\.com$/.test(host) ? "discord-site" : "browser";
 
 /**
- * The server's TURN, for this browser: none offered (the ICE servers from ../ice), offered but no relay candidate came
- * (coturn down, or its ports closed), or answered (a relay candidate in this side's description).
+ * The TURN ../ice gave, for this browser: none offered, offered but no relay candidate came (this network blocks it,
+ * or the server's coturn is down), or answered (a relay candidate in this side's description).
  */
-export type Turn = "none" | "silent" | "answered" | "off";
+export type Turn = "none" | "silent" | "answered";
 export function turnState(ice: { urls: string | string[] }[], sdp: string): Turn {
   if (!ice.some((s) => [s.urls].flat().some((u) => /^turns?:/.test(u)))) return "none";
   return / typ relay( |$)/m.test(sdp) ? "answered" : "silent";
@@ -49,23 +49,16 @@ export function stuckAt(step: Step, error?: string, where: Where = "discord", tu
         browser: false,
       };
     case "linking":
-      // (P2P only, online.ts: no TURN to blame or to ask for)
-      if (turn === "off")
-        return {
-          title: "Sem conexão direta com o host",
-          text: `As redes de vocês não se alcançaram direto${why}. Acontece com 4G e com algumas operadoras (CGNAT). Tente de novo, ou outra rede (um Wi-Fi no lugar do 4G).${where === "discord" ? " No navegador às vezes passa." : ""}`,
-          browser: where === "discord",
-        };
       if (turn === "silent")
         return {
-          title: "O TURN do servidor não respondeu",
-          text: `O servidor tem um TURN, mas ele não respondeu a este navegador${why}. Quem cuida do servidor precisa conferir se o coturn está rodando e se as portas 3478 (UDP e TCP) e 49160 a 49200 (UDP) estão abertas no firewall.`,
+          title: "O TURN não respondeu",
+          text: `Tem um TURN, mas este navegador não conseguiu passar por ele${why}. Uma rede que só deixa passar web (empresa, escola) faz isso: tente outra rede. Se for o coturn do servidor, quem cuida dele confere se está rodando e se as portas 3478 (UDP e TCP) e 49160 a 49200 (UDP) estão abertas.`,
           browser: false,
         };
       if (turn === "answered")
         return {
           title: "Sem conexão com o host",
-          text: `Nem pelo TURN as redes de vocês se alcançaram${why}. Tente de novo; se continuar, o host fecha e abre a sala.`,
+          text: `Nem pelo TURN as redes de vocês se alcançaram${why}. Tente de novo; se continuar, o host fecha e abre a sala, ou um dos dois troca de rede (um Wi-Fi no lugar do 4G).`,
           browser: false,
         };
       return {
@@ -83,9 +76,9 @@ export const LINK_MS = 6000;
  * Whether player 2 goes by the server's relay now: at once without WebRTC; once linked, never; failed, or not linked
  * LINK_MS after the host's offer came, now; before the offer (or within those 6 s), it waits.
  */
-export function relayWhen(s: { webrtc: boolean; offerAt: number | null; now: number; state: string | null }, p2pOnly = false): "now" | "wait" | "stay" {
-  // (P2P only, online.ts: never)
-  if (p2pOnly) return "stay";
+export function relayWhen(s: { webrtc: boolean; offerAt: number | null; now: number; state: string | null }, noRelay = false): "now" | "wait" | "stay" {
+  // (NO_RELAY, online.ts: never)
+  if (noRelay) return "stay";
   if (!s.webrtc) return "now";
   if (s.state === "connected") return "stay";
   if (s.state === "failed") return "now";
@@ -93,7 +86,7 @@ export function relayWhen(s: { webrtc: boolean; offerAt: number | null; now: num
   return s.now - s.offerAt >= LINK_MS ? "now" : "wait";
 }
 
-/** P2P only, and the host's page has no WebRTC (it's inside Discord): what player 2 hears. */
+/** No relay, and the host's page has no WebRTC (it's inside Discord): what player 2 hears. */
 export function hostNoP2p(): { title: string; text: string } {
   return {
     title: "O host está no Discord",

@@ -4,9 +4,9 @@
 // only to watch (join with watch: true): the same picture and sound, no controller. When WebRTC
 // can't link them (player 2 asks: "relay"), or this side has none (then "relay-only"), the same goes through the
 // server instead (relayhost.ts); a browser that can't encode says so ("relay-no").
-// P2P only (online.ts): no TURN, no relay; a host without WebRTC tells the guest so ("relay-only", and the guest says
-// the host has to open the game in the browser).
-import { P2P_ONLY, p2pIce, videoBitrate } from "./online";
+// NO_RELAY (online.ts): direct or by the TURN, never the server; a host without WebRTC tells the guest so ("relay-only",
+// and the guest says the host has to open the game in the browser).
+import { NO_RELAY, onlineIce, videoBitrate } from "./online";
 import { canRelay, startRelay } from "./relayhost";
 
 interface Guest {
@@ -59,7 +59,7 @@ type Visitor = { id: string; watch: boolean; linked: boolean; pc?: RTCPeerConnec
 
 /** One player 2 at a time (a second hears the room is full), and up to MAX_WATCHERS who only watch. */
 async function serve(code: string, button: HTMLButtonElement) {
-  const ice = p2pIce(await fetch("../ice").then((r) => r.json()).catch(() => [{ urls: ["stun:stun.cloudflare.com:3478"] }]));
+  const ice = onlineIce(await fetch("../ice").then((r) => r.json()).catch(() => null));
   const guests = new Map<string, Visitor>();
   const player = () => [...guests.values()].find((g) => !g.watch);
   const label = () => {
@@ -136,7 +136,7 @@ async function serve(code: string, button: HTMLButtonElement) {
           await post(code, from, { type: "full", watch });
         } else if (typeof RTCPeerConnection !== "function" || m.relay === true) {
           // (no WebRTC here or there, inside Discord say: by the server from the start, no offer to wait on)
-          if (P2P_ONLY) await post(code, from, { type: "relay-only" });
+          if (NO_RELAY) await post(code, from, { type: "relay-only" });
           else if (relayTo(from, watch)) await post(code, from, { type: "relay-only" });
         } else {
           const pc = new RTCPeerConnection({ iceServers: ice });
@@ -180,7 +180,7 @@ async function serve(code: string, button: HTMLButtonElement) {
           await gathered(pc);
           await post(code, from, { type: "offer", sdp: pc.localDescription!.sdp });
         }
-      } else if (m.type === "relay" && known && !known.relay && !P2P_ONLY) {
+      } else if (m.type === "relay" && known && !known.relay && !NO_RELAY) {
         relayTo(from, known.watch);
       } else if (m.type === "answer" && known?.pc && m.sdp) {
         await known.pc.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => drop(from));

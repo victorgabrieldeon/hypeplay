@@ -1,16 +1,16 @@
 import { expect, test } from "bun:test";
-import { linkLabel, linkStats, p2pIce, P2P_ONLY, videoBitrate } from "./online";
+import { linkLabel, linkStats, NO_RELAY, onlineIce, videoBitrate } from "./online";
 
-test("the online is P2P only: the TURN servers are left out, the STUN ones stay", () => {
-  expect(P2P_ONLY).toBe(true);
+test("the online goes direct or by a TURN, never by the server's relay: the ICE servers stay as ../ice gave them", () => {
+  expect(NO_RELAY).toBe(true);
   const ice = [
     { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] },
-    { urls: ["turn:148.113.245.163:3478?transport=udp", "turn:148.113.245.163:3478?transport=tcp"], username: "u", credential: "c" },
-    { urls: "turns:t.example:5349", username: "u", credential: "c" },
+    { urls: ["turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:5349?transport=tcp"], username: "u", credential: "c" },
   ];
-  expect(p2pIce(ice)).toEqual([{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }]);
-  // (none left: the public STUN, as the page falls back to)
-  expect(p2pIce([{ urls: "turn:x:3478" }])).toEqual([{ urls: ["stun:stun.cloudflare.com:3478"] }]);
+  expect(onlineIce(ice)).toEqual(ice);
+  // (nothing came: a public STUN, so the direct way is still tried)
+  expect(onlineIce([])).toEqual([{ urls: ["stun:stun.cloudflare.com:3478"] }]);
+  expect(onlineIce(null)).toEqual([{ urls: ["stun:stun.cloudflare.com:3478"] }]);
 });
 
 test("the picture's room grows with the host's size: 1x 4 Mbps, 2x 8, 3x 19, never past 20", () => {

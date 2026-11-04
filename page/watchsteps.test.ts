@@ -37,7 +37,7 @@ test("networks that don't meet: the TURN, and the browser only offered to who is
 
 test("with a TURN on the server: whether it answered this browser says what to look at", () => {
   const silent = stuckAt("linking", undefined, "browser", "silent");
-  expect(silent.title).toBe("O TURN do servidor não respondeu");
+  expect(silent.title).toBe("O TURN não respondeu");
   expect(silent.text).toContain("3478");
   expect(silent.text).toContain("49160");
   const answered = stuckAt("linking", undefined, "browser", "answered");
@@ -69,17 +69,17 @@ test("when to go by the server: no WebRTC at once, 6 s after the offer without a
   expect(relayWhen({ webrtc: true, offerAt: 1000, now: 60_000, state: "connected" })).toBe("stay");
 });
 
-test("P2P only: never by the server, and a link that doesn't come says so without asking for a TURN", () => {
+test("no relay by the server: never, whatever the link does; a TURN that didn't help names 4G and CGNAT too", () => {
   expect(relayWhen({ webrtc: false, offerAt: null, now: 0, state: null }, true)).toBe("stay");
   expect(relayWhen({ webrtc: true, offerAt: 1000, now: 60_000, state: "failed" }, true)).toBe("stay");
-  const off = stuckAt("linking", undefined, "browser", "off");
-  expect(off.title).toBe("Sem conexão direta com o host");
-  expect(off.text).toContain("4G");
-  expect(off.text).not.toContain("TURN");
-  expect(stuckAt("linking", undefined, "discord", "off").browser).toBe(true);
+  const answered = stuckAt("linking", undefined, "browser", "answered");
+  expect(answered.text).toContain("Nem pelo TURN");
+  const silent = stuckAt("linking", undefined, "browser", "silent");
+  expect(silent.title).toBe("O TURN não respondeu");
+  expect(silent.text).toContain("outra rede");
 });
 
-test("P2P only, a host inside Discord: it has to open the game in the browser", () => {
+test("no relay, a host inside Discord: it has to open the game in the browser", () => {
   const s = hostNoP2p();
   expect(s.title).toBe("O host está no Discord");
   expect(s.text).toContain("navegador");

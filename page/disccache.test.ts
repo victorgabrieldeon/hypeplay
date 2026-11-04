@@ -64,14 +64,34 @@ test("only the most recently used blocks stay in memory", async () => {
   expect(game.asked.map(([o]) => o)).toEqual([0, 10, 20, 10]);
 });
 
-test("the next blocks are read ahead, in the background", async () => {
+test("the next blocks are read ahead, in the background, in one request", async () => {
   const { cache, blocks } = setup({ ahead: 2 });
   const game = gameReader();
   await cache.read(0, 1, game.read);
-  await until(() => blocks.length === 2);
-  expect(blocks).toEqual([10, 20]);
+  await until(() => blocks.length === 1);
+  await settle();
+  expect(blocks).toEqual([10]);
   expect([...(await cache.read(15, 10, game.read))]).toEqual([15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
   expect(game.asked.length).toBe(1);
+});
+
+test("a game reading on and on: the read-ahead starts beside its first read, with no wait, and serves the rest", async () => {
+  const background: [number, number][] = [];
+  const cache = createBlockCache({
+    size: SIZE, block: 10, ahead: 4, idle: 60_000,
+    fetchBlock: async (start, length) => (background.push([start, length]), disc.slice(start, start + length)),
+  });
+  let release = () => {};
+  const gate = new Promise<void>((ok) => (release = ok));
+  const game = gameReader();
+  const first = cache.read(0, 10, async (start, length) => (await gate, game.read(start, length)));
+  await until(() => background.length === 1);
+  // (while the game still waits on its own block: the next four, together)
+  expect(background).toEqual([[10, 33]]);
+  release();
+  await first;
+  for (const at of [10, 20, 30, 40]) expect((await cache.read(at, 3, game.read))[0]).toBe(at);
+  expect(game.asked).toEqual([[0, 10]]);
 });
 
 test("blocks kept on disk are read from there, and what comes from the network is kept there", async () => {
@@ -99,7 +119,22 @@ test("a game read that fails: the game hears it, and the next one asks again", a
   expect([...(await cache.read(0, 2, game.read))]).toEqual([0, 1]);
 });
 
-test("the background gives way: a game read from the network stops the request under way, which comes again later", async () => {
+test("a read-ahead that hangs: the game waits on it only so long, then it stops and the game asks for its own", async () => {
+  let stopped = false;
+  const cache = createBlockCache({
+    size: SIZE, block: 10, ahead: 1, idle: 0, wait: 20,
+    fetchBlock: (_start, _length, signal) =>
+      new Promise((_, fail) => signal?.addEventListener("abort", () => ((stopped = true), fail(new Error("aborted"))))),
+  });
+  const game = gameReader();
+  await cache.read(0, 1, game.read);
+  // (block 1 is read ahead, and hangs; the game reads it)
+  expect([...(await cache.read(15, 2, game.read))]).toEqual([15, 16]);
+  expect(stopped).toBe(true);
+  expect(game.asked).toEqual([[0, 10], [10, 10]]);
+});
+
+test("a game that goes elsewhere: the read-ahead of the stretch it left stops for it, and comes again later", async () => {
   const background: number[] = [];
   let hang = true;
   const cache = createBlockCache({
@@ -118,9 +153,49 @@ test("the background gives way: a game read from the network stops the request u
   await until(() => background.length === 1); // block 1 read ahead, and hanging
   expect([...(await cache.read(25, 1, game.read))]).toEqual([25]);
   await until(() => background.length === 3);
-  // (block 1 stopped for the game's block 2, then again, then block 3 read ahead)
+  // (block 1 stopped for the game's block 2, then block 3 read ahead of it, then block 1 again)
   expect(game.asked).toEqual([[0, 10], [20, 10]]);
-  expect(background).toEqual([10, 10, 30]);
+  expect(background).toEqual([10, 30, 10]);
+});
+
+test("the filling gives way to a game read elsewhere; a block it's bringing goes to the game waiting on it", async () => {
+  // (a disk slow to keep a block, as Cache Storage can be: it's there only once put() is over)
+  const kept = new Map<number, Uint8Array>();
+  const store: BlockStore = {
+    get: async (n) => kept.get(n) ?? null,
+    keptBlocks: async () => new Set(kept.keys()),
+    put: async (n, bytes) => {
+      await new Promise((ok) => setTimeout(ok, 50));
+      kept.set(n, bytes);
+    },
+  };
+  const background: number[] = [];
+  let stops = 0;
+  const cache = createBlockCache({
+    size: SIZE, block: 10, ahead: 0, batch: 1, idle: 0, store,
+    fetchBlock: async (start, length, signal) => {
+      background.push(start);
+      await new Promise<void>((ok, fail) => {
+        const t = setTimeout(ok, 30);
+        signal?.addEventListener("abort", () => (clearTimeout(t), stops++, fail(new Error("aborted"))));
+      });
+      return disc.slice(start, start + length);
+    },
+  });
+  cache.fill(true);
+  await until(() => background.length === 1); // block 0, filling
+  const game = gameReader();
+  // (the very block the filling brings: the game takes it from there, though it isn't on disk yet)
+  expect([...(await cache.read(3, 2, game.read))]).toEqual([3, 4]);
+  expect(game.asked).toEqual([]);
+  expect(stops).toBe(0);
+  await until(() => background.length === 2); // block 1, filling
+  // (a block it isn't bringing: it stops, and the game asks for its own)
+  expect([...(await cache.read(33, 2, game.read))]).toEqual([33, 34]);
+  expect(game.asked).toEqual([[30, 10]]);
+  expect(stops).toBe(1);
+  await until(() => cache.progress().state === "done");
+  expect(background.filter((at) => at === 10).length).toBe(2);
 });
 
 test("a block the background is already bringing: the game waits for it instead of asking again", async () => {

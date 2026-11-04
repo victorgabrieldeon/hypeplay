@@ -159,7 +159,8 @@ async function chooseDisc(file) {
     return render();
   }
   // the PS2 library's copy first; BT3's port only when the library hasn't got it (it can still be sent: anyway())
-  const exists = state.games?.find((g) => g.kind === 'recomp' && g.serial === id.serial)?.key ?? (id.serial === BT3_SERIAL ? 'bt3' : null);
+  const port = id.serial === BT3_SERIAL && state.games?.some((g) => g.key === 'bt3');
+  const exists = state.games?.find((g) => g.kind === 'recomp' && g.serial === id.serial)?.key ?? (port ? 'bt3' : null);
   if (exists) {
     Object.assign(w, { exists, found: { file, serial: id.serial } });
     return render();

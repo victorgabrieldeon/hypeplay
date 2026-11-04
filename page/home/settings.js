@@ -2,6 +2,7 @@
 // by every PS2 game) and the intro that plays before a game (intro.mp4). Both are files people bring themselves:
 // nothing of them ships with HypePlay. Anyone may send, replace or take them off.
 import { hooks } from './app.js';
+import { ask } from './ask.js';
 import { esc, icon, sendBios } from './library.js';
 
 const layer = document.getElementById('layer');
@@ -82,7 +83,7 @@ function watch() {
   layer.querySelector('.intro').addEventListener('click', back);
 }
 
-layer.addEventListener('click', (e) => {
+layer.addEventListener('click', async (e) => {
   if (!st) return;
   const el = e.target.closest('[data-s]');
   const a = el?.dataset.s;
@@ -91,7 +92,7 @@ layer.addEventListener('click', (e) => {
   if (a === 'bios') return pick('.bin,.rom0,.ROM0,application/octet-stream', (f) => doing('Enviando a BIOS…', () => sendBios(f, st.bios.present)));
   if (a === 'intro') return pick('video/mp4,.mp4', sendIntro);
   if (a === 'watch') return watch();
-  if (a === 'nointro' && confirm('Tirar a intro para todo mundo? Os jogos passam a abrir direto.'))
+  if (a === 'nointro' && await ask({ title: 'Tirar a intro?', text: 'Para todo mundo: os jogos passam a abrir direto.', ok: 'Tirar', danger: true }))
     return doing('Tirando a intro…', async () => ((await fetch('intro.mp4', { method: 'DELETE' })).ok ? '' : 'Não deu para tirar a intro.'));
 });
 document.addEventListener('keydown', (e) => {

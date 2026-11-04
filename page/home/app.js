@@ -1,6 +1,7 @@
 // The home's state and wiring: reads `games` every 2 s, draws the spotlight, the library and the open drawer, and
 // handles every button (play, send a disc or the BIOS, retry, remove, rename, cover). The add-a-game wizard, the
 // controller screen and the intro live in their own modules.
+import { ask } from './ask.js';
 import { drawer } from './drawer.js';
 import { loadHomebrew } from './homebrew.js';
 import { addCard, card, esc, hero, icon, initials, meter, needsDisc, sendBios, upload } from './library.js';
@@ -243,14 +244,19 @@ document.addEventListener('click', async (e) => {
   el.disabled = true;
   if (d.retry) await api(`${d.retry}/retry`, { method: 'POST' });
   if (d.fastBuild) await api(`${d.fastBuild}/fast-build`, { method: 'POST' });
-  if (d.fastRemove && confirm('Apagar a versão rápida deste jogo para todo mundo? O jogo continua no emulador, e os saves ficam.'))
+  if (d.fastRemove && await ask({ title: 'Apagar a versão rápida?', text: 'Some para todo mundo. O jogo continua no emulador, e os saves ficam.', ok: 'Apagar', danger: true }))
     await api(`${d.fastRemove}/fast-build`, { method: 'DELETE' });
   if (d.coverRemove) await api(`${d.coverRemove}/cover`, { method: 'DELETE' });
   if (d.remove) {
     const g = gameOf(d.remove);
-    if (g && confirm(`Remover "${g.name}" para todo mundo? Os saves ficam guardados.`)) {
-      await api(d.remove, { method: 'DELETE' });
-      closeDrawer();
+    if (g && await ask({ title: `Remover ${g.name}?`, text: 'Sai da biblioteca para todo mundo e a ISO é apagada do servidor. Os saves ficam guardados.', ok: 'Remover', danger: true })) {
+      const r = await api(d.remove, { method: 'DELETE' }).catch(() => null);
+      if (r?.ok) {
+        // (off the screen now, not on the next look)
+        state.games = state.games.filter((x) => x.key !== g.key);
+        closeDrawer();
+        render();
+      } else await ask({ title: 'Não deu para remover', text: `O servidor não removeu ${g.name}${r ? ` (HTTP ${r.status})` : ''}. Tente de novo.`, cancel: null });
     }
   }
   el.disabled = false;

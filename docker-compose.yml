@@ -13,7 +13,11 @@ services:
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
       # The app's own https address, for "Abrir no navegador" when Discord can't run a PS2 game in its window.
       PUBLIC_URL: ${PUBLIC_URL:-}
-      # A TURN relay for the PS2 games' online (the turn service below, or any coturn with --use-auth-secret).
+      # The PS2 games' online, when two homes can't link direct. Preferred: Cloudflare's TURN (Realtime → TURN in its
+      # dashboard: the key's id and token), near the players wherever they are. The reserve, given only when
+      # Cloudflare's doesn't answer: the turn service below, or any coturn with --use-auth-secret.
+      TURN_CF_KEY_ID: ${TURN_CF_KEY_ID:-}
+      TURN_CF_TOKEN: ${TURN_CF_TOKEN:-}
       TURN_URL: ${TURN_URL:-}
       TURN_SECRET: ${TURN_SECRET:-}
       # Optional: the new PS2 games' discs go to R2 once checked (server/discs.ts), key = path under /app/data

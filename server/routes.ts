@@ -36,7 +36,7 @@ import type { Bios } from "./bios";
 import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
 import { createDiscs, type Discs } from "./discs";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
-import { iceServers } from "./ice";
+import { type CloudflareTurn, iceServers, STUN } from "./ice";
 import { authorizeUrl, type Discord } from "./discord";
 import { FAST_STEPS, GAMES, type Game } from "./games";
 import { BT3_SERIAL } from "./iso9660";
@@ -153,8 +153,10 @@ export interface AppOptions {
   ps2Engine?: string;
   /** The PS2 BIOS, sent once for the whole server (bios.ts); without it the PS2 games wait for one. */
   bios?: Bios;
-  /** A TURN relay for the PS2 games' online (TURN_URL, TURN_SECRET). */
+  /** A TURN relay for the PS2 games' online (TURN_URL, TURN_SECRET): the reserve, when Cloudflare's doesn't answer. */
   turn?: { url: string; secret: string };
+  /** Cloudflare's TURN (TURN_CF_KEY_ID, TURN_CF_TOKEN; ice.ts), the one the players get when it answers. */
+  cloudflare?: CloudflareTurn;
   /** The page's bundled scripts by name (iso.js, pad.js…), served under /p/<pass>/. */
   scripts?: Record<string, string>;
   /** Downloads from vimm.net into the library (vimm.ts); without it, /vimm answers 404. */
@@ -207,6 +209,7 @@ export function createApp({
   publicUrl = "",
   clientId = "",
   turn,
+  cloudflare,
   scripts = {},
   bios,
   ps2Engine = join(import.meta.dir, "..", "emulator", "ps2"),
@@ -550,7 +553,11 @@ export function createApp({
 
   /** ps2/<id>/room…, ice: the online's setting up, for the host's game page and the guest's page (rooms.ts' cousin). */
   async function ps2Room(req: Request, pass: Pass, id: string, rest: string, server?: Server<NetData>): Promise<Response | undefined> {
-    if (rest === "ice") return json(iceServers({ turnUrl: turn?.url, turnSecret: turn?.secret, user: pass.id, now: now() }));
+    if (rest === "ice") {
+      // One TURN at a time: Cloudflare's (anycast, near the player) when it answers, else the coturn, else STUN only.
+      const cf = await cloudflare?.ice();
+      return json(cf ? [{ urls: STUN }, cf] : iceServers({ turnUrl: turn?.url, turnSecret: turn?.secret, user: pass.id, now: now() }));
+    }
     if (!ps2Rooms) return text("Não encontrado", 404);
     if (rest === "room") {
       if (req.method !== "POST") return text("Método não permitido", 405);

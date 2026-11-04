@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Passes } from "./pass";
@@ -154,6 +154,12 @@ test("status, net endpoints that keep nothing, and WebSockets only by upgrade", 
   for (const f of ["game/net/stat", "game/net/log", "game/telemetry"]) expect((await get(p(f), { method: "POST", body: "{}" })).status).toBe(204);
   expect((await get(p("game/net/ws?room=ABCD&role=host"))).status).toBe(426);
   expect((await get(p("game/net/ws?room=bad&role=host"))).status).toBe(400);
+});
+
+test("every script of the home (page/home/*.js) is served: one left out breaks the whole home, as they import each other", async () => {
+  const scripts = (await readdir(join(PAGE_DIR, "home"))).filter((f) => f.endsWith(".js"));
+  expect(scripts).toContain("app.js");
+  for (const f of scripts) expect([f, (await get(home(`home/${f}`))).status]).toEqual([f, 200]);
 });
 
 test("the catalog, each game with its state and without its file list", async () => {

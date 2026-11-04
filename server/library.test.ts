@@ -42,6 +42,14 @@ test("the same serial twice, even at the same time, is one game", async () => {
   expect(await readdir(join(dir, "ps2"))).toEqual(["sles-12345"]);
 });
 
+test("without BT3's port, BT3's disc is a PS2 game like any other", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cordplay-library-"));
+  dirs.push(dir);
+  const library = createLibrary(dir, { min: 10, max: 10 * 1024 * 1024, port: false });
+  const r = await library.reserve(ana, "SLUS-21678", "Budokai Tenkaichi 3");
+  expect(r.ok && r.game).toMatchObject({ id: "slus-21678", serial: "SLUS-21678", name: "Budokai Tenkaichi 3" });
+});
+
 test("BT3's serial points at BT3", async () => {
   const { library } = await setup();
   expect(await library.reserve(ana, "SLUS-21678", "x")).toEqual({ ok: false, exists: "bt3" });

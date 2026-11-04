@@ -73,7 +73,8 @@ const MISSES_MAX = 256;
 
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
-export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null } = {}) {
+/** `port`: BT3's port is in the catalog (routes.ts' games); without it BT3's disc is a PS2 game like any other. */
+export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null, port = true } = {}) {
   const stores = new Map<string, DiscStore>();
   /** Reservations between making their folder and writing their game.json: not orphans. */
   const reserving = new Set<string>();
@@ -186,7 +187,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
      */
     async reserve(pass: Pass, serial: string, name: string, { copy = false } = {}): Promise<Reserve> {
       if (!SERIAL.test(serial)) throw new Error(`not a serial: ${serial}`);
-      if (serial === BT3_SERIAL && !copy) return { ok: false, exists: "bt3" };
+      if (port && serial === BT3_SERIAL && !copy) return { ok: false, exists: "bt3" };
       const base = serial.toLowerCase();
       await mkdir(join(dir, "ps2"), { recursive: true });
       for (let n = 1; n <= COPIES; n++) {

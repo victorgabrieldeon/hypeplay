@@ -144,6 +144,22 @@ test("rename, cover (webp, generated, too big) and remove", async () => {
   expect((await catalog()).games.some((g) => g.id === "sles-44444")).toBe(false);
 });
 
+test("without BT3's port (production: games []), the home lists only the library, and BT3's disc goes in it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cordplay-noport-"));
+  try {
+    const lib = createLibrary(dir, { min: 1024, port: false });
+    const noPort = createApp({ dir, pageDir: PAGE_DIR, entryJs: "", passes, discord, library: lib, games: [] });
+    const go = async (rest: string, init?: RequestInit) => (await noPort.handle(new Request(`http://localhost/p/${ANA}/${rest}`, init))) as Response;
+    expect(((await (await go("games")).json()) as { games: { key: string }[] }).games.some((g) => g.key === "bt3")).toBe(false);
+    expect((await go("bt3/status")).status).toBe(404);
+    const r = await go("ps2", json({ serial: "SLUS-21678", name: "Budokai Tenkaichi 3" }));
+    expect(r.status).toBe(201);
+    expect(await r.json()).toEqual({ key: "ps2/slus-21678", id: "slus-21678" });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("BT3's cover can be sent and taken off too, like any game's", async () => {
   const coverOf = async () => (await catalog()).games.find((g) => g.key === "bt3")!.cover;
   const drawn = await coverOf();
@@ -402,10 +418,13 @@ test("BT3's page gets pad.js, everything else of BT3 is as before", async () => 
   expect(page.headers.get("content-security-policy")).toStartWith("sandbox ");
 });
 
-test("a removed game's routes 404 while open", async () => {
+test("a removed game's routes 404 while open, and its disc is deleted from the server", async () => {
   const id = await built("SLES-88888", "SLES_888.88");
   expect((await ana(`ps2/${id}/game/disc.iso`, { method: "HEAD" })).status).toBe(200);
-  await ana(`ps2/${id}`, { method: "DELETE" });
+  expect(await Bun.file(join(root, "ps2", id, "disc.iso")).exists()).toBe(true);
+  expect((await ana(`ps2/${id}`, { method: "DELETE" })).status).toBe(204);
+  expect(await Bun.file(join(root, "ps2", id, "disc.iso")).exists()).toBe(false);
+  expect(await stat(join(root, "ps2", id)).catch(() => null)).toBeNull();
   for (const f of ["game/", "game/disc.iso", "game/pcsx2-wasm.wasm", "status"]) expect((await ana(`ps2/${id}/${f}`)).status).toBe(404);
   expect((await ana("games")).status).toBe(200);
 });

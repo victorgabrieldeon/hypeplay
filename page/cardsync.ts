@@ -45,15 +45,17 @@ export function createCardSync({ fetch, store, guard, wait = (ms) => new Promise
 
   async function run() {
     guard(true);
-    while (latest) {
-      const bytes = latest;
-      latest = null;
-      for (let tries = 0; !(await put(bytes)); tries++) {
-        await wait(BACKOFF_MS[Math.min(tries, BACKOFF_MS.length - 1)]!);
-        if (latest) break; // a newer save replaces this one
+    do {
+      while (latest) {
+        const bytes = latest;
+        latest = null;
+        for (let tries = 0; !(await put(bytes)); tries++) {
+          await wait(BACKOFF_MS[Math.min(tries, BACKOFF_MS.length - 1)]!);
+          if (latest) break; // a newer save replaces this one
+        }
       }
-    }
-    await store.setDirty(null).catch(() => {});
+      await store.setDirty(null).catch(() => {});
+    } while (latest); // (a save that came while the last one was being cleared: saved() found this run still going)
     guard(false);
     running = null;
   }

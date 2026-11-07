@@ -653,14 +653,20 @@ export function createApp({
         return coverUpload(req, p.cover, (on) => lib.setCover(id, on));
       case "save": {
         if (!saves) return text("Não encontrado", 404);
-        if (req.method === "GET") {
-          const card = await saves.get(id, pass.id);
-          return card ? respond(card, 200, { "Content-Type": TYPES.bin!, "Cache-Control": "no-store" }) : text("Sem save", 404);
+        // (a card that can't be read or kept now is 503, never 404: the page only makes a blank card on a 404)
+        try {
+          if (req.method === "GET") {
+            const card = await saves.get(id, pass.id);
+            return card ? respond(card, 200, { "Content-Type": TYPES.bin!, "Cache-Control": "no-store" }) : text("Sem save", 404);
+          }
+          if (req.method !== "PUT") return text("Método não permitido", 405);
+          if (Number(req.headers.get("content-length") ?? 0) > CARD_BYTES) return json({ error: "Isso não é um memory card de PS2" }, 413);
+          const r = await saves.put(id, pass.id, new Uint8Array(await req.arrayBuffer()));
+          return r.ok ? respond(null, 204) : json({ error: r.error }, 400);
+        } catch (err) {
+          console.error(`save ${id}/${pass.id}:`, err);
+          return text("O save não está disponível agora", 503);
         }
-        if (req.method !== "PUT") return text("Método não permitido", 405);
-        if (Number(req.headers.get("content-length") ?? 0) > CARD_BYTES) return json({ error: "Isso não é um memory card de PS2" }, 413);
-        const r = await saves.put(id, pass.id, new Uint8Array(await req.arrayBuffer()));
-        return r.ok ? respond(null, 204) : json({ error: r.error }, 400);
       }
     }
     return text("Não encontrado", 404);

@@ -109,3 +109,21 @@ test("another tab holding the cards", () => {
   expect(heldByOtherTab({ held: [{ name: "x" }], pending: [] })).toBe(false);
   expect(heldByOtherTab(null)).toBe(false);
 });
+
+test("a save that comes while the one before is being cleared still goes up this session", async () => {
+  const server = fakeServer(card(1));
+  const store = fakeStore();
+  const sync = createCardSync({ fetch: server.fetch, store, guard: () => {}, ...instant });
+  await sync.start();
+  let late: Promise<void> | null = null;
+  const setDirty = store.setDirty.bind(store);
+  store.setDirty = async (b) => {
+    // the game saves again just as the first upload is done and its unsent copy is being cleared
+    if (!b && !late) late = sync.saved(card(3));
+    await setDirty(b);
+  };
+  await sync.saved(card(2));
+  await late;
+  expect(server.saved![0]).toBe(3);
+  expect(server.log.filter((m) => m === "PUT").length).toBe(2);
+});

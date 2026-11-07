@@ -18,9 +18,9 @@ test("the card comes from and goes to the server, never a blank one over a save 
   // one tab at a time, by the emulator's own lock
   expect(out).toContain("navigator.locks.request('tabstationtoo-memcards'");
   // a card the emulator's page left unsent goes up before the server's is read, and its database is never made here
-  expect(out).toContain("get('cordplay-unsent')");
+  expect(out).toContain("get(cardUnsent)");
   expect(out).toContain("open.onupgradeneeded = () => open.transaction.abort();");
-  expect(out.indexOf("get('cordplay-unsent')")).toBeLessThan(out.indexOf("fetch('../save', { cache: 'no-store' })"));
+  expect(out.indexOf("get(cardUnsent)")).toBeLessThan(out.indexOf("fetch('../save', { cache: 'no-store' })"));
   expect(out).toContain("cardLoad().finally(() => Module.removeRunDependency('card'));");
   // Export / Import card are untouched, and import saves to the server through storeCard
   expect(out).toContain("link.download = 'Mcd001.ps2';");

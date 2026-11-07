@@ -3,7 +3,6 @@
 // controller screen and the intro live in their own modules.
 import { ask } from './ask.js';
 import { drawer } from './drawer.js';
-import { loadHomebrew } from './homebrew.js';
 import { addCard, card, esc, hero, icon, initials, meter, needsDisc, sendBios, upload } from './library.js';
 
 const $ = (id) => document.getElementById(id);
@@ -44,7 +43,7 @@ const greeting = (h) => (h >= 5 && h < 12 ? 'Bom dia' : h >= 12 && h < 18 ? 'Boa
 
 /**
  * One person around: what they have open, and their PS2 room (to join as player 2 while the place is free, or watch).
- * BT3's rooms and homebrew aren't anyone's to join from here: those only say the game.
+ * BT3's rooms aren't anyone's to join from here: those only say the game.
  */
 function person(p) {
   const room = p.room && gameOf(p.room.key) ? p.room : null;
@@ -293,7 +292,6 @@ document.addEventListener('drop', (e) => {
 });
 
 poll();
-loadHomebrew(() => state.expired);
 setInterval(() => { if (!state.expired) poll(); }, 2000);
 // The add-a-game wizard, the controller screen and the intro set their hooks once loaded.
 for (const m of ['./wizard.js', './controller.js', './settings.js', './intro.js', './gamepadnav.js']) import(m).catch((e) => console.warn('home:', m, e));

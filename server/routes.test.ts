@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Passes } from "./pass";
 import { GAMES } from "./games";
-import { createHomebrew } from "./homebrew";
 import { createApp, PIECE } from "./routes";
 
 const PAGE_DIR = join(import.meta.dir, "..", "page");
@@ -25,17 +24,6 @@ const discord = {
 let root: string;
 let dir: string;
 let app: ReturnType<typeof createApp>;
-// Homebrew Hub, faked: one game, its ROM and cover on GitHub, and a cover that won't download.
-const HB_GAMES = [
-  { slug: "tetra", title: "Tetra", developer: "Ana", platform: "GB", tags: [], files: [{ filename: "files/tetra.gb", playable: true }], screenshots: ["shot.jpg"] },
-  { slug: "down", title: "Down", platform: "NES", files: [{ filename: "down.nes", playable: true }], screenshots: ["c.png"], baserepo: "https://github.com/nesdev-org/homebrew-db" },
-];
-const hbFetch = async (url: string) => {
-  if (url.includes("/api/search?")) return Response.json({ page_total: 1, entries: HB_GAMES });
-  if (url === "https://raw.githubusercontent.com/gbdev/database/HEAD/entries/tetra/files/tetra.gb") return new Response("ROM");
-  if (url === "https://raw.githubusercontent.com/gbdev/database/HEAD/entries/tetra/shot.jpg") return new Response("JPG");
-  return new Response("down", { status: 503 });
-};
 // A small stand-in for the disc image: two whole pieces and a shorter last one.
 const SIZE = 2 * PIECE + 1234;
 const iso = new Uint8Array(SIZE).map((_, i) => (i * 7 + (i >> 20)) & 0xff);
@@ -46,16 +34,11 @@ beforeAll(async () => {
   await mkdir(dir);
   await writeFile(join(dir, "disc.iso"), iso);
   await mkdir(join(dir, "build"));
-  for (const f of [...GAMES[0]!.files, "bt3_node.js", "telemetry.log"]) await writeFile(join(dir, "build", f), `file ${f}`);
+  // (index.html with a </head>: the server puts the public address in it)
+  for (const f of [...GAMES[0]!.files, "bt3_node.js", "telemetry.log"]) await writeFile(join(dir, "build", f), `${f === "index.html" ? "<head></head>" : ""}file ${f}`);
   await mkdir(join(dir, "work"));
   await writeFile(join(dir, "work", "secret.txt"), "intermediate");
-  const homebrew = createHomebrew({ dir: join(root, "homebrew"), fetch: hbFetch });
-  await homebrew.refresh();
-  const emulatorDir = join(root, "emulator");
-  await mkdir(join(emulatorDir, "cores"), { recursive: true });
-  await writeFile(join(emulatorDir, "loader.js"), "/* loader */");
-  await writeFile(join(emulatorDir, "cores", "gambatte-wasm.data"), "core");
-  app = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "/* entry */", passes, discord, homebrew, emulatorDir });
+  app = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "/* entry */", passes, discord });
 });
 afterAll(() => rm(root, { recursive: true, force: true }));
 
@@ -126,7 +109,7 @@ test("the home, with the sandbox and CORS headers; the trailing slash is added",
 });
 
 test("only the game's listed files, with their types", async () => {
-  expect(await (await get(p("game/"))).text()).toBe("file index.html");
+  expect(await (await get(p("game/"))).text()).toEndWith("</head>file index.html");
   const wasm = await get(p("game/bt3-jspi.wasm"));
   expect(wasm.headers.get("content-type")).toBe("application/wasm");
   expect(wasm.headers.get("access-control-allow-origin")).toBe("*");
@@ -176,40 +159,11 @@ test("only games from the catalog: an id never reaches the disk", async () => {
     expect((await get(home(path))).status).toBe(404);
 });
 
-test("the homebrew shelf: its list, each game's ROM and cover fetched through the server, nothing else", async () => {
-  const forged = `${pass.split(".")[0]}.AAAA`;
-  for (const path of ["homebrew", "homebrew/tetra/rom", "play/", "emulator/loader.js"]) expect((await get(`/p/${forged}/${path}`)).status).toBe(403);
-  const list = (await (await get(home("homebrew"))).json()) as { games: { slug: string }[] };
-  expect(list.games.map((g) => g.slug)).toEqual(["tetra", "down"]);
-  const rom = await get(home("homebrew/tetra/rom"));
-  expect(await rom.text()).toBe("ROM");
-  expect(rom.headers.get("content-type")).toBe("application/octet-stream");
-  expect(rom.headers.get("cache-control")).toBe("private, max-age=86400");
-  expect(rom.headers.get("content-security-policy")).toStartWith("sandbox ");
-  const cover = await get(home("homebrew/tetra/cover"));
-  expect(await cover.text()).toBe("JPG");
-  expect(cover.headers.get("content-type")).toBe("image/jpeg");
-  expect((await get(home("homebrew/down/cover"))).status).toBe(502);
-  for (const path of ["homebrew/nope/rom", "homebrew/tetra/other", "homebrew/..%2ftetra/rom", "homebrew/tetra/rom/x"]) expect((await get(home(path))).status).toBe(404);
-});
-
-test("the player page and the emulator's files, only from its folder", async () => {
-  const page = await get(home("play/"));
-  expect(await page.text()).toContain("../emulator/loader.js");
-  expect(page.headers.get("content-security-policy")).toStartWith("sandbox ");
-  const loader = await get(home("emulator/loader.js"));
-  expect(await loader.text()).toBe("/* loader */");
-  expect(loader.headers.get("content-type")).toStartWith("text/javascript");
-  expect(await (await get(home("emulator/cores/gambatte-wasm.data"))).text()).toBe("core");
-  for (const path of ["emulator/", "emulator/cores", "emulator/nope.js", "emulator/%2e%2e/bt3/disc.iso", "emulator/..%2fbt3/disc.iso", "emulator/.hidden", "emulator/cores//x"])
-    expect((await get(home(path))).status).toBe(404);
-});
-
 test("the games' pages carry the app's public address: Abrir no navegador shows the link without waiting on Discord", async () => {
   const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, publicUrl: "https://hype.example" });
-  const page = await (web.handle(new Request(`https://hype.example${home("play/")}`)) as Promise<Response>);
+  const page = await (web.handle(new Request(`https://hype.example${p("game/")}`)) as Promise<Response>);
   expect(await page.text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
-  expect(await (await get(home("play/"))).text()).not.toContain("hypeplay-public");
+  expect(await (await get(p("game/"))).text()).not.toContain("hypeplay-public");
 });
 
 test("without PUBLIC_URL, the public address is the one each request came to (Discord's proxy and Traefik ask by name), never a local one or Discord's own", async () => {
@@ -221,7 +175,7 @@ test("without PUBLIC_URL, the public address is the one each request came to (Di
   expect(await at("http://hype.example:8443", { "x-forwarded-proto": "http" })).toBe("http://hype.example:8443");
   for (const local of ["http://localhost:3913", "http://127.0.0.1:3913", "http://192.168.0.10:3913", "http://[::1]:3913", "https://1565741822813409280.discordsays.com"])
     expect(await at(local)).toBe("");
-  const page = await (app.handle(new Request(`http://hype.example${home("play/")}`)) as Promise<Response>);
+  const page = await (app.handle(new Request(`http://hype.example${p("game/")}`)) as Promise<Response>);
   expect(await page.text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
   // a PUBLIC_URL set stands, whatever the request's address
   const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, publicUrl: "https://hype.example" });

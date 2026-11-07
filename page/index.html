@@ -6,7 +6,7 @@
 <title>HypePlay</title>
 <!--
   HypePlay's home (server/routes.ts serves it at /p/<pass>/, framed by page/entry.html): the library, each game's
-  drawer, adding a game, the controller screen, the intro and the homebrew shelf (home/homebrew.js). home/app.js reads `games` every 2 s. Runs as an opaque
+  drawer, adding a game, the controller screen and the intro. home/app.js reads `games` every 2 s. Runs as an opaque
   origin: every address here is relative, and nothing is kept in this browser. Tokens: DESIGN.md.
 -->
 <style>
@@ -210,20 +210,6 @@
   .add:hover .plus { transform: translate(4px, -2px) rotate(90deg); transform-origin: 50% 50%; }
   .add b { color: var(--ink); font: 700 14px/1.3 var(--body); }
 
-  /* homebrew shelf: screenshots, not cases */
-  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin-bottom: var(--s5); }
-  .filters .field { flex: 1; min-width: 200px; width: auto; }
-  .filters .chip { border: 0; cursor: pointer; padding: 8px 13px; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
-  .filters .chip:hover { background: rgb(255 255 255 / 0.14); }
-  .filters .chip[aria-pressed=true] { background: var(--primary); color: #fff; box-shadow: 0 6px 16px -6px var(--glow); }
-  .grid.hb { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-  .grid.hb .cover { aspect-ratio: 10 / 9; background: #000; }
-  .grid.hb .cover img { object-fit: contain; image-rendering: pixelated; }
-  .grid.hb .cover:hover img { transform: scale(1.04); }
-  .grid.hb .cover .ph { display: grid; place-items: center; height: 100%; font: var(--t-xl); color: var(--faint); }
-  .grid.hb .cover .tag { position: absolute; left: var(--s2); top: var(--s2); background: rgb(11 10 20 / 0.82); }
-  .card .by { color: var(--soft); font: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .more { margin: var(--s5) auto 0; display: flex; }
   .note { color: var(--soft); font: var(--t-sm); }
   .note svg.i { vertical-align: -4px; color: var(--warn); }
 
@@ -436,7 +422,6 @@
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-pad" viewBox="0 0 24 24"><path d="M6.5 8h11a4.5 4.5 0 0 1 4.3 5.8l-1.1 3.7a2.5 2.5 0 0 1-4.4.8L15 16H9l-1.3 2.3a2.5 2.5 0 0 1-4.4-.8l-1.1-3.7A4.5 4.5 0 0 1 6.5 8z"/><path d="M8 11v3M6.5 12.5h3"/><circle cx="16" cy="11.5" r=".6"/><circle cx="17.5" cy="13.5" r=".6"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
-  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5" fill="currentColor"/></symbol>
@@ -457,7 +442,6 @@
     <nav aria-label="Seções">
       <button type="button" class="on" data-nav="library"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>
       <button type="button" data-nav="people" hidden><svg class="i"><use href="#i-users"/></svg><span class="t">Pessoas</span><span class="count num" id="n-people"></span></button>
-      <button type="button" data-nav="homebrew"><svg class="i"><use href="#i-play"/></svg><span class="t">Homebrew</span><span class="count num" id="n-hb"></span></button>
       <button type="button" data-add><svg class="i"><use href="#i-plus"/></svg><span class="t">Adicionar jogo</span></button>
       <button type="button" data-controller><svg class="i"><use href="#i-pad"/></svg><span class="t">Controle</span></button>
       <button type="button" data-settings><svg class="i"><use href="#i-server"/></svg><span class="t">Servidor</span></button>
@@ -494,17 +478,6 @@
         <div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div><div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div>
         <div class="card"><span class="sk cover-sk"></span><span class="sk name"></span></div>
       </div>
-    </section>
-    <section id="homebrew" aria-labelledby="hb-title">
-      <div class="section-head"><h2 id="hb-title">Homebrew</h2><span id="hb-count">Jogos livres do Homebrew Hub, prontos para jogar</span></div>
-      <div class="filters">
-        <input class="field" id="hb-q" type="search" placeholder="Buscar por nome, autor ou tag" aria-label="Buscar homebrew">
-        <div class="chips" id="hb-plat" role="group" aria-label="Plataforma">
-          <button type="button" class="chip" data-plat="" aria-pressed="true">Todos</button><button type="button" class="chip" data-plat="GB" aria-pressed="false">Game Boy</button><button type="button" class="chip" data-plat="GBC" aria-pressed="false">Game Boy Color</button><button type="button" class="chip" data-plat="GBA" aria-pressed="false">GBA</button><button type="button" class="chip" data-plat="NES" aria-pressed="false">NES</button>
-        </div>
-      </div>
-      <div class="grid hb" id="hb-grid"><div class="busy"><div class="spin"></div><p>Carregando a lista do Homebrew Hub…</p></div></div>
-      <button type="button" class="btn second more" id="hb-more" hidden>Mostrar mais</button>
     </section>
   </main>
 </div>

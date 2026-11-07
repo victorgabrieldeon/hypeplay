@@ -29,10 +29,9 @@ test("player 2's page opens outside too, with its room and nothing else", () => 
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
 
-test("BT3's port and a homebrew game open outside too (to play smoother than in Discord)", () => {
-  for (const path of ["/p/abc/bt3/game/", "/p/abc/play/?g=tetra&p=GB&t=Tetra+2%21"])
-    expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
-  for (const path of ["/p/abc/play/?g=<x>", "/p/abc/play/?g=a b", "/p/abc/play//evil.com"])
+test("BT3's port opens outside too (to play smoother than in Discord), the old homebrew player doesn't", () => {
+  expect(openRequest({ t: "cordplay:open", path: "/p/abc/bt3/game/" }, PUBLIC)).toBe(PUBLIC + "/p/abc/bt3/game/");
+  for (const path of ["/p/abc/play/?g=tetra&p=GB&t=Tetra", "/p/abc/play//evil.com"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
 

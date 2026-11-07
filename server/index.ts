@@ -79,9 +79,6 @@ const app = createApp({
   },
 });
 
-// Homebrew Hub's list: the saved one now, a fresh one in the background when it's a day old.
-await app.homebrew.start();
-
 Bun.serve<NetData>({
   port: PORT,
   // (above the online rooms' long-poll, ps2rooms.ts WAIT_MS; Bun's default 10 s would cut it)

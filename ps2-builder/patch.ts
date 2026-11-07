@@ -50,6 +50,8 @@ function cardWarn(text) {
   const help = document.getElementById('help');
   if (help) { help.textContent = text; help.hidden = false; } else note(text);
 }
+// (the emulator's page keeps its unsent card per game, page/ps2play.ts: this game's is the one to send)
+const cardUnsent = 'cordplay-unsent:' + location.pathname.split('/fast/')[0].split('/').pop();
 async function cardLoad() {
   const mine = !navigator.locks || await new Promise((ok) => {
     navigator.locks.request('tabstationtoo-memcards', { ifAvailable: true }, (lock) => { ok(!!lock); return lock ? new Promise(() => {}) : null; }).catch(() => ok(true));
@@ -65,7 +67,7 @@ async function cardLoad() {
       open.onsuccess = () => {
         const db = open.result;
         try {
-          const get = db.transaction('meta', 'readonly').objectStore('meta').get('cordplay-unsent');
+          const get = db.transaction('meta', 'readonly').objectStore('meta').get(cardUnsent);
           get.onsuccess = () => ok({ db, bytes: get.result instanceof Uint8Array && get.result.length === CARD_BYTES ? get.result : null });
           get.onerror = () => ok({ db, bytes: null });
         } catch (e) { ok({ db, bytes: null }); }
@@ -78,7 +80,7 @@ async function cardLoad() {
       unsent.db.close();
       return cardWarn('Um save do emulador ainda não chegou no servidor. Abra o jogo no emulador para ele terminar de enviar; até lá, o que você salvar aqui não vai para o servidor.');
     }
-    try { unsent.db.transaction('meta', 'readwrite').objectStore('meta').delete('cordplay-unsent'); } catch (e) {}
+    try { unsent.db.transaction('meta', 'readwrite').objectStore('meta').delete(cardUnsent); } catch (e) {}
   }
   if (unsent) unsent.db.close();
   for (const wait of [0, 2000, 5000]) {

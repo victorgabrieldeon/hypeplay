@@ -14,8 +14,11 @@ import { roomButton } from "./stream";
 
 const CARD_ID = "cordplay";
 const CARD_BYTES = 8_650_752;
-/** A card the server hasn't got yet (cardsync.ts), in the emulator's own database. */
-const DIRTY_KEY = "cordplay-unsent";
+/**
+ * A card the server hasn't got yet (cardsync.ts), in the emulator's own database: one per game, since every game shares
+ * this origin's database and another game's unsent card would go up as this one's save. (ps2-builder/patch.ts too.)
+ */
+const DIRTY_KEY = `cordplay-unsent:${/\/ps2\/([^/]+)\/game\//.exec(location.pathname)?.[1] ?? ""}`;
 
 const STYLE = `
 @font-face { font-family: "Manrope"; font-weight: 200 800; font-display: swap; src: url("../../../fonts/manrope-latin-wght-normal.woff2") format("woff2"); }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { fillLine, speedLine } from "./perf";
+import { fillLine, perfAdvice, speedLine } from "./perf";
 
 test("the speed meter: the emulator's speed and frames, or that no game runs yet", () => {
   expect(speedLine("100%", "60")).toEqual({ text: "100% · 60 FPS", slow: false });
@@ -16,4 +16,15 @@ test("the whole disc in the browser: how far, in the person's words", () => {
   expect(fillLine({ have: 0, total: 3072, state: "checking" })).toBe("Vendo o que já está no navegador…");
   expect(fillLine({ have: 512, total: 3072, state: "off" })).toBe("Só o que o jogo lê fica no navegador (16%); o resto vem da internet na hora.");
   expect(fillLine(null)).toBe("O disco abre quando o jogo começar.");
+});
+
+test("the speed advice: what weighs, from the PS2's threads (EE, GS, VU)", () => {
+  expect(perfAdvice(null, null, false)).toBe("");
+  expect(perfAdvice(100, [40, 30, 20], true)).toContain("não precisa mexer");
+  expect(perfAdvice(70, [60, 99, 40], true)).toContain("Volte a Resolução para Nativa");
+  expect(perfAdvice(70, [60, 99, 40], false)).toContain("a placa de vídeo é o limite");
+  expect(perfAdvice(70, [99, 50, 40], false)).toContain("underclock Leve ou Médio");
+  expect(perfAdvice(70, [50, 40, 99], false)).toContain("contas 3D");
+  expect(perfAdvice(70, [0, 0, 0], false)).toContain("Resolução Nativa e o underclock");
+  expect(perfAdvice(70, null, false)).toContain("Resolução Nativa e o underclock");
 });

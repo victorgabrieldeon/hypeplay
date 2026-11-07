@@ -38,7 +38,7 @@ async function bundle(entry: string, define: Record<string, string> = {}) {
 }
 
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
-// R2 for the new games' discs when S3_BUCKET is set (discs.ts): sent ones go there, the ones on this disk stay.
+// R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
 const r2 = r2FromEnv();
 // BT3's port is off the catalog (games: []): its disc goes in the library like any PS2 game. Its code stays.
 const library = createLibrary(dir, { r2, port: false });
@@ -58,7 +58,7 @@ const app = createApp({
   library,
   vimm: createVimm(dir, library),
   discs: createDiscs(dir, r2),
-  saves: createSaves(dir),
+  saves: createSaves(dir, r2),
   people: createPeople(dir),
   ps2Rooms: new Ps2Rooms(),
   bios: createBios(dir),

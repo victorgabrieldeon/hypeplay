@@ -219,3 +219,41 @@ test("in a browser: Entrar com o Discord goes to Discord, and back here with a p
 test("without PUBLIC_URL there's no signing in from a browser", async () => {
   expect((await get("/login")).status).toBe(404);
 });
+
+test("from the PC app: the same sign-in, and the pass back to the app's listener on 127.0.0.1 with its nonce, never elsewhere", async () => {
+  const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, clientId: "app", publicUrl: "https://hype.example" });
+  const go = (path: string) => web.handle(new Request(`https://hype.example${path}`)) as Promise<Response>;
+  const NONCE = "n0nce-of_the-app1";
+  const stateOf = async (q: string) => new URL((await go(`/login?${q}`)).headers.get("location")!).searchParams.get("state")!;
+  const back = await go(`/auth?code=ana&state=${await stateOf(`port=51234&nonce=${NONCE}`)}`);
+  expect([back.status, back.headers.get("location")]).toEqual([302, `http://127.0.0.1:51234/?pass=${pass}&nonce=${NONCE}`]);
+  // cancelled on Discord's page: the app hears it, without a pass
+  const cancelled = await go(`/auth?error=access_denied&state=${await stateOf(`port=51234&nonce=${NONCE}`)}`);
+  expect(cancelled.headers.get("location")).toBe(`http://127.0.0.1:51234/?nonce=${NONCE}`);
+  // (anything but a port number and a plain nonce is refused before Discord: no way to send a pass somewhere else)
+  for (const q of ["port=80&nonce=" + NONCE, "port=70000&nonce=" + NONCE, "port=5.5&nonce=" + NONCE, "port=evil.com&nonce=" + NONCE, "port=51234&nonce=short", `port=51234&nonce=${NONCE}%26pass%3Dx`, "port=51234"])
+    expect((await go(`/login?${q}`)).status).toBe(400);
+  // the browser's sign-in is untouched
+  expect((await go(`/auth?code=ana&state=${await stateOf("")}`)).headers.get("location")).toBe(`/p/${pass}/`);
+});
+
+test("the PC app's packages, behind the pass, as downloads; the home lists them only when the app could sign in (PUBLIC_URL)", async () => {
+  const downloads = join(root, "downloads");
+  await mkdir(downloads, { recursive: true });
+  await writeFile(join(downloads, "HypePlay-windows.zip"), "zip of the app");
+  const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, clientId: "app", publicUrl: "https://hype.example", downloads });
+  const go = (path: string, init?: RequestInit) => web.handle(new Request(`https://hype.example${path}`, init)) as Promise<Response>;
+  const zip = await go(home("app/windows"));
+  expect(zip.status).toBe(200);
+  expect(zip.headers.get("content-disposition")).toBe('attachment; filename="HypePlay-windows.zip"');
+  expect(await zip.text()).toBe("zip of the app");
+  // (a download cut short goes on from where it stopped)
+  const rest = await go(home("app/windows"), { headers: { range: "bytes=4-" } });
+  expect([rest.status, await rest.text()]).toEqual([206, "of the app"]);
+  for (const os of ["linux", "macos", "constructor", "__proto__"]) expect((await go(home(`app/${os}`))).status).toBe(404);
+  expect((await go(`/p/forged/app/windows`)).status).toBe(403);
+  const listed = async (a: ReturnType<typeof createApp>) => ((await (await (a.handle(new Request(`https://hype.example${home("games")}`)) as Promise<Response>)).json()) as { apps: string[] }).apps;
+  expect(await listed(web)).toEqual(["windows"]);
+  // without PUBLIC_URL the app has nowhere to sign in: no button
+  expect(await listed(createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, clientId: "app", downloads }))).toEqual([]);
+});

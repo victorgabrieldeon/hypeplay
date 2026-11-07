@@ -96,6 +96,14 @@ function linkBox(text, url, error) {
 
 layer.addEventListener('click', (e) => {
   if (!choice) return;
+  // (the PC app's download: Discord's frame doesn't download, the browser does)
+  const os = e.target.closest('[data-app-os]')?.dataset.appOs;
+  if (os && framed) {
+    e.preventDefault();
+    const path = `${location.pathname}app/${os}`;
+    parent.postMessage({ t: 'cordplay:open', path }, '*');
+    return linkBox(OPENING, browserUrl(path).url);
+  }
   const el = e.target.closest('[data-where]');
   const a = el?.dataset.where;
   if (!a || (a === 'scrim' && e.target !== el)) return;
@@ -139,6 +147,25 @@ if (framed) {
   button.hidden = false;
   button.addEventListener('click', openHome);
 }
+
+/**
+ * The sidebar's "App para PC" (app/, shown when the server has its packages: state.apps): the PS2 games in PCSX2 on the
+ * PC itself, much faster than in a browser, with the same account and saves. This system's download first.
+ */
+const SYSTEMS = { windows: ['Windows', 'Extraia o .zip e abra o HypePlay.exe (se o Windows avisar: Mais informações → Executar assim mesmo).'], linux: ['Linux', 'Extraia o .tar.gz e abra o hypeplay.'] };
+function openApp() {
+  const mine = /windows/i.test(navigator.userAgent) ? 'windows' : /linux|x11/i.test(navigator.userAgent) ? 'linux' : '';
+  const apps = [...state.apps].sort((a, b) => Number(b === mine) - Number(a === mine));
+  choice = { here: null, path: '' };
+  layer.innerHTML = `<div class="modal" data-where="scrim"><div class="dialog where" role="dialog" aria-modal="true" aria-labelledby="where-title">
+    <header><h2 id="where-title">HypePlay para PC</h2><button class="btn quiet" data-where="cancel" aria-label="Fechar">${icon('close')}</button></header>
+    <p>Os jogos de PS2 da biblioteca no PCSX2, direto no seu PC: bem mais rápido que no navegador. Entra com o Discord e usa os mesmos saves.</p>
+    <div class="where-options">${apps.map((os) => `<a class="where-option${os === mine ? ' best' : ''}" href="app/${os}" download data-app-os="${os}">${icon('download')}<b>${SYSTEMS[os]?.[0] ?? esc(os)}</b><span>${SYSTEMS[os]?.[1] ?? ''}</span></a>`).join('')}</div>
+    <div class="where-status" role="status" hidden></div>
+  </div></div>`;
+  layer.querySelector('.where-option')?.focus();
+}
+document.querySelector('[data-app]').addEventListener('click', openApp);
 document.addEventListener('keydown', (e) => {
   if (choice && e.key === 'Escape') { e.stopPropagation(); close(); }
 }, true);

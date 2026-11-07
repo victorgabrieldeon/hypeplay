@@ -104,6 +104,39 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   se for só ela), e continuam jogáveis enquanto isso. No Linux o Firefox/Zen também roda, com `dom.webgpu.enabled`
   ligado em `about:config`.
 
+## App para PC
+
+Os jogos de PS2 da biblioteca também rodam no **HypePlay para PC** (Linux e Windows), no [PCSX2](https://pcsx2.net)
+2.8.2 nativo: o mesmo emulador do TabStationToo, sem WebAssembly nem navegador no meio, então bem mais rápido. O app
+(`app/`, em Rust com egui) cuida do resto: entrar com o Discord, a biblioteca, trazer o disco e o save.
+
+- **Baixar:** "App para PC" na lateral da biblioteca. O botão só aparece quando o servidor tem `PUBLIC_URL` e a imagem
+  traz os pacotes. Dentro do Discord o download abre no navegador.
+  - **Windows:** `HypePlay-windows.zip`. Extraia e abra o `HypePlay.exe`. O app não é assinado, então o SmartScreen
+    avisa: Mais informações → Executar assim mesmo. O PCSX2 precisa do
+    [Visual C++ x64](https://aka.ms/vs/17/release/vc_redist.x64.exe); se faltar, o app abre o download dele.
+  - **Linux:** `HypePlay-linux.tar.gz`. Extraia e abra o `hypeplay`. Precisa de glibc 2.35 ou mais nova (Ubuntu 22.04,
+    Debian 12, Fedora 36…).
+- **Entrar:** "Entrar com o Discord" abre a página do Discord no navegador (`<PUBLIC_URL>/login`). O passe volta direto
+  para o app, só no próprio PC (`127.0.0.1`, com um código que só o app conhece), e vale 12 h.
+- **Jogar:** da primeira vez, o app baixa a BIOS do servidor e o disco inteiro, em pedaços de 16 MB, 6 de cada vez; se
+  cair, continua de onde parou. Depois abre direto. O jogo abre em tela cheia; Esc (ou o botão PS/Guide do controle)
+  abre o menu do PCSX2, e fechar o jogo volta para o app.
+- **Saves:** o mesmo memory card do navegador, com as mesmas regras: o do servidor desce antes de abrir, e o save sobe
+  quando o jogo fecha. Um save que não subiu (sem internet, o app fechado antes) fica no PC e sobe primeiro da próxima
+  vez. Se o app não conseguir buscar o save, o jogo não abre, para nunca gravar um cartão em branco por cima. Os cartões
+  ficam separados por conta do Discord, então outra pessoa entrando no mesmo PC não mistura saves.
+- **Controle:** o primeiro controle já vem ligado como DualShock 2, junto com o teclado padrão do PCSX2. Para mudar,
+  use as configurações do próprio PCSX2. O mapa da tela "Controle" do site não vale aqui.
+- **Fica no PC**, em `dados/` ao lado do app: o passe, os discos (`discos/`, alguns GB por jogo; apague para liberar
+  espaço), os saves e as configurações do PCSX2 (`PCSX2/`). Para atualizar, extraia a versão nova por cima da antiga.
+- **Ainda não:** online (abrir sala ou entrar como jogador 2), a versão rápida e o mapa de controle do site. Para
+  isso, use o navegador. macOS e iOS também não: iPhone e iPad não instalam app baixado de site.
+- **Compilado na imagem:** o `Dockerfile` compila o app para Linux (base Ubuntu 22.04) e para Windows (MinGW). Junta o
+  PCSX2 (GPL-3.0, conferido por SHA-256, com a licença e o link do código-fonte) e o `servidor.txt`, que leva o
+  `PUBLIC_URL` (argumento de build no compose). A primeira compilação leva alguns minutos; depois só as dependências
+  ficam em cache, e o app recompila quando `app/` muda.
+
 ## Configurar o app no Discord
 
 Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o do app), em https://discord.com/developers/applications:
@@ -130,7 +163,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | --- | --- |
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
-| `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
+| `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele), **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial) e o **app para PC** (o endereço vai no pacote dele, e sem ele o botão de baixar não aparece). Para os dois últimos, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
 | `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
 
@@ -230,6 +263,16 @@ Para abrir a biblioteca sem o Discord, gere um passe com o mesmo segredo e abra 
 bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 ```
 
+O app para PC, contra o servidor local: ele procura o PCSX2 em `pcsx2/` ao lado do executável (o `AppRun` do AppImage
+extraído, ou o `pcsx2-qt.exe` no Windows) e guarda tudo em `dados/` ali. Para pular o login, ponha um passe em
+`dados/passe.txt`:
+
+```sh
+cd app && cargo test
+cargo build && mkdir -p target/debug/dados && bun ../scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana > target/debug/dados/passe.txt
+HYPEPLAY_URL=http://localhost:3003 target/debug/hypeplay
+```
+
 ## Por dentro
 
 - `server/`: o catálogo (`games.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
@@ -246,6 +289,9 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   `--update` pega a versão publicada agora e regrava os hashes (depois revise `server/ps2page.ts`).
 - `server/ps2page.ts` e `page/ps2play.ts`: a página do TabStationToo no nosso design (BIOS e disco do servidor,
   memory card do servidor no slot 1, o console dele escondido, a nossa barra e o rodapé da licença).
+- `app/`: o app para PC. `server.rs` cuida do login (o passe volta pelo `127.0.0.1`) e das chamadas ao servidor;
+  `disc.rs` baixa o disco em pedaços conferidos; `card.rs` cuida do memory card (as regras do `page/cardsync.ts`);
+  `pcsx2.rs` ajusta o `PCSX2.ini` e abre o jogo; `main.rs` é a tela.
 
 ## Adicionar um port testado
 

@@ -3,6 +3,8 @@
  *
  *   /, entry.js, /icon.svg                 public: the entry page signs in with Discord (page/entry.html, entry.ts)
  *   /token                                 POST { code }: the Discord code for a pass (discord.ts, pass.ts)
+ *   /login, /auth                          from a browser: Discord's sign-in page and back with a pass; with ?port=&nonce=,
+ *                                          the PC app's (app/): back to its listener on 127.0.0.1
  *   /p/<pass>/                             the home (page/index.html), framed by the entry page
  *             games                        the catalog (games.ts), each game with its state
  *             <id>/status, upload, retry   a game's state, its disc image's upload, "Tentar de novo"
@@ -11,6 +13,7 @@
  *             <id>/game/net/ws, net/queue  online rooms (rooms.ts), one set per game
  *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
  *             pad, keys, played            the person's controller maps, keys and last game (people.ts)
+ *             app/<linux|windows>          the PC app's package (APP_FILES), when the image has it
  *             here                         POST: a game's page is still open (its path; empty, it closed): presence.ts
  *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
@@ -151,7 +154,12 @@ export interface AppOptions {
   vimm?: Vimm;
   /** Where the discs are played from (discs.ts): R2 when index.ts says so, the local file by default. */
   discs?: Discs;
+  /** The PC app's packages (app/, packed by the Dockerfile), APP_FILES' names: downloads/ by default. */
+  downloads?: string;
 }
+
+/** The PC app (app/) per system, as the Dockerfile packs it: served at p/<pass>/app/<system>. */
+export const APP_FILES: Record<string, string> = { linux: "HypePlay-linux.tar.gz", windows: "HypePlay-windows.zip" };
 
 /** One game of the home's catalog: BT3's port or a PS2 game of the library. */
 export interface CatalogEntry {
@@ -201,6 +209,7 @@ export function createApp({
   ps2Engine = join(import.meta.dir, "..", "emulator", "ps2"),
   vimm,
   discs = createDiscs(dir, null),
+  downloads = join(import.meta.dir, "..", "downloads"),
 }: AppOptions) {
   const shelf = new Map(
     games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
@@ -398,7 +407,21 @@ export function createApp({
     );
     const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
     presence.library(pass);
-    return { me: pass.name, last: (await people?.last(pass.id)) ?? null, publicUrl: publicFor(req), games: [...ports, ...ps2], people: peopleFor(pass) };
+    return {
+      me: pass.name,
+      last: (await people?.last(pass.id)) ?? null,
+      publicUrl: publicFor(req),
+      games: [...ports, ...ps2],
+      people: peopleFor(pass),
+      apps: await appsHere(),
+    };
+  }
+
+  /** The PC app's systems with a package here: none without PUBLIC_URL, where the app couldn't sign in (/login). */
+  async function appsHere() {
+    if (!publicUrl || !clientId) return [];
+    const found = await Promise.all(Object.entries(APP_FILES).map(async ([os, name]) => ((await Bun.file(join(downloads, name)).exists()) ? os : "")));
+    return found.filter(Boolean);
   }
 
   /**
@@ -677,26 +700,39 @@ export function createApp({
 
   // Signing in from a browser (outside Discord, where WebRTC and the PS2 games' isolation work): Discord's own page,
   // and back to <PUBLIC_URL>/auth with a code. `state` ties the two ends together: made here, good once, ten minutes.
-  const states = new Map<string, number>();
+  // The PC app (app/) signs in the same way with ?port=&nonce=: the pass goes back to the app's own listener on this
+  // machine, 127.0.0.1:<port> and nowhere else, with the nonce, so the app knows it's the answer to its own request.
+  const states = new Map<string, { exp: number; app?: { port: number; nonce: string } }>();
   const redirectUri = `${publicUrl}/auth`;
-  function login(): Response {
+  function login(req: Request): Response {
     if (!publicUrl || !clientId) return text("Entrar pelo navegador precisa do PUBLIC_URL no servidor.", 404);
-    for (const [s, exp] of states) if (exp < now()) states.delete(s);
+    const q = new URL(req.url).searchParams;
+    let app: { port: number; nonce: string } | undefined;
+    if (q.has("port")) {
+      const port = Number(q.get("port"));
+      const nonce = q.get("nonce") ?? "";
+      if (!Number.isInteger(port) || port < 1024 || port > 65535 || !/^[\w-]{16,64}$/.test(nonce)) return text("Pedido inválido", 400);
+      app = { port, nonce };
+    }
+    for (const [s, { exp }] of states) if (exp < now()) states.delete(s);
     const state = randomBytes(18).toString("base64url");
-    states.set(state, now() + 10 * 60_000);
+    states.set(state, { exp: now() + 10 * 60_000, app });
     return respond(null, 302, { Location: authorizeUrl(clientId, redirectUri, state) });
   }
   async function auth(req: Request): Promise<Response> {
     const q = new URL(req.url).searchParams;
     const state = q.get("state") ?? "";
-    const exp = states.get(state);
+    const asked = states.get(state);
     states.delete(state);
-    if (!publicUrl || !exp || exp < now()) return text("Essa entrada venceu. Volte e clique em Entrar com o Discord de novo.", 400);
+    if (!publicUrl || !asked || asked.exp < now()) return text("Essa entrada venceu. Volte e clique em Entrar com o Discord de novo.", 400);
+    const { app } = asked;
+    const toApp = (pass?: string) => `http://127.0.0.1:${app!.port}/?${pass ? `pass=${pass}&` : ""}nonce=${app!.nonce}`;
     const code = q.get("code");
-    // (no code: cancelled on Discord's page)
-    if (!code || code.length > 200) return respond(null, 302, { Location: "/" });
+    // (no code: cancelled on Discord's page; the app hears it too, without a pass)
+    if (!code || code.length > 200) return respond(null, 302, { Location: app ? toApp() : "/" });
     try {
-      return respond(null, 302, { Location: `/p/${passes.issue(await discord.signIn(code, redirectUri))}/` });
+      const pass = passes.issue(await discord.signIn(code, redirectUri));
+      return respond(null, 302, { Location: app ? toApp(pass) : `/p/${pass}/` });
     } catch (err) {
       console.error("discord sign-in (browser) failed:", err);
       return text("Não deu para entrar pelo Discord. Volte e tente de novo.", 502);
@@ -710,7 +746,7 @@ export function createApp({
     if (pathname === "/") return new Response(Bun.file(join(pageDir, "entry.html")), { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.html! } });
     if (pathname === "/entry.js") return new Response(entryJs, { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.js! } });
     if (pathname === "/token") return token(req);
-    if (pathname === "/login") return login();
+    if (pathname === "/login") return login(req);
     if (pathname === "/auth") return auth(req);
     const m = /^\/p\/([\w.-]+)(\/.*)?$/.exec(pathname);
     if (!m) return text("Não encontrado", 404);
@@ -721,6 +757,13 @@ export function createApp({
     if (path === "/") return file(join(pageDir, "index.html"));
     if (path === "/games") return json(await catalog(pass, req));
     if (path === "/here") return here(req, pass);
+    const app = /^\/app\/(\w+)$/.exec(path);
+    if (app && Object.hasOwn(APP_FILES, app[1]!)) {
+      const name = APP_FILES[app[1]!]!;
+      const f = Bun.file(join(downloads, name));
+      if (!(await f.exists())) return text("O app ainda não foi compilado neste servidor", 404);
+      return rangeResponse(req, f, { ...HEADERS, "Content-Type": TYPES.bin!, "Content-Disposition": `attachment; filename="${name}"` });
+    }
     if (path === "/intro.mp4") {
       const where = join(dir, "intro.mp4");
       // sent once from the home's "Servidor" screen, for everyone (like the BIOS); anyone may replace or take it off

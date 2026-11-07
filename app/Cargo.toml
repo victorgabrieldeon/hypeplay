@@ -1,0 +1,18 @@
+[package]
+name = "hypeplay"
+version = "0.1.0"
+edition = "2024"
+description = "HypePlay para PC: os jogos de PS2 da biblioteca no PCSX2"
+publish = false
+
+[dependencies]
+base64 = "0.23.1"
+eframe = "0.37.0"
+egui_extras = { version = "0.37.0", features = ["image", "svg"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+ureq = "3.5.1"
+
+[profile.release]
+strip = true

@@ -6,7 +6,10 @@ x-data: &data { type: bind, source: /srv/bt3-data, target: /app/data, bind: { cr
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      # (written into the PC app's package as the address it signs in at: Dockerfile)
+      args: { PUBLIC_URL: "${PUBLIC_URL:-}" }
     restart: unless-stopped
     environment:
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}

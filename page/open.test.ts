@@ -50,6 +50,11 @@ test("another copy of a game (its id: the serial, -2, -3…) opens like the firs
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
 
+test("the PC app's download opens outside too (Discord's frame doesn't download), only its two systems", () => {
+  for (const path of ["/p/abc/app/linux", "/p/abc/app/windows"]) expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
+  for (const path of ["/p/abc/app/macos", "/p/abc/app/linux/", "/p/abc/app/../x", "/p/abc/app/windows?x=1"]) expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
+});
+
 test("a PS2 game's versão rápida opens outside too: its page, and the library straight into it", () => {
   for (const path of ["/p/abc/ps2/scus-97399/fast/", "/p/abc/?play=ps2%2Fscus-97399&fast=1", "/p/abc/?play=ps2%2Fscus-97399&fast=1&online=1"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);

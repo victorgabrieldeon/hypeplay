@@ -4,14 +4,13 @@ import { gameFrom, Presence, QUIET_MS } from "./presence";
 const ana = { id: "1", name: "Ana", exp: 0, call: "555" };
 const bia = { id: "2", name: "Bia", exp: 0 };
 
-test("a game's page by its path: PS2 (emulator, fast, watching), a port, homebrew", () => {
+test("a game's page by its path: PS2 (emulator, fast, watching), and a port", () => {
   expect(gameFrom("ps2/slus-21678/game/")).toEqual({ key: "ps2/slus-21678", watch: false });
   expect(gameFrom("ps2/slus-21678/fast/?online=host")).toEqual({ key: "ps2/slus-21678", watch: false });
   expect(gameFrom("ps2/slus-21678/watch/?room=ABCDEF")).toEqual({ key: "ps2/slus-21678", watch: false });
   expect(gameFrom("ps2/slus-21678/watch/?room=ABCDEF&watch=1")).toEqual({ key: "ps2/slus-21678", watch: true });
   expect(gameFrom("bt3/game/")).toEqual({ key: "bt3", watch: false });
-  expect(gameFrom("play/?g=tobu-tobu&p=GB&t=Tobu")).toEqual({ key: "homebrew/tobu-tobu", watch: false, slug: "tobu-tobu" });
-  for (const bad of ["", "games", "ps2/../game/", "play/?t=x", "cover/bt3"]) expect(gameFrom(bad)).toBeNull();
+  for (const bad of ["", "games", "ps2/../game/", "play/?g=tetra&p=GB", "cover/bt3"]) expect(gameFrom(bad)).toBeNull();
 });
 
 test("the library and a game's page; others only, and gone after a quiet while", () => {

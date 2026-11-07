@@ -22,10 +22,6 @@
  *             vimm                         POST { link }: download a PS2 game from vimm.net into the library; GET: how it goes (vimm.ts)
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
- *             homebrew                     the homebrew shelf (homebrew.ts): Homebrew Hub's games
- *             homebrew/<slug>/rom, cover   a homebrew game's ROM and cover, fetched the first time
- *             play/                        the emulator's page (page/play.html), for a homebrew game
- *             emulator/<file>              EmulatorJS and its cores (emulator/data/)
  *
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
@@ -50,7 +46,6 @@ import { gameFrom, Presence } from "./presence";
 import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
 import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
-import { createHomebrew, type HomebrewShelf } from "./homebrew";
 import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { Relay } from "./relay";
 import { CARD_BYTES, type Saves } from "./saves";
@@ -86,7 +81,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** The home's own scripts (page/home/), plain ES modules. */
-const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "homebrew.js", "gamepadnav.js"]);
+const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js"]);
 /** TabStationToo's files (emulator/ps2/, pinned by emulator/ps2-files.json): nothing else of that folder is served. */
 const ENGINE_FILES = new Set(
   (JSON.parse(readFileSync(join(import.meta.dir, "..", "emulator", "ps2-files.json"), "utf8")) as { files: { path: string }[] }).files
@@ -107,9 +102,6 @@ export const HEADERS = {
   "Access-Control-Allow-Headers": "content-type",
   "Cache-Control": "no-cache",
 };
-
-/** Homebrew files and the emulator: a new version keeps the address, so a day, not forever like the disc pieces. */
-const DAY = { "Cache-Control": "private, max-age=86400" };
 
 const ENTRY_HEADERS = { "Content-Security-Policy": FRAME_ANCESTORS, "Cache-Control": "no-cache" };
 
@@ -138,10 +130,6 @@ export interface AppOptions {
   passes: Passes;
   discord: Pick<Discord, "signIn">;
   games?: Game[];
-  /** <dir>/homebrew/ by default; index.ts starts its refreshes. */
-  homebrew?: HomebrewShelf;
-  /** emulator/data/, filled by emulator/fetch.ts. */
-  emulatorDir?: string;
   now?: () => number;
   /** The PS2 library (library.ts) and what's kept per person; without them, the PS2 routes answer 404. */
   library?: Library;
@@ -207,8 +195,6 @@ export function createApp({
   passes,
   discord,
   games = GAMES,
-  homebrew = createHomebrew({ dir: join(dir, "homebrew") }),
-  emulatorDir = join(import.meta.dir, "..", "emulator", "data"),
   now = () => Date.now(),
   library,
   saves,
@@ -459,8 +445,7 @@ export function createApp({
     const path = (await req.text()).slice(0, 300);
     const g = gameFrom(path);
     let title: string | null = null;
-    if (g?.slug) title = homebrew.get(g.slug)?.title ?? null;
-    else if (g && shelf.has(g.key)) title = shelf.get(g.key)!.game.name;
+    if (g && shelf.has(g.key)) title = shelf.get(g.key)!.game.name;
     else if (g?.key.startsWith("ps2/") && library) title = (await library.get(g.key.slice(4)))?.name ?? null;
     presence.playing(pass, g && title ? { key: g.key, title, watch: g.watch } : null);
     return respond(null, 204);
@@ -695,19 +680,6 @@ export function createApp({
     return text("Não encontrado", 404);
   }
 
-  async function homebrewFile(slug: string, which: "rom" | "cover") {
-    let path: string | null;
-    try {
-      path = await homebrew.file(slug, which);
-    } catch (err) {
-      console.error("homebrew download failed:", err);
-      return text("Não deu para baixar o jogo do Homebrew Hub. Tente de novo daqui a pouco.", 502);
-    }
-    if (!path) return text("Não encontrado", 404);
-    const name = which === "rom" ? "rom.bin" : homebrew.get(slug)!.cover!;
-    return file(path, typeOf(name), DAY);
-  }
-
   async function token(req: Request): Promise<Response> {
     if (req.method !== "POST") return text("Método não permitido", 405);
     const sent = (await req.json().catch(() => null)) as { code?: unknown; call?: unknown } | null;
@@ -873,14 +845,6 @@ export function createApp({
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
     if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "", server) : text("Não encontrado", 404);
-    if (path === "/homebrew") return json({ games: homebrew.list() });
-    const hb = /^\/homebrew\/([\w.-]+)\/(rom|cover)$/.exec(path);
-    if (hb) return homebrewFile(hb[1]!, hb[2] as "rom" | "cover");
-    // (pad.js: a mapped PS2 controller plays the homebrew games too)
-    if (path === "/play/") return page(req, join(pageDir, "play.html"), "../pad.js", HEADERS);
-    // (the URL parser already folded any "..": the pattern is the second lock)
-    const emu = /^\/emulator\/((?:[\w-][\w.-]*\/)*[\w-][\w.-]*)$/.exec(path);
-    if (emu) return file(join(emulatorDir, emu[1]!), undefined, DAY);
     const g = /^\/([\w-]+)(\/.*)?$/.exec(path);
     const on = g && shelf.get(g[1]!);
     if (!on) return text("Não encontrado", 404);
@@ -927,7 +891,7 @@ export function createApp({
     },
   };
 
-  return { handle, websocket, shelf, homebrew };
+  return { handle, websocket, shelf };
 }
 
 export type App = ReturnType<typeof createApp>;

@@ -11,13 +11,11 @@ export const HERE_MS = 15_000;
 export const QUIET_MS = 40_000;
 
 /** What a game's page is, from its path under /p/<pass>/: the game's key, and whether it only watches someone. */
-export function gameFrom(path: string): { key: string; watch: boolean; slug?: string } | null {
+export function gameFrom(path: string): { key: string; watch: boolean } | null {
   const ps2 = /^ps2\/([a-z]{4}-\d{5}(?:-\d{1,2})?)\/(game|fast|watch)\//.exec(path);
   if (ps2) return { key: `ps2/${ps2[1]}`, watch: ps2[2] === "watch" && /[?&]watch=1(&|$)/.test(path) };
   const port = /^([a-z0-9]{1,16})\/game\//.exec(path);
-  if (port) return { key: port[1]!, watch: false };
-  const slug = /^play\/\?(?:.*&)?g=([\w.-]{1,100})(&|$)/.exec(path)?.[1];
-  return slug ? { key: `homebrew/${slug}`, watch: false, slug } : null;
+  return port ? { key: port[1]!, watch: false } : null;
 }
 
 export interface Person {

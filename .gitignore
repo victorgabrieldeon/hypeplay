@@ -6,8 +6,6 @@ downloads
 .env
 # The disc image and everything made from it: never in git.
 data
-# EmulatorJS, downloaded by emulator/fetch.ts.
-emulator/data
 # TabStationToo (PCSX2 in WebAssembly), downloaded by emulator/ps2-fetch.ts.
 emulator/ps2
 emulator/ps2.tmp

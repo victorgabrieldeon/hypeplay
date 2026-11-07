@@ -2,7 +2,6 @@ node_modules
 .git
 .env
 data
-emulator/data
 emulator/ps2
 emulator/ps2.tmp
 .superpowers

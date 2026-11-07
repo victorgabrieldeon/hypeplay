@@ -546,14 +546,6 @@ test("every game page gets pad.js and then overlay.js", async () => {
   expect(await (await ana("bt3/game/")).text()).toContain('<script src="../../pad.js"></script><script src="../../overlay.js"></script></head>');
   const id = await built("SLES-13131", "SLES_131.31");
   expect(await (await ana(`ps2/${id}/game/`)).text()).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
-  expect(await (await ana("play/")).text()).toContain('<script src="../pad.js"></script><script src="../overlay.js"></script></head>');
-});
-
-test("the homebrew player gets pad.js too, and keeps the home's sandbox", async () => {
-  const play = await ana("play/");
-  expect(play.status).toBe(200);
-  expect(await play.text()).toContain('<script src="../pad.js"></script><script src="../overlay.js"></script></head>');
-  expect(play.headers.get("content-security-policy")).toStartWith("sandbox ");
 });
 
 test("the home's own scripts, from a fixed list, with the home's headers", async () => {

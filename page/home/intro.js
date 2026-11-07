@@ -1,6 +1,6 @@
 // Opening a game: it becomes the person's last one (the spotlight), the PS2 intro plays (intro.mp4, sent once from
 // the Servidor screen, with sound: the click is the gesture), and a click, a key, its end or its absence goes on to the
-// game. Only BT3 and the PS2 library get it; the homebrew shelf opens its emulator straight away.
+// game. BT3 and the PS2 library.
 //
 // Inside Discord, first "Onde jogar?": here, in the Activity, or in the browser, where games run smoother (Discord
 // runs the Activity inside its own window, with less of the machine). The browser opens the library with ?play=,
@@ -157,8 +157,6 @@ hooks.play = (g, join, online, fast, watch) => {
   // browser), player 2 too: without WebRTC (some Discords take it away) its picture comes through the server.
   where({ name: g.name, here: () => run(g, join, online, fast, watch), path: playPath(g, join, online, fast, watch) });
 };
-/** For the homebrew shelf: where to play one of its games. */
-hooks.where = (name, here, path) => (framed ? where({ name, here, path }) : here());
 
 // Opened in the browser from Discord's "No navegador" (?play=): that game, once the library is in.
 const asked = new URLSearchParams(location.search);

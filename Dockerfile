@@ -6,9 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends 7zip && rm -rf 
 # Only the Discord SDK, bundled into the entry page at startup. Nothing of the game: the builder makes it in the volume.
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile
-# EmulatorJS and its cores, pinned and checked (emulator/fetch.ts): the homebrew games' player.
-COPY emulator/fetch.ts ./emulator/
-RUN bun emulator/fetch.ts
 # TabStationToo (PCSX2 in WebAssembly, GPL-3.0), each file checked by SHA-256 (emulator/ps2-fetch.ts): the PS2 games' player.
 COPY emulator/ps2-fetch.ts emulator/ps2-files.json ./emulator/
 RUN bun emulator/ps2-fetch.ts

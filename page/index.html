@@ -352,10 +352,52 @@
     box-shadow: 0 40px 80px -20px rgb(0 0 0 / 0.8), 0 0 0 1px var(--line-hi); padding: 28px; display: flex; flex-direction: column; gap: var(--s4);
     animation: pop 260ms var(--ease); }
   .dialog.wide { width: min(760px, 100%); }
-  /* the loja's covers (store.js) */
-  .store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 2px; }
-  .store-tile { aspect-ratio: 2 / 3; height: auto; }
-  .store-tile:disabled { opacity: 0.5; cursor: wait; }
+  /* the loja (store.js): a page in place of the library, #loja and #loja/<id> */
+  body.in-store .lede, body.in-store #library { display: none; }
+  .store { grid-column: 1 / -1; width: 100%; max-width: 1280px; margin: 0 auto; padding: var(--s5) var(--gutter) var(--s7); display: flex; flex-direction: column; gap: var(--s6); min-width: 0; }
+  .store a.btn { text-decoration: none; }
+  .store-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3) var(--s5); }
+  .store-head h1 { font: var(--t-2xl); letter-spacing: -0.02em; }
+  .store-search { display: flex; gap: var(--s2); flex: 1; max-width: 520px; }
+  .store-hero, .store-game { position: relative; display: flex; align-items: flex-end; gap: var(--s6); padding: var(--s6); border-radius: var(--r-lg); overflow: hidden;
+    min-height: 380px; background: var(--surface); isolation: isolate; }
+  .store-hero .bg, .store-game .bg { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; filter: blur(2px) brightness(0.5) saturate(1.1); transform: scale(1.03); }
+  .store-hero::after, .store-game::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgb(0 0 0 / 0.85), rgb(0 0 0 / 0.2) 70%), linear-gradient(0deg, rgb(0 0 0 / 0.7), transparent 50%); }
+  .store-hero .box img, .store-game .box { width: 200px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--r-md); box-shadow: var(--lift); display: block; flex: none; }
+  .store-hero .about, .store-game .about { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); min-width: 0; }
+  .store-hero h2, .store-game h1 { font: 700 clamp(26px, 3.4vw, 40px)/1.1 var(--display); letter-spacing: -0.02em; }
+  .store-hero .tag { font: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary); }
+  .store-hero .dots { display: flex; gap: 6px; margin-top: var(--s2); }
+  .store-hero .dots button { width: 24px; height: 4px; padding: 0; border: 0; border-radius: 2px; background: rgb(255 255 255 / 0.3); cursor: pointer; }
+  .store-hero .dots button.on { background: var(--primary); }
+  .store-strip { display: grid; grid-auto-flow: column; grid-auto-columns: 150px; gap: var(--s4); overflow-x: auto; padding-bottom: var(--s3); scroll-snap-type: x mandatory; }
+  .store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s5) var(--s4); }
+  .store-tile { display: flex; flex-direction: column; gap: 6px; color: var(--ink); text-decoration: none; scroll-snap-align: start; min-width: 0; }
+  .store-tile .art { position: relative; display: block; aspect-ratio: 2 / 3; border-radius: var(--r-md); overflow: hidden; background: var(--surface); }
+  .store-tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform var(--slow) var(--ease); }
+  .store-tile:hover img, .store-tile:focus-visible img { transform: scale(1.04); }
+  .store-tile:focus-visible { outline: none; } .store-tile:focus-visible .art { box-shadow: 0 0 0 3px var(--accent); }
+  .store-tile .rank { position: absolute; left: 0; top: 0; padding: 4px 9px; background: rgb(0 0 0 / 0.8); color: var(--ink); font: 700 15px/1.2 var(--display); font-style: normal; border-bottom-right-radius: var(--r-md); }
+  .store-tile b { font: 600 13px/1.3 var(--display); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .store-tile small { color: var(--soft); font: var(--t-xs); font-weight: 500; }
+  .store-back { color: var(--soft); text-decoration: none; font: var(--t-sm); align-self: flex-start; }
+  .store-back:hover { color: var(--ink); }
+  .store-game { align-items: flex-start; min-height: 0; }
+  .store-game .box { width: 260px; }
+  .store-game dl { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); }
+  .store-game dt { color: var(--soft); font: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+  .store-game dd { font: var(--t-md); }
+  .install { margin-top: var(--s3); padding: var(--s5); border-radius: var(--r-lg); background: rgb(10 10 10 / 0.85); box-shadow: inset 0 0 0 1px var(--line-hi);
+    display: flex; flex-direction: column; gap: var(--s4); max-width: 620px; backdrop-filter: blur(8px); }
+  .install h2 { font: var(--t-xl); }
+  .install ol { display: flex; flex-direction: column; gap: var(--s4); padding-left: 1.2em; }
+  .install li { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); color: #d8d4d6; }
+  .install li.done p { color: var(--soft); }
+  .install .row-actions { width: 100%; } .install .field { flex: 1; min-width: 220px; width: auto; }
+  @media (max-width: 760px) {
+    .store-hero, .store-game { flex-direction: column; align-items: flex-start; padding: var(--s5); }
+    .store-hero .box img { width: 120px; } .store-game .box { width: 160px; }
+  }
   @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
   .dialog header { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
   .dialog header h2 { font: var(--t-xl); letter-spacing: -0.02em; }
@@ -533,6 +575,7 @@
       <div class="card"><span class="sk cover-sk"></span></div><div class="card"><span class="sk cover-sk"></span></div>
     </div>
   </main>
+  <main class="store" id="store" aria-labelledby="store-title" hidden></main>
 </div>
 
 <div class="scrim" id="scrim"></div>

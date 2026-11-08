@@ -178,7 +178,6 @@ export const hooks = {
   add: () => {},
   controller: () => {},
   settings: () => {},
-  store: () => {},
   /** "Pessoas" in the words' column; friends.js draws its "Amigos" there once loaded */
   people: () => renderPeople(),
 };
@@ -259,7 +258,7 @@ $('file').addEventListener('change', async (e) => {
 });
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-store],[data-nav]');
+  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
   if (!el) {
     if (e.target === $('scrim')) closeDrawer();
     return;
@@ -269,7 +268,6 @@ document.addEventListener('click', async (e) => {
   if ('add' in d) return hooks.add();
   if ('controller' in d) return hooks.controller();
   if ('settings' in d) return hooks.settings();
-  if ('store' in d) return hooks.store();
   if (d.nav) {
     for (const b of document.querySelectorAll('[data-nav]')) b.classList.toggle('on', b === el);
     return document.getElementById(d.nav)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });

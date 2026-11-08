@@ -45,8 +45,8 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   em teste, a maioria dos jogos roda e alguns podem travar ou ficar lentos. A página lê o serial da ISO
   (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. O servidor confere o serial de
   novo com a ISO inteira e guarda a ISO.
-- **Ou baixar do vimm.net, sem passar pelo PC:** na **Loja**, busque o jogo e clique numa capa com **Instalar no
-  servidor**. Também dá para colar a página (`https://vimm.net/vault/7843`) na Loja ou no passo da ISO de
+- **Ou baixar do vimm.net, sem passar pelo PC:** na **Loja**, abra um jogo com **Instalação direta** e clique em
+  **Instalar no servidor**. Também dá para colar a página (`https://vimm.net/vault/7843`) no campo de link da Loja ou no passo da ISO de
   "Adicionar jogo". O servidor consulta um catálogo público de metadados para encontrar o `mediaId` dessa edição,
   baixa sozinho (um jogo por vez, com progresso), abre o `.7z` (o `7z` vem na imagem), lê o serial e põe o jogo na biblioteca.
   Não precisa abrir o Vimm nem executar código no console para as edições mapeadas. Use apenas jogos que você tem.

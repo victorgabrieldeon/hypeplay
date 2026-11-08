@@ -106,7 +106,11 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
   const work = join(dir, "vimm");
   let job: VimmJob = { state: "idle" };
   const catalog = createMediaCatalog({ fetch: get });
-  const search = createVault({ fetch: get });
+  const vault = createVault({ fetch: get });
+  async function withAutomatic<T extends ListedGame>(games: T[]) {
+    const links = await catalog().catch(() => null);
+    return games.map((g) => ({ ...g, automatic: links?.has(String(g.id)) ?? false }));
+  }
   // (a download cut by a restart left its files: they're nobody's now)
   const ready = rm(work, { recursive: true, force: true }).catch(() => undefined);
 
@@ -187,10 +191,15 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
   return {
     status: (): VimmJob => ({ ...job }),
 
-    /** The "loja"'s search in Vimm's PS2 vault. */
-    async search(q: string) {
-      const [games, links] = await Promise.all([search(q), catalog().catch(() => null)]);
-      return games.map((g) => ({ ...g, automatic: links?.has(String(g.id)) ?? false }));
+    /** The "loja": Vimm's PS2 vault and its lists, with art and exact-edition availability. */
+    vault: {
+      ...vault,
+      search: async (q: string) => withAutomatic(await vault.search(q)),
+      async home() {
+        const home = await vault.home();
+        const [top, rated] = await Promise.all([withAutomatic(home.top), withAutomatic(home.rated)]);
+        return { ...home, top, rated };
+      },
     },
 
     /** Starts the download and returns at once; the page follows it with status(). */
@@ -267,18 +276,113 @@ export function vaultUrl(q: string): string {
   return `https://vimm.net/vault/?${new URLSearchParams({ p: "list", system: "PS2", q: s })}`;
 }
 
-/** The "loja": searches Vimm's PS2 vault. Answers are kept 10 minutes, so the same search asks vimm.net once. */
+/** A game in the PS2 page's side lists (the month's top, the best rated): only its id and name there. */
+export type ListedGame = Pick<VaultGame, "id" | "name">;
+
+/** The links in a piece of vault HTML: `/vault/<id>` on list pages, a bare `<id>` in the month's top. */
+function linked(html: string): ListedGame[] {
+  return [...html.matchAll(/<a href="(?:\/vault\/)?(\d{1,9})"[^>]*>(.*?)<\/a>/gs)].map((m) => ({ id: Number(m[1]), name: text(m[2]!).slice(0, 120) }));
+}
+
+/** The PS2 page's lists: the month's most downloaded and the best rated overall, by their tables' captions. */
+export function parseHome(html: string): { top: ListedGame[]; rated: ListedGame[] } {
+  const table = (caption: RegExp) => {
+    const at = html.search(caption);
+    return at < 0 ? [] : linked(html.slice(at, html.indexOf("</table>", at)));
+  };
+  return { top: table(/<caption>[^<]*Top\b/), rated: table(/<caption>Overall Rating/) };
+}
+
+/**
+ * Box art and screenshots from libretro-thumbnails (a public set on GitHub, by Redump names), matched to Vimm's names
+ * by letters and digits alone: "Ace Combat 04: Shattered Skies" is "Ace Combat 04 - Shattered Skies (USA)" there.
+ */
+const THUMBS = "libretro-thumbnails/Sony_-_PlayStation_2";
+export const ART_KINDS = { box: "Named_Boxarts", snap: "Named_Snaps" } as const;
+export type ArtKind = keyof typeof ART_KINDS;
+export const artKey = (name: string) => name.toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+const REGION_TAG: Record<string, string> = { USA: "(USA", Europe: "(Europe", Japan: "(Japan", Korea: "(Korea" };
+
+/** The set's files, by kind, then by artKey: their names (without .png). */
+export function artIndex(paths: string[]) {
+  const index = { box: new Map<string, string[]>(), snap: new Map<string, string[]>() };
+  for (const path of paths) {
+    const [folder, file] = path.split("/");
+    const kind = (Object.keys(ART_KINDS) as ArtKind[]).find((k) => ART_KINDS[k] === folder);
+    if (!kind || !file?.endsWith(".png")) continue;
+    const name = file.slice(0, -4);
+    const key = artKey(name);
+    index[kind].set(key, [...(index[kind].get(key) ?? []), name]);
+  }
+  return index;
+}
+
+/** The file for a game: the one from its first region when there is one, else the first. */
+export function pickArt(index: ReturnType<typeof artIndex>, kind: ArtKind, name: string, regions: string[] = []) {
+  const all = index[kind].get(artKey(name));
+  if (!all) return null;
+  const tag = REGION_TAG[regions[0] ?? ""];
+  return (tag && all.find((f) => f.includes(tag))) || all[0]!;
+}
+
+/** The "loja": Vimm's PS2 vault searched and its PS2 page's lists, each game with its art. Answers kept a while. */
 export function createVault({ fetch: get = fetch }: { fetch?: typeof fetch } = {}) {
-  const cache = new Map<string, { at: number; games: VaultGame[] }>();
-  return async function search(q: string): Promise<VaultGame[]> {
-    const url = vaultUrl(q);
-    const hit = cache.get(url);
-    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.games;
-    const res = await get(url, { headers: { "User-Agent": "Mozilla/5.0 HypePlay" } });
-    if (!res.ok) throw new Error(`vimm.net answered ${res.status}`);
-    const games = parseVault(await res.text());
-    // shortcut: unbounded until restart; fine for a handful of people searching, an LRU if it ever grows
-    cache.set(url, { at: Date.now(), games });
-    return games;
+  const headers = { "User-Agent": "Mozilla/5.0 HypePlay" };
+  // shortcut: unbounded until restart; fine for a handful of people searching, an LRU if it ever grows
+  const cache = new Map<string, { at: number; value: Promise<unknown> }>();
+  function kept<T>(key: string, ms: number, load: () => Promise<T>): Promise<T> {
+    const hit = cache.get(key);
+    if (hit && Date.now() - hit.at < ms) return hit.value as Promise<T>;
+    const value = load();
+    cache.set(key, { at: Date.now(), value });
+    value.catch(() => cache.delete(key)); // (a failure is asked again next time)
+    return value;
+  }
+  async function page(url: string) {
+    const res = await get(url, { headers });
+    if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+    return res.text();
+  }
+  // The set's file list: three GitHub API calls a day (its limit is 60 an hour without a token). Folder by folder:
+  // the whole tree at once (?recursive=1) is too big for GitHub to answer reliably.
+  const tree = async (sha: string) => {
+    const res = await get(`https://api.github.com/repos/${THUMBS}/git/trees/${sha}`, { headers });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    return ((await res.json()) as { tree: { path: string; sha: string }[] }).tree;
+  };
+  const index = () =>
+    kept("art", 24 * 3600_000, async () => {
+      const folders = (await tree("master")).filter((t) => (Object.values(ART_KINDS) as string[]).includes(t.path));
+      const files = await Promise.all(folders.map(async (f) => (await tree(f.sha)).map((t) => `${f.path}/${t.path}`)));
+      return artIndex(files.flat());
+    });
+  /** The games with their art's file names (null: the set doesn't have it; the page draws one). */
+  async function withArt<T extends ListedGame & { regions?: string[] }>(games: T[]) {
+    const ix = await index().catch((err) => (console.warn("loja: no art index", err), null));
+    return games.map((g) => ({
+      ...g,
+      box: ix && pickArt(ix, "box", g.name, g.regions),
+      snap: ix && pickArt(ix, "snap", g.name, g.regions),
+    }));
+  }
+
+  return {
+    search: (q: string) => kept(vaultUrl(q), 10 * 60_000, async () => withArt(parseVault(await page(vaultUrl(q))))),
+
+    /** The month's top 30 (the page's 10, then two of its "load more") and the best rated. */
+    home: () =>
+      kept("home", 3600_000, async () => {
+        const { top, rated } = parseHome(await page("https://vimm.net/vault/PS2"));
+        const more = await Promise.all([2, 3].map((n) => page(`https://vimm.net/vault/ajax/loadTopTen.php?system=PS2&page=${n}`).then(linked, () => [])));
+        return { top: await withArt([...top, ...more.flat()]), rated: await withArt(rated) };
+      }),
+
+    /** An art file, when the set has it (the name is checked against its list: nothing else is asked for). */
+    async art(kind: ArtKind, name: string): Promise<Response | null> {
+      const ix = await index().catch(() => null);
+      if (!ix?.[kind].get(artKey(name))?.includes(name)) return null;
+      const res = await get(`https://raw.githubusercontent.com/${THUMBS}/master/${ART_KINDS[kind]}/${encodeURIComponent(name)}.png`, { headers });
+      return res.ok ? res : null;
+    },
   };
 }

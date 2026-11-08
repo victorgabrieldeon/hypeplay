@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createLibrary } from "./library";
 import type { Pass } from "./pass";
 import { makeIso } from "./testing/iso";
-import { createVimm, listing, vimmLink } from "./vimm";
+import { createVault, createVimm, listing, parseVault, vaultUrl, vimmLink } from "./vimm";
 
 const ana: Pass = { id: "42", name: "Ana", exp: Infinity };
 const has7z = !!Bun.which("7z");
@@ -85,4 +85,31 @@ test.skipIf(!has7z)("a vimm archive becomes a library game, its disc in place", 
   await again.settled();
   expect(again.status()).toMatchObject({ state: "done", key: "ps2/slus-20062", existed: true });
   expect((await library.list()).length).toBe(1);
+});
+
+test("the vault's list rows become games (vimm.net's own markup)", async () => {
+  const html = await Bun.file(join(import.meta.dir, "fixtures/vimm-vault.html")).text();
+  expect(parseVault(html)).toEqual([
+    { id: 7843, name: "Adventures of Cookie & Cream, The", regions: ["USA"], version: "3.00", rating: "8.5" },
+    { id: 70425, name: "Naruto Shippuden: Ultimate Ninja 4", regions: ["Europe"], version: "1.0", rating: "9.3" },
+  ]);
+  const two = '<tr><td><a href="/vault/1">X</a></td><td><img class="flag" title="USA"><img class="flag" title="Japan"></td><td>1</td><td>-</td><td>-</td></tr>';
+  expect(parseVault(two)[0]).toMatchObject({ regions: ["USA", "Japan"], rating: "" });
+  expect(parseVault('<tr><td><a href="/vault/2">Tony Hawk&#039;s Pro &#x26; &lt;b&gt;</a></td></tr>')[0]!.name).toBe("Tony Hawk's Pro & <b>");
+});
+
+test("searches stay on vimm.net's PS2 vault, whatever is typed", () => {
+  expect(vaultUrl(" naruto ")).toBe("https://vimm.net/vault/?p=list&system=PS2&q=naruto");
+  expect(vaultUrl("a&system=GBA")).toBe("https://vimm.net/vault/?p=list&system=PS2&q=a%26system%3DGBA");
+  expect(vaultUrl("//evil.com")).toStartWith("https://vimm.net/vault/?");
+  expect(vaultUrl("k")).toBe("https://vimm.net/vault/PS2/K");
+  expect(vaultUrl("#")).toBe("https://vimm.net/vault/?p=list&system=PS2&q=%23");
+});
+
+test("the same search asks vimm.net once", async () => {
+  let asked = 0;
+  const search = createVault({ fetch: (async () => (asked++, new Response('<tr><td><a href="/vault/5">Okami</a></td></tr>'))) as unknown as typeof fetch });
+  expect(await search("okami")).toMatchObject([{ id: 5, name: "Okami" }]);
+  await search("okami");
+  expect(asked).toBe(1);
 });

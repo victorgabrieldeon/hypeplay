@@ -138,6 +138,9 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
   return {
     status: (): VimmJob => ({ ...job }),
 
+    /** The "loja"'s search in Vimm's PS2 vault. */
+    search: createVault({ fetch: get }),
+
     /** Starts the download and returns at once; the page follows it with status(). */
     start(pass: Pass, link: string): { ok: true } | { ok: false; status: number; error: string } {
       const url = vimmLink(link);
@@ -167,3 +170,63 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
 }
 
 export type Vimm = ReturnType<typeof createVimm>;
+
+/** A PS2 game in Vimm's vault, as its lists show it. */
+export interface VaultGame {
+  id: number;
+  name: string;
+  regions: string[];
+  version: string;
+  rating: string;
+}
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', nbsp: " " };
+const text = (html: string) =>
+  html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&(?:#(\d{1,7})|#x([\da-f]{1,6})|(amp|lt|gt|quot|nbsp));/gi, (all, dec?: string, hex?: string, name?: string) => {
+      const n = dec ? Number(dec) : hex ? parseInt(hex, 16) : null;
+      return n === null ? ENTITIES[name!.toLowerCase()]! : n <= 0x10ffff ? String.fromCodePoint(n) : all;
+    })
+    .trim();
+
+/** The games in a vault list page (by letter or a search): one per table row with a /vault/<id> link. */
+export function parseVault(html: string): VaultGame[] {
+  const games: VaultGame[] = [];
+  for (const [row] of html.matchAll(/<tr[^>]*>.*?<\/tr>/gs)) {
+    const link = /<a href="\/vault\/(\d{1,9})"[^>]*>(.*?)<\/a>/s.exec(row);
+    if (!link) continue;
+    const cells = [...row.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((c) => c[1]!);
+    games.push({
+      id: Number(link[1]),
+      name: text(link[2]!).slice(0, 120),
+      regions: [...(cells[1] ?? "").matchAll(/class="flag" title="([^"]{1,30})"/g)].map((m) => m[1]!),
+      version: text(cells[2] ?? "").slice(0, 12),
+      rating: /^\d{1,2}(\.\d)?$/.test(text(cells[4] ?? "")) ? text(cells[4]!) : "",
+    });
+  }
+  return games;
+}
+
+/** The vault address for what was typed: a letter lists that letter, anything else is a search. */
+export function vaultUrl(q: string): string {
+  const s = q.trim().slice(0, 60);
+  if (/^[a-z]$/i.test(s)) return `https://vimm.net/vault/PS2/${s.toUpperCase()}`;
+  return `https://vimm.net/vault/?${new URLSearchParams({ p: "list", system: "PS2", q: s })}`;
+}
+
+/** The "loja": searches Vimm's PS2 vault. Answers are kept 10 minutes, so the same search asks vimm.net once. */
+export function createVault({ fetch: get = fetch }: { fetch?: typeof fetch } = {}) {
+  const cache = new Map<string, { at: number; games: VaultGame[] }>();
+  return async function search(q: string): Promise<VaultGame[]> {
+    const url = vaultUrl(q);
+    const hit = cache.get(url);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.games;
+    const res = await get(url, { headers: { "User-Agent": "Mozilla/5.0 HypePlay" } });
+    if (!res.ok) throw new Error(`vimm.net answered ${res.status}`);
+    const games = parseVault(await res.text());
+    // shortcut: unbounded until restart; fine for a handful of people searching, an LRU if it ever grows
+    cache.set(url, { at: Date.now(), games });
+    return games;
+  };
+}

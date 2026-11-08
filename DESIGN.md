@@ -1,126 +1,102 @@
 # HypePlay — design system
 
-Direção: **"console à noite"**. Escuro, roxo, com cara de produto: a cor serve a ação, as capas dos jogos são o
-que tem cor de verdade. Tudo vira CSS variables em `page/` (`--nome`); as páginas usam nomes, nunca valores.
-
-> Direção tirada do HypePlay atual e das regras do skill de design, **sem comparação com sites reais** (o
-> UXKIN não estava conectado).
+Direção: **"Mosaico"**. A biblioteca é uma parede de capas no escuro de cinema; a interface só aparece onde é preciso
+(uma barra fina no topo, as palavras à esquerda, a gaveta do jogo). Preto de verdade, um acento coral contido: as
+capas são o que tem cor. Tudo vira CSS variables em `page/index.html` (`--nome`); as páginas usam nomes, nunca
+valores. As direções exploradas até aqui (e a escolha) estão em `docs/estilos/`.
 
 ## Cor
 
 | Token | Valor | Papel |
 | --- | --- | --- |
-| `--bg` | `#0b0a14` | Fundo da página |
-| `--side` | `#0f0d1a` | Lateral e gaveta |
-| `--surface` | `#13111f` | Cards, caixas |
-| `--surface-hi` | `#1b1830` | Campos, trilhos de barra, hover de linha |
-| `--surface-top` | `#242040` | Botão secundário, chips |
-| `--line` | `rgb(255 255 255 / 0.06)` | Bordas e divisórias |
-| `--ink` | `#f3f2fb` | Texto principal (17,7:1 sobre `--bg`) |
-| `--soft` | `#a3a1bd` | Texto secundário (7,9:1 sobre `--bg`, 7,4:1 sobre `--surface`) |
-| `--faint` | `#6f6c8c` | Só ícones e ilustrações; nunca texto pequeno (3,9:1) |
-| `--line-hi` | `rgb(255 255 255 / 0.1)` | Contorno de capa, campo e botão secundário |
-| `--glow` | `rgb(118 85 255 / 0.45)` | Brilho do primário: sombra do botão, capa em hover, item ativo |
-| `--primary` | `#7655ff` | Botões primários, item ativo da navegação, barra de progresso |
-| `--primary-hi` | `#6a4af5` | Hover do primário (mais escuro: branco a 5,4:1; o mais claro ficaria em 3,6:1) |
-| `--accent` | `#a08cff` | Foco (`outline`), links, passo atual, destaques pequenos |
-| `--ok` | `#3ddc84` | Pronto, testado, salvo |
-| `--warn` | `#f5a524` | Experimental, precisa da ISO, envio parado |
-| `--danger` | `#f0384c` | Falhou, remover, erro |
+| `--bg` | `#000` | Fundo da página e da parede |
+| `--side` | `#0a0a0a` | Gaveta, janelas, card "Adicionar jogo" |
+| `--surface` | `#111112` | Caixas, campos, fundo da capa enquanto carrega |
+| `--surface-hi` | `#18181a` | Hover de linha e de caixa, trilho de barra |
+| `--surface-top` | `#232325` | Contadores, chips |
+| `--line` / `--line-hi` | branco a 8% / 14% | Divisórias / contorno de botão secundário, campo e gaveta |
+| `--ink` | `#f4f2f3` | Texto principal |
+| `--soft` | `#a6a2a4` | Texto secundário (≥7:1 sobre o preto) |
+| `--faint` | `#6b6869` | Só ícones e ilustrações; nunca texto |
+| `--primary` | `#ff5a8a` | Coral: botão primário, seção ativa, a capa da gaveta aberta, barra de progresso, seleção de texto |
+| `--primary-hi` | `#ff7aa1` | Hover do primário |
+| `--on-primary` | `#000` | Texto sobre o coral (o branco não passa de 3:1) |
+| `--accent` | `#ff8fb0` | Foco (`outline` e o anel das capas), links, passo atual |
+| `--busy` | `#7cc4ff` | Em andamento (recebendo, compilando, na fila) |
+| `--ok` / `--warn` / `--danger` | `#3ddc84` / `#f5a524` / `#ff4b3e` | Pronto / precisa de alguém / falhou |
 
-Texto sobre `--primary` é sempre `#fff` (4,65:1). Degradê só nas capas geradas, no fundo do destaque e da gaveta (a
-própria capa, desfocada) e em dois brilhos roxos fixos atrás da página; nada de degradê roxo→azul em botão, título
-ou seção.
+Nada de brilho, degradê de fundo ou desfoque decorativo (`--glow` ficou transparente só para as regras antigas).
 
 ## Tipografia
 
-- **Unbounded** (variável, 600–700): títulos, nome no destaque, números grandes, a marca. Larga e geométrica, com
-  cara de console; só em textos curtos (nome de jogo no card fica na Manrope).
-- **Manrope** (variável, 500–800): todo o resto. Corpo em 500 (o 400 fica fino demais sobre o escuro).
-- **JetBrains Mono** (variável, 500): seriais (`SLUS-21678`), contadores e códigos de sala.
-- Servidas pelo app a partir de `@fontsource-variable/unbounded`, `@fontsource-variable/manrope` e
-  `@fontsource-variable/jetbrains-mono` (OFL), sem chamada externa. A página de entrada (antes do passe) usa a fonte
-  do sistema.
+- **Host Grotesk** (variável, 300–800) em tudo: títulos em 650, corpo em 500. Latin e latin-ext (o Ō de Ōkami),
+  servidas pelo app a partir de `@fontsource-variable/host-grotesk` (OFL), sem chamada externa.
+- **JetBrains Mono** (500): seriais, contadores, códigos de sala (`KRTZ`), o selo BETA.
+- Unbounded e Manrope continuam servidas para `watch.html` e o overlay do jogo, que ainda não mudaram.
 
-| Token | Tamanho / altura | Uso |
-| --- | --- | --- |
-| `--t-xs` | 11 / 16, Manrope 700, maiúsculas, +0,08em | Chips, rótulos de seção, sobretítulos (+0,14em) |
-| `--t-sm` | 13 / 20, Manrope 500 | Notas, metadados, estados |
-| `--t-md` | 15 / 24, Manrope 500 | Corpo |
-| `--t-lg` | 17 / 26, Manrope 700 | Títulos de caixa |
-| `--t-xl` | 20 / 28, Unbounded 600, −0,02em | Títulos de seção e de modal |
-| — | 26 / 1,2, Unbounded 600, −0,02em | Saudação no topo ("Boa noite, Ana") |
-| `--t-2xl` | 30 / 36, Unbounded 600 | Números grandes (porcentagem) |
-| — | clamp(28px, 3,4vw, 44px) / 1,1, Unbounded 700, −0,03em, até 18ch | Nome no destaque |
+| Uso | Tamanho |
+| --- | --- |
+| Saudação ("Boa noite, Ana") | clamp(26px, 3vw, 40px) / 1,05, 650, −0,03em |
+| Nome no destaque | 22 / 1,15, 650 · na gaveta 24 |
+| Nome na capa | 13 (capa grande: 20 / 24) |
+| Corpo / notas | 15 / 24 · 13 / 20 |
+| Rótulos (`--t-xs`) | 11 / 16, 700, maiúsculas — só em blocos da gaveta e chips, nunca acima de um título |
 
-Linhas de texto até ~70 caracteres; números com `font-variant-numeric: tabular-nums`.
+## A parede
 
-## Espaço
+- Capas 2:3 de ponta a ponta, 2 px entre elas (`--gap`), sem cantos arredondados.
+- A altura da linha sai da janela: **3 linhas inteiras** (2 abaixo de 620 px de altura), então nada corta no meio de
+  uma capa. `--tw` é a largura da capa; `app.js` (`fit`) põe em `--cols` quantas cabem ao lado das palavras (mín. 280
+  px), e a sobra da largura vai para as palavras, nunca para a capa. No celular (≤760 px): 3 colunas.
+- **Ordem e tamanho** (`library.js` `arrange`, testado em `page/wall.test.js`): o destaque e os jogos com sala aberta
+  em 2×2 (3 no máximo; 1 numa janela baixa), depois o que precisa de alguém (falta a BIOS, envio parado, falhou), o
+  que está a caminho, e os prontos por nome. "Adicionar jogo" por último.
+- **Capa:** esmaecida em repouso (brilho 62%), acesa e aproximada 3,5% em hover, foco e quando é o jogo da gaveta.
+- **Placa:** o nome e o estado numa placa preta no pé da capa (27% da altura, onde a capa gerada desenha o título:
+  nunca texto sobre texto, e uma capa enviada sem título continua dizendo o que é). O nome tem 1 linha em repouso e
+  até 3 em hover/foco. Upload e compilação: uma linha de 2 px na emenda entre a arte e a placa, na cor do estado.
+- **Estado = forma + texto**, nunca só cor: pronto ●, a caminho ○ (anel), precisa de alguém ◆, falhou ■.
 
-Escala de 4: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32, `--s7` 48. Margem da página 24
-(16 abaixo de 760 px); entre seções, 32. Lateral 232 px; gaveta 380 px.
+## Espaço e forma
 
-## Forma e profundidade
-
-- Raios: `--r-sm` 8 (botões, campos, chips), `--r-md` 12 (cards, capas), `--r-lg` 18 (destaque, modal, gaveta).
-- Bordas de 1 px em `--line` no lugar de sombra no que fica no plano.
-- Sombra do que flutua (overlay): `--lift: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.06)`.
-  Modal, gaveta e destaque têm sombra própria, mais longa e escura.
-- Brilho roxo (`--glow`) só no que é da marca e responde: botão primário, capa em hover, item ativo, barra de
-  progresso.
-- Fundo atrás de modal e gaveta: escurecido e desfocado (4–6 px).
+- Escala de 4: `--s1` 4 … `--s7` 48. Barra de 56 px (`--bar`); coluna das palavras com 24 px de margem.
+- Raios: `--r-sm` 6 (botões, campos, chips), `--r-md` 8, `--r-lg` 12 (janelas). A parede não tem raio.
+- Profundidade só no que flutua: gaveta e janelas com sombra longa e escura + contorno de 1 px.
 
 ## Movimento
 
-- Durações: `--fast` 120 ms (hover, foco), `--base` 220 ms (modal), 320 ms (gaveta), `--slow` 600 ms (intro,
-  brilho, zoom da capa).
-- Curvas: `--ease` `cubic-bezier(0.2, 0.8, 0.2, 1)` para tudo; `--spring` `cubic-bezier(0.34, 1.56, 0.64, 1)` só em
-  ícones (passa um pouco e volta).
-- **Primeira olhada** (só ao abrir; as atualizações a cada 2 s não animam): o destaque sobe linha a linha, a capa
-  entra girando para o lugar, os cards sobem um depois do outro (45 ms entre eles, até o 12º).
-- **Destaque:** o fundo desfocado deriva devagar (26 s, vai e volta); a capa flutua 10 px (7 s) e se endireita em
-  hover.
-- **Capa em hover:** sobe 6 px com brilho roxo, a imagem aproxima 6% e um brilho diagonal atravessa uma vez.
-- **Carregando:** formas do que vem (destaque e capas) com brilho passando, no lugar de "Carregando…".
-- **Ao vivo:** o ponto de "sala aberta" e de estado ocupado pulsa um anel.
-- **Adicionar jogo:** as duas caixas em contorno se abrem em leque e o + gira.
-- Upload: barra com listras andando; a seta da área de soltar flutua.
-- `prefers-reduced-motion: reduce` → nada se move; só troca de cor.
+- `--fast` 120 ms, `--base` 220 ms, gaveta 320 ms, `--slow` 600 ms; `--ease` `cubic-bezier(0.2, 0.8, 0.2, 1)`.
+- **Primeira olhada** (só ao abrir): as palavras sobem e a parede acende capa por capa (40 ms entre elas, até a 18ª).
+- **Abrir um jogo:** a capa clicada voa e cresce até o pôster da gaveta enquanto a gaveta desliza (`app.js` `fly`).
+- **Ao vivo:** o ponto de "sala aberta" e o passo atual pulsam (dado ao vivo de verdade, nada decorativo).
+- `prefers-reduced-motion: reduce` → nada se move nem voa; só troca de cor.
 
 ## Componentes
 
-- **Botão primário:** 40 px, `--primary`, texto branco 600, `--r-sm`; hover `--primary-hi`; ativo desce 1 px;
-  foco `outline: 2px solid var(--accent)` com 2 px de folga; desabilitado 50% e sem hover.
-- **Botão secundário:** `--surface-top`, texto `--ink`. **Discreto:** sem fundo, texto `--soft`, hover `--ink`.
-- **Perigo:** como o secundário, texto `--danger`; a ação real pede confirmação.
-- **Campo:** 40 px, `--surface-hi`, borda `--line`, foco com borda `--accent`.
-- **Card de jogo:** capa 2:3 (`--r-md`), nome em Manrope 700 14 px abaixo, e embaixo dele o serial (mono) ou as
-  salas abertas. Jogo pronto não leva selo na capa: só o que pede atenção (enviando, parado, falta a BIOS, falhou)
-  aparece, numa pílula escura no canto. O estado é um ponto colorido + texto (nunca só cor). "Experimental" fica no
-  destaque, na gaveta e no assistente, não em cada card.
-- **Selo:** `--t-xs`, `--r-sm`, fundo da cor do papel a 16% e texto na cor cheia ("Testado" `--ok`,
-  "Experimental" `--warn`).
-- **Navegação lateral:** itens de 40 px, ícone + texto, ativo com fundo `--primary` a 18% e barra de 3 px
-  `--primary` à esquerda.
-- **Gaveta:** à direita, `--side`, `--lift`; fecha com Esc, clique fora ou o X.
-- **Modal (assistente):** 560 px no máximo, foco preso dentro; os passos são uma barra segmentada com o nome de cada
-  um embaixo (feito `--accent`, atual `--primary` com brilho). Aviso em caixa âmbar (`.callout`).
-- **Topo:** sobretítulo "Biblioteca", saudação pela hora ("Bom dia / Boa tarde / Boa noite, Ana") e um resumo
-  (jogos no servidor, salas abertas agora).
-- **Barra de progresso:** 8 px, trilho `--surface-hi`, preenchimento `--primary`.
+- **Barra:** marca (símbolo + "HypePlay" + BETA), as seções (ícone + nome; abaixo de 1240 px só o ícone, com o nome
+  no `title` e para leitor de tela; a ativa leva um traço coral de 2 px embaixo) e quem é você à direita.
+- **Coluna das palavras** (fixa ao rolar): saudação e resumo; o destaque (nome do jogo, "Continuar jogando · Testado",
+  texto, **Jogar agora** + sala, "Bruno abriu a sala KRTZ"); quem está por perto; e "Seus jogos" no pé.
+- **Botão primário:** 42 px, coral, texto preto 700, `--r-sm`; hover `--primary-hi`. **Secundário:** sem fundo,
+  contorno `--line-hi`. **Discreto:** só texto `--soft`. **Perigo:** como o secundário, texto `--danger`.
+- **Gaveta:** à direita (420 px), `--side`; no topo o pôster da capa (clique troca a capa), embaixo nome, dados,
+  selos e os blocos (Situação, Versão rápida, Jogar online, Jogo). Fecha com Esc, clique fora ou o X; o fundo escurece
+  35%, sem desfoque. A capa do jogo aberto ganha um contorno coral na parede.
+- **Foco (teclado e controle):** anel `--accent` de 3 px desenhado por cima da arte da capa, com 2 px de preto por
+  dentro; nos outros elementos, `outline` de 2 px.
+- **Janelas (assistente, controle, servidor):** as mesmas superfícies e botões; fundo atrás escurecido a 75%.
 
 ## Imagens e ícones
 
-- **Logo** (`page/icon.svg`): um **H** cuja barra do meio é um botão play (Hype + Play), branco sobre o quadrado roxo
-  (degradê `#9579ff` → `#6a4af5` → `#4222c4`, brilho no canto de cima e contorno branco a 16%). Lê bem de 16 px a
-  1024 px.
-- **Nome:** "Hype" em `--ink` e "Play" em `--accent`, Unbounded 700 (na entrada, antes do passe, a fonte do sistema).
+- **Logo** (`page/icon.svg`): um **H** cuja barra do meio é um botão play (Hype + Play), preto sobre o quadrado coral
+  (`#ff5a8a`, chapado). Lê bem de 16 px a 1024 px.
+- **Nome:** "HypePlay" em `--ink`, Host Grotesk 700 (na entrada, antes do passe, a fonte do sistema).
 
 - **Ícones:** traço de 2 px, 24×24, cantos redondos (mesmo estilo dos de hoje, em `<symbol>` no SVG da página).
   Nada de emoji como ícone.
 - **Capas:** a enviada (WebP 600×900) ou a gerada pelo servidor: um disco iridescente saindo pela borda, na cor do
   jogo (matiz de 200 a 340, do azul ao magenta, tirado do serial), com trilhas, reflexo e furo; uma lombada escura
-  com o serial em mono e "PS2"; o nome embaixo com um traço da mesma cor. Nunca logos ou artes de terceiros.
+  com o serial em mono e "PS2"; o nome embaixo com um traço da mesma cor (na parede, a placa cobre essa faixa). Nunca logos ou artes de terceiros.
   O endereço da capa muda junto com ela (versão do desenho, nome, cada capa enviada), porque fica um ano em cache.
 - **Ilustrações:** "Adicionar jogo" (duas caixas em contorno e um +) e os controles da tela de mapeamento
   (`page/home/pads.js`): PS2, PS4/PS5 (analógicos lado a lado, touchpad) e Xbox (analógicos desencontrados), em SVG

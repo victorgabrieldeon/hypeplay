@@ -93,6 +93,8 @@ const FONTS: Record<string, string> = {
   "unbounded-latin-wght-normal.woff2": "@fontsource-variable/unbounded",
   "manrope-latin-wght-normal.woff2": "@fontsource-variable/manrope",
   "jetbrains-mono-latin-wght-normal.woff2": "@fontsource-variable/jetbrains-mono",
+  "host-grotesk-latin-wght-normal.woff2": "@fontsource-variable/host-grotesk",
+  "host-grotesk-latin-ext-wght-normal.woff2": "@fontsource-variable/host-grotesk",
 };
 
 export const HEADERS = {

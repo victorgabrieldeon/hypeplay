@@ -1,4 +1,4 @@
-// A game's drawer: its cover and name (editable for the PS2 library), what's happening to it (the disc's upload, BT3's
+// A game's drawer: its cover (a poster on top) and name (editable for the PS2 library), what's happening to it (the disc's upload, BT3's
 // build, a missing BIOS, a failure), a PS2 game's "versão rápida", its open rooms, and what can be done with it.
 import { clock, esc, icon, needsDisc, pct, progress, seal, stateBadge } from './library.js';
 
@@ -98,14 +98,12 @@ export function drawer(g, ctx) {
   const name = recomp
     ? `<label class="sr" for="game-name">Nome do jogo</label><input class="field" id="game-name" data-rename="${esc(g.key)}" value="${esc(g.name)}" maxlength="80">`
     : `<p class="name">${esc(g.name)}</p>`;
-  const head = `<div class="game-head">
-      <button class="cover-edit" type="button" data-cover="${esc(g.key)}" aria-label="Trocar a capa"><img src="${esc(g.cover)}" alt="">
-        <span>${icon('image')}Trocar capa</span></button>
-      <div>${name}
-        <p>${esc(g.platform)}${g.year ? ' · ' + g.year : ''}${g.serial ? ' · ' + esc(g.serial) : ''}</p>
-        ${g.by ? `<p>Adicionado por ${esc(g.by)}</p>` : ''}
-        <div class="chips">${seal(g)}${stateBadge(g, ctx.sending)}</div>
-      </div>
+  const head = `<button class="poster" type="button" data-cover="${esc(g.key)}" aria-label="Trocar a capa"><img src="${esc(g.cover)}" alt="">
+      <span>${icon('image')}Trocar capa</span></button>
+    <div class="game-head">${name}
+      <p>${esc(g.platform)}${g.year ? ' · ' + g.year : ''}${g.serial ? ' · ' + esc(g.serial) : ''}</p>
+      ${g.by ? `<p>Adicionado por ${esc(g.by)}</p>` : ''}
+      <div class="chips">${seal(g)}${stateBadge(g, ctx.sending)}</div>
     </div>`;
   const error = ctx.uploadError.key === g.key && ctx.uploadError.text ? `<p class="error">${esc(ctx.uploadError.text)}</p>` : '';
   // BT3's port plays online in the game itself (Dragon Net Battle): its rooms carry the code a friend types there
@@ -133,6 +131,5 @@ export function drawer(g, ctx) {
   const warning = recomp
     ? `<p class="note">${icon('warn')} Em teste: roda no TabStationToo, o PCSX2 no navegador. A maioria dos jogos roda; alguns podem travar, ficar lentos ou com gráficos errados.</p>`
     : '';
-  const art = `<div class="art" aria-hidden="true" style="background-image:url('${esc(g.cover)}')"></div>`;
-  return `${art}${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${fast(g)}${online}${manage}${warning}`;
+  return `${head}<div class="block"><h3>Situação</h3>${situation(g, ctx)}${error}</div>${fast(g)}${online}${manage}${warning}`;
 }

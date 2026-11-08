@@ -3,7 +3,7 @@
 // controller screen and the intro live in their own modules.
 import { ask } from './ask.js';
 import { drawer } from './drawer.js';
-import { addCard, card, esc, hero, icon, initials, meter, needsDisc, sendBios, upload } from './library.js';
+import { addCard, arrange, card, esc, hero, icon, initials, meter, needsDisc, sendBios, upload } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,7 +94,8 @@ export function render() {
     $('hero').classList.remove('loading');
     $('hero').removeAttribute('aria-busy');
   }
-  set($('grid'), state.games.map((g, i) => card(g, state.sending, state.open, i)).join('') + addCard(n));
+  // (a short window shows two rows: one big cover there, or the bigs would be all of it)
+  set($('grid'), arrange(state.games, top, state.sending, matchMedia('(max-height: 620px)').matches ? 1 : 3).map(({ g, big }, i) => card(g, state.sending, state.open, i, big)).join('') + addCard(n));
   renderPeople();
   const g = state.open && gameOf(state.open);
   if (state.open && !g) closeDrawer(); // removed meanwhile
@@ -177,14 +178,44 @@ export const hooks = {
   settings: () => {},
 };
 
+/** The wall's columns: as many whole covers as fit beside the words; what's left of the width goes to the words. */
+function fit() {
+  const tw = $('probe').getBoundingClientRect().width;
+  const width = document.documentElement.clientWidth;
+  if (!tw || width <= 760) return document.documentElement.style.removeProperty('--cols'); // (phones: three, in the CSS)
+  document.documentElement.style.setProperty('--cols', String(Math.max(2, Math.floor((width - 280 + 2) / (tw + 2)))));
+}
+addEventListener('resize', fit);
+fit();
+
+/** The cover clicked on the wall (`from`: its place and image, read before the wall is redrawn) grows into the drawer's poster while the drawer slides in. */
+function fly(from) {
+  const drawer = $('drawer');
+  const to = drawer.querySelector('.poster img');
+  if (!from || !to || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const a = from.rect, d = drawer.getBoundingClientRect(), p = to.getBoundingClientRect();
+  // (the drawer is still off the screen: the poster's place once it's in)
+  const end = { left: document.documentElement.clientWidth - d.width + (p.left - d.left), top: p.top, width: p.width, height: p.height };
+  const img = Object.assign(document.createElement('img'), { src: from.src, className: 'flying', alt: '' });
+  const box = (r) => ({ left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  document.body.append(img);
+  to.style.opacity = '0';
+  const run = img.animate([box(a), box(end)], { duration: 320, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: 'forwards' });
+  run.onfinish = run.oncancel = () => { to.style.opacity = ''; img.remove(); };
+}
+
 let lastFocus = null;
-export function openDrawer(key) {
+export function openDrawer(key, from) {
   if (!gameOf(key)) return;
   if (state.open !== key) lastFocus = document.activeElement;
+  const opening = !$('drawer').classList.contains('open');
+  // (the clicked cover is redrawn by render, marked as the drawer's: where it was is read now)
+  const start = from && { rect: from.getBoundingClientRect(), src: from.currentSrc || from.src };
   state.open = key;
   $('drawer').classList.add('open');
   $('scrim').classList.add('open');
   render();
+  if (opening) fly(start);
   $('drawer').querySelector('[data-close]').focus({ preventScroll: true });
 }
 
@@ -237,7 +268,7 @@ document.addEventListener('click', async (e) => {
     for (const b of document.querySelectorAll('[data-nav]')) b.classList.toggle('on', b === el);
     return document.getElementById(d.nav)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
-  if (d.open) return openDrawer(d.open);
+  if (d.open) return openDrawer(d.open, el.querySelector('img'));
   // (player 2 watches the host's page, whichever it is; data-emulator: the drawer's "Jogar no emulador")
   if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d, !d.join && !('emulator' in d) && fastPlays(g), 'watch' in d); return; }
   if (d.pick) return pickFile(d.pick, 'disc');

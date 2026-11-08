@@ -62,6 +62,26 @@
       "sha256": "a5137611b3f3f58afbd739f20121cd4148923aba0f420909d96eedf3d8d7b55b"
     },
     {
+      "path": "library/folder.js",
+      "sha256": "c8c2174a97d3643bc3060d505e3e835903faaf8bba724fbfa41ad675bd9aecb8"
+    },
+    {
+      "path": "library/disc-info.js",
+      "sha256": "764cdffb4e8b19d302d406cf5e9c9755629b2060ea69a4a070ce3fdb5c12bb14"
+    },
+    {
+      "path": "library/disc-art.js",
+      "sha256": "512f4b8c4c8bd74c832e7e603ac885fec0b05d7f79a4d22e6085fd86db6b5b2a"
+    },
+    {
+      "path": "library/disc-clean.js",
+      "sha256": "1547822925e2ebe6e73ade332fc5620f1949251b8509c69f99e16f732389c382"
+    },
+    {
+      "path": "library/ps2.webp",
+      "sha256": "e7da015d47b6c59efe508be1ac62be23f5bb581d98d4d7d1cf99075fa61ccc2f"
+    },
+    {
       "path": "pcsx2-wasm.js",
       "sha256": "4ccb50af5119f7ba1b34d7f4c98a41b54217e41c04c3e995b84d17f0ccb3c5db"
     },

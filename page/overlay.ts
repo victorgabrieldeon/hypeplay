@@ -79,7 +79,7 @@ html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible
 #cp-ov .x:hover { background: #18181a; color: #f4f2f3; }
 #cp-ov .cp-body { flex: 1; overflow-y: auto; padding: 0 18px 8px; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.2) transparent; }
 /* each part of a tab (ours, then the game's): a titled block between thin lines */
-#cp-ov .cp-pane[hidden], #cp-ov .cp-sec[hidden] { display: none; }
+#cp-ov .cp-pane[hidden], #cp-ov .cp-sec[hidden], #cp-ov .cp-group[hidden] { display: none; }
 #cp-ov .cp-sec { display: flex; flex-direction: column; gap: 14px; padding: 16px 0; border-top: 1px solid rgb(255 255 255 / 0.08); }
 #cp-ov .cp-pane > .cp-sec:first-child, #cp-ov .cp-pane > .cp-sec[hidden] + .cp-sec { border-top: 0; }
 #cp-ov h3 { margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; line-height: 16px; font-weight: 700;
@@ -149,7 +149,86 @@ html[data-cp-filter=crt] #cp-crt {
   box-shadow: inset 0 0 140px rgb(0 0 0 / 0.65); }
 html[data-cp-filter=scan] #cp-crt { background: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.16) 0 1px, transparent 1px 3px); }
 @media (prefers-reduced-motion: reduce) { #cp-ov .cp-panel, #cp-top, #cp-gpu { animation: none !important; } }
+/* "Na tela": the pad with what's pressed, in a bottom corner, and the FPS, left of the panel's button */
+#cp-pad, #cp-fps { position: fixed; z-index: 2147483645; pointer-events: none; display: none; }
+#cp-pad { bottom: 28px; left: 16px; width: 200px; }
+html[data-cp-pad=left] #cp-pad, html[data-cp-pad=right] #cp-pad, html[data-cp-fps=on] #cp-fps { display: block; }
+html[data-cp-pad=right] #cp-pad { left: auto; right: 16px; }
+#cp-pad .body { fill: rgb(0 0 0 / 0.55); stroke: rgb(255 255 255 / 0.22); }
+#cp-pad .b { fill: rgb(255 255 255 / 0.1); stroke: rgb(255 255 255 / 0.35); }
+#cp-pad .b.on { fill: #ff5a8a; stroke: #ff5a8a; }
+#cp-pad .g { fill: none; stroke: #f4f2f3; stroke-width: 1.2; }
+#cp-fps { top: 10px; right: 54px; padding: 3px 8px; border-radius: 6px; background: rgb(0 0 0 / 0.6); color: #3ddc84;
+  font: 600 12px/18px "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 `;
+
+// What "Na tela" shows: kept in this browser.
+const SHOW_PREF = "hypeplay.show";
+const SHOW: [id: string, title: string, hint: string, choices: [string, string][]][] = [
+  ["pad", "Controle na tela", "Um controle de PS2 no canto que acende os botões que você aperta.", [["off", "Desligado"], ["left", "Esquerda"], ["right", "Direita"]]],
+  ["opacity", "Transparência do controle", "", [["35", "Bem leve"], ["65", "Média"], ["100", "Sólido"]]],
+  ["fps", "FPS na tela", "Quantos quadros por segundo o jogo mostra, no canto de cima.", [["off", "Desligado"], ["on", "Ligado"]]],
+];
+const show: Record<string, string> = { pad: "off", opacity: "65", fps: "off" };
+try {
+  const saved = JSON.parse(localStorage.getItem(SHOW_PREF) ?? "{}");
+  for (const [id, , , choices] of SHOW) if (choices.some(([v]) => v === saved?.[id])) show[id] = saved[id];
+} catch {}
+
+// The pad's buttons, by the standard layout's index (padmap.ts STANDARD); 10 and 11 are the sticks, moved by the axes.
+const PAD_SVG = `<svg viewBox="0 0 200 124" aria-hidden="true">
+  <rect class="b" data-b="6" x="38" y="2" width="32" height="8" rx="3"/><rect class="b" data-b="4" x="38" y="12" width="32" height="8" rx="3"/>
+  <rect class="b" data-b="7" x="130" y="2" width="32" height="8" rx="3"/><rect class="b" data-b="5" x="130" y="12" width="32" height="8" rx="3"/>
+  <path class="body" d="M50 22h100a30 30 0 0 1 30 28l14 52a14 14 0 0 1-26 8l-20-22H52l-20 22a14 14 0 0 1-26-8l14-52a30 30 0 0 1 30-28z"/>
+  <rect class="b" data-b="12" x="45" y="33" width="10" height="12" rx="2"/><rect class="b" data-b="13" x="45" y="55" width="10" height="12" rx="2"/>
+  <rect class="b" data-b="14" x="33" y="45" width="12" height="10" rx="2"/><rect class="b" data-b="15" x="55" y="45" width="12" height="10" rx="2"/>
+  <circle class="b" data-b="3" cx="150" cy="37" r="6.5"/><circle class="b" data-b="0" cx="150" cy="63" r="6.5"/>
+  <circle class="b" data-b="2" cx="137" cy="50" r="6.5"/><circle class="b" data-b="1" cx="163" cy="50" r="6.5"/>
+  <path class="g" d="M150 33.5l3.5 6h-7zM147.5 60.5l5 5M152.5 60.5l-5 5"/><rect class="g" x="134.5" y="47.5" width="5" height="5"/><circle class="g" cx="163" cy="50" r="3"/>
+  <rect class="b" data-b="8" x="82" y="46" width="13" height="6" rx="3"/><rect class="b" data-b="9" x="105" y="46" width="13" height="6" rx="3"/>
+  <circle class="body" cx="78" cy="78" r="13"/><circle class="body" cx="122" cy="78" r="13"/>
+  <circle class="b" data-b="10" cx="78" cy="78" r="8"/><circle class="b" data-b="11" cx="122" cy="78" r="8"/>
+</svg>`;
+
+let raf = 0;
+let frames = 0;
+let fpsAt = 0;
+/** Each frame while something shows: the first pad's buttons and sticks (pad.js' mapped pads, keyboard too), the FPS once a second. */
+function tick(t: number) {
+  raf = 0;
+  if (show.pad === "off" && show.fps === "off") return;
+  raf = requestAnimationFrame(tick);
+  frames++;
+  if (show.fps === "on" && t - fpsAt >= 1000) {
+    // (a PS2 game's own count, from the emulator; any other game, the page's frames)
+    const emu = document.getElementById("r-fps")?.textContent?.trim() ?? "";
+    document.getElementById("cp-fps")!.textContent = `${/^\d/.test(emu) ? emu : fpsAt ? Math.round((frames * 1000) / (t - fpsAt)) : "–"} FPS`;
+    [frames, fpsAt] = [0, t];
+  }
+  if (show.pad === "off") return;
+  let p: Gamepad | null | undefined = null;
+  try {
+    p = [...navigator.getGamepads()].find((g) => g?.connected);
+  } catch {}
+  for (const el of document.querySelectorAll<SVGElement>("#cp-pad [data-b]")) {
+    const i = Number(el.dataset.b);
+    const on = !!p?.buttons[i]?.pressed;
+    if (el.classList.contains("on") !== on) el.classList.toggle("on", on);
+    if (i < 10 || i > 11) continue;
+    const [x = 0, y = 0] = p?.axes.slice((i - 10) * 2, (i - 10) * 2 + 2) ?? [];
+    el.setAttribute("transform", `translate(${(x * 5).toFixed(1)} ${(y * 5).toFixed(1)})`);
+  }
+}
+
+function applyShow() {
+  const root = document.documentElement.dataset;
+  [root.cpPad, root.cpFps] = [show.pad, show.fps];
+  const pad = document.getElementById("cp-pad");
+  if (pad) pad.style.opacity = String(Number(show.opacity) / 100);
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#cp-ov [data-show]")) b.setAttribute("aria-pressed", String(show[b.dataset.show!] === b.dataset.value));
+  for (const g of document.querySelectorAll<HTMLElement>("#cp-ov [data-show-group=opacity]")) g.hidden = show.pad === "off";
+  if (!raf) [frames, fpsAt, raf] = [0, 0, requestAnimationFrame(tick)];
+}
 
 const ICON_ON = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
 const ICON_OFF = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6M16 9l6 6"/></svg>';
@@ -205,7 +284,27 @@ function build() {
   document.body.append(crt, ov);
   pane("video").innerHTML = `<section class="cp-sec"><h3>Tela</h3><div class="cp-group"><div class="cp-sub">Filtro de tela</div>
       <div class="cp-seg cp-filter" role="group" aria-label="Filtro de tela">${FILTERS.map(([f, name]) => `<button type="button" data-filter="${f}">${name}</button>`).join("")}</div>
-      <p class="cp-hint">Desenhado por cima do jogo: não pesa nada.</p></div></section>`;
+      <p class="cp-hint">Desenhado por cima do jogo: não pesa nada.</p></div></section>
+    <section class="cp-sec cp-show"><h3>Na tela</h3>${SHOW.map(([id, title, hint, choices]) => `<div class="cp-group" data-show-group="${id}"><div class="cp-sub">${title}</div>
+      <div class="cp-seg" role="group" aria-label="${title}">${choices.map(([v, name]) => `<button type="button" data-show="${id}" data-value="${v}">${name}</button>`).join("")}</div>
+      ${hint ? `<p class="cp-hint">${hint}</p>` : ""}</div>`).join("")}</section>`;
+  const pad = document.createElement("div");
+  pad.id = "cp-pad";
+  pad.innerHTML = PAD_SVG;
+  const fps = document.createElement("div");
+  fps.id = "cp-fps";
+  fps.textContent = "– FPS";
+  document.body.append(pad, fps);
+  ov.querySelector(".cp-show")!.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-show]");
+    if (!b) return;
+    show[b.dataset.show!] = b.dataset.value!;
+    try {
+      localStorage.setItem(SHOW_PREF, JSON.stringify(show));
+    } catch {}
+    applyShow();
+  });
+  applyShow();
   pane("audio").innerHTML = `<section class="cp-sec"><h3><span>Volume</span><span class="cp-pct"></span></h3>
       <div class="cp-vol"><button class="cp-mute" type="button"></button><input type="range" min="0" max="100" step="1" aria-label="Volume do jogo"></div>
       <p class="cp-hint">Guardado na sua conta: vale em todos os jogos e aparelhos.</p></section>`;

@@ -391,3 +391,161 @@ const beat = () => fetch(hereUrl, { method: "POST", body: where, keepalive: true
 void beat();
 setInterval(beat, 15_000);
 addEventListener("pagehide", () => navigator.sendBeacon?.(hereUrl, ""));
+
+// ---- Shift+Tab: the friends over the game (the home's Amigos, home/friends.js), like a launcher's overlay. Who's
+// playing, online or offline, inviting them to this game, the invites and requests waiting (answered on the home's
+// Amigos screen). Read from the home's `games` only while open. ----
+interface Friend { id: string; name: string; status: string; note: string; seen?: number }
+interface Around { id: string; game?: { key: string; title: string; watch?: boolean } | null; room?: { key: string; code: string } | null }
+interface Social { id: string; friends: Friend[]; invites: { id: string; name: string; kind: string; title: string }[]; incoming: { id: string }[] }
+
+/** This page's game ("ps2/<id>", "bt3"): what an invite sent from here is for. */
+const gameKey = /^(.+?)\/(?:game|fast|watch)\//.exec(where)?.[1] ?? "";
+const friendsPage = new URL("#amigos", home).href;
+const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const STATUS: Record<string, string> = { online: "Online", away: "Ausente", busy: "Não perturbe" };
+const ICON_SEND = '<svg viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>';
+
+const FR_CSS = `
+#cp-fr { position: fixed; inset: 0; z-index: 2147483647; display: flex; justify-content: flex-end; background: rgb(0 0 0 / 0.62); backdrop-filter: blur(6px);
+  font: 500 14px/20px "Host Grotesk", Manrope, ui-sans-serif, system-ui, sans-serif; color: #f4f2f3; animation: cp-fade 160ms ease-out; }
+#cp-fr[hidden] { display: none; }
+@keyframes cp-fade { from { opacity: 0; } }
+#cp-fr .fr-col { width: min(380px, 100%); height: 100%; display: flex; flex-direction: column; background: #0a0a0a; box-shadow: -1px 0 0 rgb(255 255 255 / 0.08), -24px 0 60px rgb(0 0 0 / 0.5); }
+#cp-fr header { display: flex; align-items: center; gap: 10px; padding: 18px 18px 14px; border-bottom: 1px solid rgb(255 255 255 / 0.08); }
+#cp-fr header div { flex: 1; min-width: 0; }
+#cp-fr h2 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 650; letter-spacing: -0.01em; }
+#cp-fr header small { color: #a6a2a4; font-size: 12px; }
+#cp-fr kbd { font: 600 11px/1 ui-monospace, monospace; padding: 2px 5px; border-radius: 4px; background: #232325; color: #f4f2f3; }
+#cp-fr button { font: inherit; color: inherit; cursor: pointer; }
+#cp-fr .x { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: #a6a2a4; }
+#cp-fr .x:hover { background: #18181a; color: #f4f2f3; }
+#cp-fr .fr-list { flex: 1; overflow-y: auto; padding: 6px 18px 18px; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.2) transparent; }
+#cp-fr h3 { margin: 16px 0 4px; font-size: 11px; line-height: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #a6a2a4; }
+#cp-fr h3 span { color: #6b6869; margin-left: 4px; }
+#cp-fr .fr-p { display: flex; align-items: center; gap: 10px; padding: 7px 0; min-width: 0; }
+#cp-fr .fr-p.off { opacity: 0.55; }
+#cp-fr .fr-av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 12px; line-height: 1; font-weight: 700;
+  background: hsl(var(--h) 38% 22%); color: hsl(var(--h) 85% 82%); }
+#cp-fr .fr-who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+#cp-fr .fr-who b, #cp-fr .fr-who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cp-fr .fr-who span { color: #a6a2a4; font-size: 12px; line-height: 16px; }
+#cp-fr .fr-who span.live { color: #5fd38d; }
+#cp-fr .fr-inv { height: 30px; padding: 0 10px; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 6px; background: #ff5a8a; color: #120208 !important; font-weight: 700; font-size: 12px; flex: none; }
+#cp-fr .fr-inv:disabled { background: #232325; color: #a6a2a4 !important; cursor: default; }
+#cp-fr .fr-note { display: block; padding: 10px 12px; margin: 10px 0 0; border-radius: 8px; background: #111112; box-shadow: inset 0 0 0 1px #ff5a8a; color: #f4f2f3; text-decoration: none; font-size: 13px; }
+#cp-fr .fr-empty { color: #a6a2a4; font-size: 13px; padding: 12px 0; }
+#cp-fr footer { padding: 14px 18px; border-top: 1px solid rgb(255 255 255 / 0.08); }
+#cp-fr footer a { color: #ff5a8a; font-weight: 700; text-decoration: none; font-size: 13px; }
+#cp-fr svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#cp-fr :focus-visible { outline: 2px solid #ff5a8a; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { #cp-fr { animation: none; } }
+`;
+
+let fr: HTMLElement | null = null;
+let frTimer = 0;
+const invited = new Set<string>();
+
+/** The same colour per person as the home's (friends.js' avatar). */
+function frAvatar(id: string, name: string) {
+  let h = 7;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) % 3607;
+  const letters = name.trim().split(/\s+/).slice(0, 2).map((w) => w[0] ?? "").join("").toUpperCase();
+  return `<div class="fr-av" style="--h:${(h * 137) % 360}" aria-hidden="true">${escHtml(letters)}</div>`;
+}
+
+function frRow(f: Friend, p: Around | undefined) {
+  const on = f.status !== "offline";
+  const title = p?.game?.title;
+  const doing = !on ? "Offline" : title ? `${p?.game?.watch ? "Assistindo" : "Jogando"} ${title}` : STATUS[f.status] ?? "Online";
+  const here = p?.game?.key === gameKey;
+  const can = on && f.status !== "busy" && !!gameKey && !here;
+  const btn = !can ? "" : invited.has(f.id)
+    ? '<button class="fr-inv" type="button" disabled>Convidado</button>'
+    : `<button class="fr-inv" type="button" data-fr-invite="${escHtml(f.id)}" aria-label="Convidar ${escHtml(f.name)} para este jogo">${ICON_SEND}Convidar</button>`;
+  return `<div class="fr-p${on ? "" : " off"}">${frAvatar(f.id, f.name)}<div class="fr-who"><b>${escHtml(f.name)}</b><span class="${title && on ? "live" : ""}">${escHtml(doing)}</span></div>${btn}</div>`;
+}
+
+function frRender(body: { social: Social | null; people: Around[] } | null) {
+  const list = fr?.querySelector(".fr-list");
+  if (!list) return;
+  const s = body?.social;
+  if (!s) { list.innerHTML = `<p class="fr-empty">${body ? "Amigos indisponíveis neste servidor." : "Sem conexão com o servidor agora."}</p>`; return; }
+  const around = new Map(body.people.map((p) => [p.id, p]));
+  const byName = (a: Friend, b: Friend) => a.name.localeCompare(b.name);
+  const playing = s.friends.filter((f) => f.status !== "offline" && around.get(f.id)?.game).sort(byName);
+  const online = s.friends.filter((f) => f.status !== "offline" && !around.get(f.id)?.game).sort(byName);
+  const offline = s.friends.filter((f) => f.status === "offline").sort((a, b) => (b.seen ?? 0) - (a.seen ?? 0));
+  const group = (t: string, fs: Friend[]) => (fs.length ? `<h3>${t}<span>${fs.length}</span></h3>${fs.map((f) => frRow(f, around.get(f.id))).join("")}` : "");
+  const waiting = s.invites.filter((i) => i.kind === "invite");
+  list.innerHTML = [
+    ...waiting.map((i) => `<a class="fr-note" href="${friendsPage}"><b>${escHtml(i.name)}</b> te chamou para jogar <b>${escHtml(i.title)}</b> · responder</a>`),
+    s.incoming.length ? `<a class="fr-note" href="${friendsPage}">${s.incoming.length} ${s.incoming.length === 1 ? "pedido" : "pedidos"} de amizade · ver</a>` : "",
+    group("Jogando", playing),
+    group("Online", online),
+    group("Offline", offline),
+    s.friends.length ? "" : '<p class="fr-empty">Nenhum amigo ainda. Adicione na tela de amigos da biblioteca.</p>',
+  ].join("");
+}
+
+async function frLoad() {
+  const body = await fetch(new URL("games", home), { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  frRender(body && { social: body.social ?? null, people: body.people ?? [] });
+}
+
+function frToggle(open: boolean) {
+  if (!fr) {
+    const style = document.createElement("style");
+    style.textContent = FR_CSS;
+    document.head.append(style);
+    fr = document.createElement("div");
+    fr.id = "cp-fr";
+    fr.hidden = true;
+    fr.setAttribute("role", "dialog");
+    fr.setAttribute("aria-modal", "true");
+    fr.setAttribute("aria-label", "Amigos");
+    fr.innerHTML = `<div class="fr-col"><header><div><h2>Amigos</h2><small><kbd>Shift</kbd>+<kbd>Tab</kbd> ou <kbd>Esc</kbd> volta ao jogo</small></div>
+      <button class="x" type="button" aria-label="Fechar">${ICON_CLOSE}</button></header>
+      <div class="fr-list"><p class="fr-empty">Carregando…</p></div>
+      <footer><a href="${friendsPage}">Abrir a tela de amigos</a></footer></div>`;
+    fr.querySelector(".x")!.addEventListener("click", () => frToggle(false));
+    // (a click on the dimmed game closes it)
+    fr.addEventListener("click", async (e) => {
+      if (e.target === fr) return frToggle(false);
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-fr-invite]");
+      if (!b) return;
+      b.disabled = true;
+      const r = await fetch(new URL("invite", home), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: b.dataset.frInvite, key: gameKey }) }).catch(() => null);
+      if (r?.ok) invited.add(b.dataset.frInvite!);
+      else b.disabled = false;
+      void frLoad();
+    });
+    document.body.append(fr);
+  }
+  if (open === !fr.hidden) return;
+  fr.hidden = !open;
+  clearInterval(frTimer);
+  if (open) {
+    document.exitPointerLock?.();
+    // (a fullscreen canvas would cover the overlay: the page's own fullscreen keeps it on top)
+    if (document.fullscreenElement && document.fullscreenElement !== document.documentElement) void document.exitFullscreen?.().catch(() => {});
+    void frLoad();
+    frTimer = window.setInterval(frLoad, 5_000);
+    fr.querySelector<HTMLElement>(".x")!.focus();
+  } else backToGame();
+}
+
+// Before the game's own listeners (this script is in the page's <head>): Shift+Tab is ours, and while the overlay is
+// open, the keys are too. Key releases still reach the game, or a key held when it opened would stay held there.
+window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (!e.repeat) frToggle(!fr || fr.hidden !== false);
+    return;
+  }
+  if (!fr || fr.hidden) return;
+  e.stopImmediatePropagation();
+  if (e.key === "Escape") { e.preventDefault(); frToggle(false); }
+}, true);
+window.addEventListener("keypress", (e) => { if (fr && !fr.hidden) e.stopImmediatePropagation(); }, true);

@@ -1,8 +1,8 @@
 // Friends (server/social.ts), drawn in the words' column in place of "Pessoas": invites and requests on top, then the
-// friends playing, online and offline, then who else is around to add. A friend's name opens their profile (hours per
-// game, recent sessions, badges, games in common); "Convidar" picks a game and sends the invite (with the room when you
-// host one). "Amigos" in the bar opens the rest: your status and note, adding someone by name, what was sent, and the
-// friends' activity. Toasts say when a friend comes online, starts a game, invites you or takes your invite.
+// friends playing, online and offline, then who else is around to add. A friend's name or avatar opens their profile
+// (hours per game, recent sessions, badges, games in common); "Convidar" picks a game and sends the invite (with the room
+// when you host one). "Amigos" in the bar opens its own screen (#amigos): the whole list, your status and note, adding
+// someone by name, what was sent, and the friends' activity. In a game, Shift+Tab opens them (overlay.ts). Toasts say when a friend comes online, starts a game, invites you or takes your invite.
 import { gameOf, hooks, person, poll, set, state } from './app.js';
 import { ask } from './ask.js';
 import { esc, icon, initials } from './library.js';
@@ -45,6 +45,7 @@ export function hours(ms) {
 }
 
 const around = (id) => state.people.find((p) => p.id === id);
+const avBtn = (id, name) => `<button type="button" class="av" data-f-profile="${esc(id)}" aria-label="Ver o perfil de ${esc(name)}">${avatar(id, name)}</button>`;
 const profileBtn = (id, name) => `<button type="button" class="name" data-f-profile="${esc(id)}" title="Ver o perfil de ${esc(name)}">${esc(name)}</button>`;
 
 /** One friend: playing (with their room), online, away, busy or offline ("visto há 3 h"). */
@@ -62,7 +63,7 @@ function friend(f) {
     `<button class="btn ${watch ? 'second ' : ''}small" data-play="${esc(room.key)}" data-join="${esc(room.code)}"${watch ? ' data-watch' : ''} aria-label="${esc(`${label} na sala de ${f.name}`)}">${icon(watch ? 'play' : 'users')}${label}</button>`;
   const acts = room ? (room.busy ? '' : join('Entrar', false)) + join('Assistir', true)
     : on && f.status !== 'busy' ? `<button class="btn quiet small" data-f-invite="${esc(f.id)}" aria-label="Convidar ${esc(f.name)} para jogar">${icon('rocket')}</button>` : '';
-  return `<div class="person${on ? '' : ' off'}">${avatar(f.id, f.name)}
+  return `<div class="person${on ? '' : ' off'}">${avBtn(f.id, f.name)}
     <div class="who"><b>${profileBtn(f.id, f.name)}${p?.call ? '<span class="tag">NA CALL</span>' : ''}</b>
       <span class="state ${cls}">${esc(doing)}</span>${f.note && on ? `<small>“${esc(f.note)}”</small>` : ''}</div>
     ${acts ? `<div class="acts">${acts}</div>` : ''}</div>`;
@@ -82,7 +83,7 @@ function invite(i) {
 }
 
 function request(r) {
-  return `<div class="person">${avatar(r.id, r.name)}<div class="who"><b>${profileBtn(r.id, r.name)}</b><span class="state">Pediu amizade</span></div>
+  return `<div class="person">${avBtn(r.id, r.name)}<div class="who"><b>${profileBtn(r.id, r.name)}</b><span class="state">Pediu amizade</span></div>
     <div class="acts"><button class="btn small" data-f-add="${esc(r.id)}">Aceitar</button><button class="btn quiet small" data-f-remove="${esc(r.id)}" aria-label="Recusar o pedido de ${esc(r.name)}">${icon('close')}</button></div></div>`;
 }
 
@@ -90,9 +91,8 @@ const group = (title, items) => (items.length ? `<h3 class="f-group">${esc(title
 
 let showOffline = false;
 
-function renderFriends() {
-  const s = state.social;
-  if (!s) return hooks.peopleFallback();
+/** Invites, requests, then the friends playing, online and offline, then who else is around. */
+function listHtml(s, offlineOpen) {
   const ids = new Set(s.friends.map((f) => f.id));
   const playing = [], online = [], offline = [];
   for (const f of s.friends) {
@@ -106,21 +106,30 @@ function renderFriends() {
   const asked = new Set(s.incoming.map((o) => o.id));
   const nearRow = (p) => person(p, sent.has(p.id) ? '<span class="tag sent">PEDIDO ENVIADO</span>' : asked.has(p.id) ? ''
     : `<button class="btn quiet small" data-f-add="${esc(p.id)}" aria-label="Adicionar ${esc(p.name)} à sua lista de amigos">${icon('plus')}</button>`, profileBtn(p.id, p.name));
-  const live = playing.length + online.length;
+  return [
+    s.invites.map(invite).join(''),
+    group('Pedidos', s.incoming.map(request)),
+    group('Jogando', playing.sort(byName).map(friend)),
+    group('Online', online.sort(byName).map(friend)),
+    offline.length ? `<h3 class="f-group">Offline <span class="num">${offline.length}</span>${page.hidden ? ` <button type="button" class="link" data-f-offline>${offlineOpen ? 'esconder' : 'mostrar'}</button>` : ''}</h3>${offlineOpen ? offline.map(friend).join('') : ''}` : '',
+    group('Por perto', near.map(nearRow)),
+    !s.friends.length && !near.length && !s.incoming.length ? `<p class="f-empty">Adicione quem joga com você para ver o que estão jogando e chamar para uma partida.</p>` : '',
+  ].join('');
+}
+
+const liveCount = (s) => s.friends.filter((f) => f.status !== 'offline').length;
+
+function renderFriends() {
+  const s = state.social;
+  if (!s) return hooks.peopleFallback();
+  const live = liveCount(s);
   $('people').hidden = false;
   document.querySelector('[data-nav="people"]').hidden = false;
   set($('people-title'), 'Amigos');
   set($('n-people'), live ? String(live) : '');
   set($('people-sub'), `${s.friends.length ? `${live} de ${s.friends.length} online` : 'Ninguém ainda'} · <button type="button" class="link" data-f-manage>${s.incoming.length ? `${s.incoming.length} ${s.incoming.length === 1 ? 'pedido' : 'pedidos'}` : 'Adicionar'}</button>`);
-  set($('people-list'), [
-    s.invites.map(invite).join(''),
-    group('Pedidos', s.incoming.map(request)),
-    group('Jogando', playing.sort(byName).map(friend)),
-    group('Online', online.sort(byName).map(friend)),
-    offline.length ? `<h3 class="f-group">Offline <span class="num">${offline.length}</span> <button type="button" class="link" data-f-offline>${showOffline ? 'esconder' : 'mostrar'}</button></h3>${showOffline ? offline.map(friend).join('') : ''}` : '',
-    group('Por perto', near.map(nearRow)),
-    !s.friends.length && !near.length && !s.incoming.length ? `<p class="f-empty">Adicione quem joga com você para ver o que estão jogando e chamar para uma partida.</p>` : '',
-  ].join(''));
+  if (page.hidden) set($('people-list'), listHtml(s, showOffline));
+  renderPage();
   notify(s);
 }
 
@@ -218,28 +227,49 @@ async function pickGame(id) {
   layer.querySelector('[data-f-send]')?.focus();
 }
 
-// ---- "Amigos": status, adding by name, sent, activity ----
-function manageHtml() {
-  const s = state.social;
+// ---- the Amigos screen (#amigos): the whole list; your status and note, adding by name, sent, activity ----
+const page = $('amigos');
+const atPage = () => location.hash === '#amigos';
+
+/** The fields are drawn once on entering (typing isn't redrawn under the cursor); the lists follow every poll. */
+function pageShell(s) {
   const opt = (v) => `<option value="${v}"${s.status === v ? ' selected' : ''}>${STATUS[v]}</option>`;
-  return `<div class="modal" data-f="scrim"><div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="fm-title">
-    <header><h2 id="fm-title">Amigos</h2><button class="btn quiet" data-f="close" aria-label="Fechar">${icon('close')}</button></header>
-    <div class="setting"><div><h3>Seu status</h3><p>Ausente e Não perturbe aparecem para os amigos; em Não perturbe ninguém te convida. Invisível: offline para todo mundo.</p></div>
-      <div class="row-actions"><select class="field" id="fm-status" aria-label="Status">${['online', 'away', 'busy', 'invisible'].map(opt).join('')}</select></div></div>
-    <label class="fm-label"><span>Recado (aparece embaixo do seu nome)</span><input class="field" id="fm-note" maxlength="80" placeholder="Procurando alguém pro BT3…" value="${esc(s.note)}"></label>
-    <label class="fm-label"><span>Adicionar alguém</span><input class="field" id="fm-q" type="search" placeholder="Nome de quem já abriu o HypePlay" autocomplete="off"></label>
-    <div class="people-list" id="fm-results"></div>
-    ${s.incoming.length ? `<h3 class="f-group">Pedidos recebidos</h3>${s.incoming.map(request).join('')}` : ''}
-    ${s.outgoing.length ? `<h3 class="f-group">Pedidos enviados</h3>${s.outgoing.map((o) => `<div class="person">${avatar(o.id, o.name)}<div class="who"><b>${profileBtn(o.id, o.name)}</b><span class="state busy">Esperando</span></div><div class="acts"><button class="btn quiet small" data-f-remove="${esc(o.id)}">Cancelar</button></div></div>`).join('')}` : ''}
-    <h3 class="f-group">Atividade dos amigos</h3>
-    ${s.feed.length ? `<ul class="recent feed">${s.feed.map((e) => { const g = gameOf(e.key); return `<li>${g ? `<img src="${esc(g.cover)}" alt="">` : '<span class="nocover"></span>'}<span><b>${profileBtn(e.id, e.name)} jogou ${esc(e.title)}</b><small>${when(e)}</small></span></li>`; }).join('')}</ul>` : '<p class="f-empty">Quando seus amigos jogarem, aparece aqui.</p>'}
-    <footer><button class="btn second" data-f-me>Ver meu perfil</button><button class="btn second" data-f="close">Fechar</button></footer></div></div>`;
+  return `<header class="fp-head"><h1 id="fp-title">Amigos</h1><span class="sub" id="fp-sub"></span></header>
+    <div class="fp-col"><div class="fp-box"><div class="people-list" id="fp-list"></div></div></div>
+    <div class="fp-col">
+      <div class="fp-box"><h2>Você</h2>
+        <div class="person">${avBtn(s.id, state.me)}<div class="who"><b>${profileBtn(s.id, state.me)}</b><span class="state">Ver meu perfil</span></div></div>
+        <label class="fm-label"><span>Status</span><select class="field" id="fm-status">${['online', 'away', 'busy', 'invisible'].map(opt).join('')}</select></label>
+        <p class="fp-hint">Ausente e Não perturbe aparecem para os amigos; em Não perturbe ninguém te convida. Invisível: offline para todo mundo.</p>
+        <label class="fm-label"><span>Recado (aparece embaixo do seu nome)</span><input class="field" id="fm-note" maxlength="80" placeholder="Procurando alguém pro BT3…" value="${esc(s.note)}"></label></div>
+      <div class="fp-box"><h2>Adicionar alguém</h2>
+        <input class="field" id="fm-q" type="search" placeholder="Nome de quem já abriu o HypePlay" autocomplete="off" aria-label="Adicionar alguém pelo nome">
+        <div class="people-list" id="fm-results"></div></div>
+      <div class="fp-box" id="fp-sent"></div>
+      <div class="fp-box"><h2>Atividade dos amigos</h2><div id="fp-feed"></div></div>
+      <p class="fp-hint">Dentro de um jogo, <b>Shift+Tab</b> abre seus amigos por cima da tela.</p>
+    </div>`;
 }
-function manage() {
-  if (!state.social) return;
-  if (!layer.firstChild) returnFocus = document.activeElement;
-  layer.innerHTML = manageHtml();
-  $('fm-q').focus();
+
+function renderPage() {
+  const s = state.social;
+  if (!s || page.hidden) return;
+  if (!$('fp-list')) page.innerHTML = pageShell(s);
+  const live = liveCount(s);
+  set($('fp-sub'), s.friends.length ? `${live} de ${s.friends.length} online` : 'Ninguém ainda');
+  set($('fp-list'), listHtml(s, true));
+  $('fp-sent').hidden = !s.outgoing.length;
+  set($('fp-sent'), s.outgoing.length ? `<h2>Pedidos enviados</h2>${s.outgoing.map((o) => `<div class="person">${avBtn(o.id, o.name)}<div class="who"><b>${profileBtn(o.id, o.name)}</b><span class="state busy">Esperando</span></div><div class="acts"><button class="btn quiet small" data-f-remove="${esc(o.id)}">Cancelar</button></div></div>`).join('')}` : '');
+  set($('fp-feed'), s.feed.length ? `<ul class="recent feed">${s.feed.map((e) => { const g = gameOf(e.key); return `<li>${g ? `<img src="${esc(g.cover)}" alt="">` : '<span class="nocover"></span>'}<span><b>${profileBtn(e.id, e.name)} jogou ${esc(e.title)}</b><small>${when(e)}</small></span></li>`; }).join('')}</ul>` : '<p class="f-empty">Quando seus amigos jogarem, aparece aqui.</p>');
+}
+
+/** In or out of the screen, by the address (store.js does the same for #loja; the bar's mark is the CSS's, body.in-friends). */
+function route() {
+  const on = atPage() && !!state.social;
+  document.body.classList.toggle('in-friends', on);
+  page.hidden = !on;
+  if (!on) page.innerHTML = '';
+  renderFriends();
 }
 
 let searching = 0;
@@ -248,7 +278,7 @@ async function search(q) {
   const r = q.trim() ? await api(`users?q=${encodeURIComponent(q)}`, { cache: 'no-store' }).then((x) => (x.ok ? x.json() : [])).catch(() => []) : [];
   if (n !== searching || !$('fm-results')) return;
   const label = { friend: '<span class="state ok">Na sua lista</span>', outgoing: '<span class="state busy">Pedido enviado</span>', incoming: '<span class="state warn">Pediu amizade</span>' };
-  $('fm-results').innerHTML = r.map((u) => `<div class="person">${avatar(u.id, u.name)}<div class="who"><b>${profileBtn(u.id, u.name)}</b>${label[u.relation] ?? ''}</div>
+  $('fm-results').innerHTML = r.map((u) => `<div class="person">${avBtn(u.id, u.name)}<div class="who"><b>${profileBtn(u.id, u.name)}</b>${label[u.relation] ?? ''}</div>
     ${u.relation === 'none' || u.relation === 'incoming' ? `<div class="acts"><button class="btn small" data-f-add="${esc(u.id)}">${u.relation === 'incoming' ? 'Aceitar' : 'Adicionar'}</button></div>` : ''}</div>`).join('')
     || (q.trim() ? '<p class="f-empty">Ninguém com esse nome. A pessoa precisa ter aberto o HypePlay uma vez.</p>' : '');
 }
@@ -256,7 +286,7 @@ async function search(q) {
 async function refresh() {
   await poll();
   if (openProfile) showProfile(openProfile);
-  else if ($('fm-title')) { const q = $('fm-q').value; layer.innerHTML = manageHtml(); $('fm-q').value = q; search(q); }
+  if ($('fm-q')?.value) search($('fm-q').value);
 }
 
 document.addEventListener('click', async (e) => {
@@ -267,7 +297,7 @@ document.addEventListener('click', async (e) => {
   if (d.f) return;
   if (d.fProfile) return showProfile(d.fProfile);
   if ('fMe' in d || 'me' in d) return state.social && showProfile(state.social.id);
-  if ('fManage' in d) return manage();
+  if ('fManage' in d) { location.hash = 'amigos'; return; }
   if ('fOffline' in d) { showOffline = !showOffline; return renderFriends(); }
   if (d.fInvite) return pickGame(d.fInvite);
   if (d.fAnswer) {
@@ -305,17 +335,17 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => { if (e.target.id === 'fm-status') send('status', 'PUT', { status: e.target.value }).then(poll); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && layer.querySelector('[data-f="scrim"]')) { e.stopPropagation(); close(); }
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.id === 'me' && state.social) { e.preventDefault(); showProfile(state.social.id); }
 }, true);
 
-// The bar's "Pessoas" becomes "Amigos" and opens the rest; the name in the corner opens your own profile.
+// The bar's "Pessoas" becomes "Amigos" and opens its screen; the name in the corner opens your own profile.
 const nav = document.querySelector('[data-nav="people"]');
 nav.title = 'Amigos';
 nav.querySelector('.t').textContent = 'Amigos';
-$('me').setAttribute('data-me', '');
-$('me').setAttribute('role', 'button');
-$('me').tabIndex = 0;
-$('me').title = 'Ver meu perfil';
+// (before store.js' and app.js' own: no scrolling to the side column. Without friends, "Pessoas" scrolls as before)
+nav.addEventListener('click', (e) => { if (!state.social) return; e.stopImmediatePropagation(); location.hash = 'amigos'; }, true);
+for (const b of document.querySelectorAll('[data-nav]:not([data-nav="people"])'))
+  b.addEventListener('click', () => { if (atPage()) { history.pushState(null, '', location.pathname + location.search); route(); } });
+addEventListener('hashchange', route);
 hooks.peopleFallback = hooks.people;
-hooks.people = renderFriends;
-renderFriends();
+hooks.people = () => { if (atPage() && page.hidden && state.social) route(); else renderFriends(); };
+route();

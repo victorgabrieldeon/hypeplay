@@ -100,6 +100,26 @@
   button.name { all: unset; cursor: pointer; border-radius: 2px; }
   button.name:hover { color: var(--accent); }
   button.name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.name:hover { text-decoration: underline; text-underline-offset: 3px; }
+  button.av { all: unset; cursor: pointer; border-radius: 50%; flex: none; }
+  button.av:hover .avatar, button.av:focus-visible .avatar { box-shadow: 0 0 0 2px var(--accent); }
+  /* the Amigos screen (home/friends.js): #amigos, in place of the library */
+  body.in-friends .lede, body.in-friends #library { display: none; }
+  body.in-friends nav button.on { color: var(--soft); }
+  body.in-friends nav button.on::after { content: none; }
+  body.in-friends nav button[data-nav="people"] { color: var(--ink); }
+  body.in-friends nav button[data-nav="people"]::after { content: ""; position: absolute; left: var(--s3); right: var(--s3); bottom: -1px; height: 2px; background: var(--primary); }
+  .friends-page { grid-column: 1 / -1; width: 100%; max-width: 1180px; margin: 0 auto; padding: var(--s5) var(--gutter) var(--s7);
+    display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: var(--s4) var(--s6); align-items: start; min-width: 0; }
+  .fp-head { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--s4); }
+  .fp-head h1 { font: var(--t-2xl); letter-spacing: -0.02em; }
+  .fp-head .sub { color: var(--soft); font: var(--t-sm); }
+  .fp-col { display: flex; flex-direction: column; gap: var(--s4); min-width: 0; }
+  .fp-box { display: flex; flex-direction: column; gap: var(--s3); padding: var(--s4); border-radius: var(--r-lg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+  .fp-box h2 { font: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--soft); }
+  .fp-box .f-group:first-child { margin-top: 0; }
+  .fp-hint { color: var(--faint); font: var(--t-xs); }
+  @media (max-width: 860px) { .friends-page { grid-template-columns: 1fr; } }
   .person .tag.sent { flex: none; }
   .avatar.f { background: hsl(var(--h) 38% 22%); color: hsl(var(--h) 85% 82%); }
   .avatar.huge { width: 64px; height: 64px; font-size: 22px; }
@@ -165,7 +185,11 @@
   @media (max-width: 560px) { .pf-stats { grid-template-columns: 1fr 1fr; } }
   @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 
-  .me { display: flex; align-items: center; gap: var(--s2); margin-left: auto; flex: none; color: var(--soft); font: var(--t-sm); font-weight: 600; }
+  .me { display: flex; align-items: center; gap: var(--s2); margin-left: auto; flex: none; height: 40px; padding: 0 5px 0 12px; border: 0; border-radius: 99px;
+    background: none; color: var(--soft); font: var(--t-sm); font-weight: 600; cursor: pointer; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+  .me:hover, .me:focus-visible { background: var(--surface-hi); color: var(--ink); }
+  .me:hover .avatar, .me:focus-visible .avatar { box-shadow: 0 0 0 2px var(--accent); }
+  .me .avatar { transition: box-shadow var(--fast) var(--ease); }
   .me:empty { display: none; }
   .avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; font: 700 12px/1 var(--display);
     color: var(--on-primary); background: var(--primary); }
@@ -454,6 +478,17 @@
   .padart .k { fill: var(--surface-top); stroke: rgb(255 255 255 / 0.12); stroke-width: 2; transition: fill var(--fast) var(--ease); }
   .padart .k.want { fill: var(--primary); animation: pulse 1.2s var(--ease) infinite; transform-box: fill-box; transform-origin: center; }
   .padart .k.lit { fill: var(--accent); }
+  .pad-readings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2); }
+  .pad-readings > div { padding: var(--s2); border: 1px solid var(--line-hi); border-radius: var(--r-sm); font: var(--t-sm); }
+  .pad-readings output { display: block; color: var(--soft); font-variant-numeric: tabular-nums; }
+  .pad-readings .lit { background: var(--accent); color: var(--on-primary); }
+  .pad-readings .lit output { color: var(--on-primary); }
+  .pad-axes { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s3); }
+  .pad-axes output { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .pad-test-hint, .pad-debug { color: var(--soft); font: var(--t-sm); }
+  .pad-debug summary { cursor: pointer; padding: var(--s2) 0; }
+  .pad-debug pre { white-space: pre-wrap; overflow-wrap: anywhere; font: var(--t-sm); font-variant-numeric: tabular-nums; }
+  @media (max-width: 560px) { .pad-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .padart .body { fill: var(--surface); stroke: rgb(255 255 255 / 0.1); stroke-width: 2; }
   .padart .plate { fill: var(--surface-hi); stroke: rgb(255 255 255 / 0.08); stroke-width: 2; }
   .padart text { fill: var(--ink); font: 700 15px var(--body); text-anchor: middle; pointer-events: none; }
@@ -549,7 +584,7 @@
       <!-- when the server has the PC app's packages (intro.js) -->
       <button type="button" data-app title="App para PC" hidden><svg class="i"><use href="#i-download"/></svg><span class="t">App para PC</span></button>
     </nav>
-    <div class="me" id="me"></div>
+    <button type="button" class="me" id="me" data-me title="Ver meu perfil"></button>
   </header>
 
   <aside class="lede">
@@ -576,6 +611,7 @@
     </div>
   </main>
   <main class="store" id="store" aria-labelledby="store-title" hidden></main>
+  <main class="friends-page" id="amigos" aria-labelledby="fp-title" hidden></main>
 </div>
 
 <div class="scrim" id="scrim"></div>

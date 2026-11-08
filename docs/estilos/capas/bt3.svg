@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="hsl(225 55% 17%)"/><stop offset="0.75" stop-color="#0b0a14"/></linearGradient>
+<linearGradient id="foil" gradientTransform="rotate(149 .5 .5)"><stop offset="0" stop-color="hsl(225 95% 66%)"/><stop offset="0.35" stop-color="hsl(270 90% 72%)"/><stop offset="0.65" stop-color="hsl(185 90% 60%)"/><stop offset="1" stop-color="hsl(245 95% 76%)"/></linearGradient>
+<radialGradient id="glow"><stop offset="0" stop-color="hsl(225 100% 60%)" stop-opacity="0.5"/><stop offset="1" stop-color="hsl(225 100% 60%)" stop-opacity="0"/></radialGradient>
+<linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0.5" stop-color="#0b0a14" stop-opacity="0"/><stop offset="0.96" stop-color="#0b0a14"/></linearGradient></defs>
+<rect width="600" height="900" fill="url(#bg)"/>
+<circle cx="492" cy="378" r="475" fill="url(#glow)"/>
+<g transform="translate(492 378)">
+<circle r="297" fill="url(#foil)"/>
+<g fill="none" stroke="#fff" stroke-opacity="0.09" stroke-width="2"><circle r="273"/><circle r="244"/><circle r="214"/><circle r="184"/><circle r="154"/></g>
+<path d="M0 0L-269.2 -125.5A297 297 0 0 1 -178.7 -237.2Z" fill="#fff" opacity="0.22"/>
+<path d="M0 0L269.2 125.5A297 297 0 0 1 224.1 194.8Z" fill="#fff" opacity="0.12"/>
+<circle r="107" fill="#0b0a14" opacity="0.5"/>
+<circle r="89" fill="none" stroke="#fff" stroke-opacity="0.3" stroke-width="3"/>
+<circle r="33" fill="#0b0a14"/>
+</g>
+<rect width="600" height="900" fill="url(#fade)"/>
+<rect width="600" height="72" fill="#0b0a14" opacity="0.78"/>
+<rect y="72" width="600" height="2" fill="hsl(225 95% 70%)" opacity="0.6"/>
+<text x="40" y="45" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="22" letter-spacing="2" fill="#a3a1bd">SLUS-21678</text>
+<text x="560" y="45" text-anchor="end" font-family="ui-sans-serif, system-ui, sans-serif" font-weight="800" font-size="22" letter-spacing="3" fill="hsl(225 95% 76%)">PS2</text>
+<rect x="48" y="660" width="56" height="6" rx="3" fill="hsl(225 95% 70%)"/>
+<g font-family="Unbounded, ui-sans-serif, system-ui, sans-serif" font-weight="700" font-size="42" fill="#f3f2fb"><text x="48" y="724">Dragon Ball Z:</text><text x="48" y="776">Budokai Tenkaichi</text><text x="48" y="828">3</text></g>
+</svg>

@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HypePlay · Mosaico · Tamanhos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400..700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<!--
+  19f, "Tamanhos": variação do 19 Mosaico no eixo de onde a atividade roda. O mesmo documento:
+    19f-tamanhos.html?frame=1          a home, responsiva de verdade
+    19f-tamanhos.html?frame=1&sheet=1  a home com um jogo aberto (no celular, o painel vira folha de baixo)
+    19f-tamanhos.html                  a vitrine: a home em iframes de 1280×720, 960×540, 640×360 e 390×844
+  Regra da parede: as capas ficam 2:3; a altura da linha sai da altura da janela (N linhas inteiras por tela),
+  e quem absorve a sobra de largura é a coluna de texto (saudação), nunca a capa.
+-->
+<script>
+  // shortcut: the mode comes from the query string, so the showcase needs JS; without JS the page is the plain home
+  const q = new URLSearchParams(location.search);
+  if (!q.has('frame')) document.documentElement.classList.add('vitrine');
+  if (q.has('sheet')) document.documentElement.classList.add('sheet');
+</script>
+<style>
+  :root {
+    --bg: #000; --tile: #0b0b0b; --raise: #141414; --line: #262626; --line-hi: #3a3a3a;
+    --ink: #f4f2f3; --soft: #a6a2a4; --faint: #6b6769;
+    --accent: #ff5a8a; --accent-hi: #ff7aa1; --on-accent: #000;
+    --ok: #3ddc84; --busy: #7cc4ff; --warn: #f5a524; --bad: #ff4b3e;
+    --sans: "Host Grotesk", ui-sans-serif, system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+    --gap: 2px; --top: 64px; --pb: 8px; --panel: 380px; --rows: 3; --cols: 4;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1); --fast: 140ms; --base: 260ms; --slow: 700ms;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); scrollbar-width: thin; scrollbar-color: #333 transparent; }
+  body { margin: 0; color: var(--ink); font: 500 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, h4, p, ul { margin: 0; padding: 0; }
+  ul { list-style: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  ::selection { background: var(--accent); color: #000; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 99px; border: 2px solid #000; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--mono); font-weight: 500; letter-spacing: 0.02em; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- the floating bar ---------- */
+  .bar { position: fixed; z-index: 10; top: 8px; left: 8px; right: 8px; height: 48px; display: flex; align-items: center; gap: 20px;
+    padding: 0 8px 0 14px; background: #000; border: 1px solid var(--line); border-radius: 10px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; }
+  .brand svg { width: 22px; height: 22px; }
+  .beta { font: 700 9.5px/1 var(--mono); letter-spacing: 0.08em; color: var(--soft); border: 1px solid var(--line-hi); border-radius: 4px; padding: 3px 4px; }
+  .bar nav { display: flex; align-items: center; gap: 2px; height: 100%; min-width: 0; }
+  .bar nav .sep { width: 1px; height: 18px; background: var(--line); margin: 0 8px; flex: none; }
+  .nav { position: relative; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border-radius: 7px; color: var(--soft);
+    font-size: 13.5px; font-weight: 500; white-space: nowrap; transition: color var(--fast) var(--ease), background var(--fast) var(--ease); }
+  .nav:hover { color: var(--ink); background: var(--raise); }
+  .nav[aria-current=page] { color: var(--ink); }
+  .nav[aria-current=page]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -8px; height: 2px; border-radius: 2px; background: var(--accent); }
+  .nav .n { font: 500 11px/1 var(--mono); color: var(--soft); padding: 3px 5px; border-radius: 4px; background: var(--raise); }
+  .nav[aria-current=page] .n { color: var(--ink); background: #222; }
+
+  /* ---------- the home: greeting column + wall; the panel floats on the right ---------- */
+  .home { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: "hello wall" "sec wall"; column-gap: var(--gap); min-height: 100dvh;
+    padding: var(--top) calc(var(--panel) + 16px) var(--pb) 0; }
+  /* covers stay 2:3. Their height comes from the window height (N full rows per screen), capped by the width;
+     the greeting column takes whatever width is left */
+  .grid { grid-area: wall; align-self: start; display: grid; gap: var(--gap); grid-auto-flow: row dense;
+    --tw: min(calc((100dvh - var(--top) - var(--pb) - (var(--rows) - 1) * var(--gap)) / var(--rows) / 1.5),
+              calc((100vw - var(--panel) - 16px - 280px - var(--cols) * var(--gap)) / var(--cols)));
+    grid-template-columns: repeat(var(--cols), var(--tw)); grid-auto-rows: calc(var(--tw) * 1.5); }
+
+  .hello { grid-area: hello; padding: 26px 24px 0; min-width: 0; }
+  .hello h1 { font-size: 44px; line-height: 1.02; font-weight: 600; letter-spacing: -0.035em; text-wrap: balance; }
+  .hello .sum { margin-top: 14px; color: var(--soft); font-size: 14px; }
+  .hello .sum b { color: var(--ink); font-weight: 600; }
+  .people { margin-top: 28px; display: flex; flex-direction: column; gap: 14px; }
+  .person { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .av { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font: 700 12px/1 var(--sans); color: #000; background: var(--c); }
+  .person b { display: block; font-size: 14px; font-weight: 600; line-height: 18px; }
+  .person b small { color: var(--soft); font-weight: 500; font-size: 13px; }
+  .person div > span { display: block; color: var(--soft); font-size: 13px; line-height: 18px; margin-top: 2px; }
+  .person div > span em { font-style: normal; color: var(--ink); }
+  .sec { grid-area: sec; margin: 0 24px; padding: 18px 0 22px; border-top: 1px solid var(--line); display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  .sec h2 { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; }
+  .sec p { color: var(--soft); font-size: 13px; margin-top: 3px; }
+  .sec svg.i { width: 20px; height: 20px; color: var(--faint); margin-bottom: 2px; }
+
+  /* ---------- tiles ---------- */
+  .t { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; background: var(--tile); isolation: isolate; text-align: left; }
+  .t.big { grid-column: span 2; grid-row: span 2; }
+  .t img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; z-index: -1;
+    filter: brightness(0.56) saturate(0.6); transform: scale(1.001);
+    transition: filter var(--base) var(--ease), transform var(--slow) var(--ease); }
+  .t:hover img, .t:focus-visible img, .t.is-focus img, .t.is-open img { filter: none; }
+  .t:hover img, .t:focus-visible img, .t.is-focus img { transform: scale(1.035); }
+  .t::after { content: ""; position: absolute; inset: 0; pointer-events: none; transition: box-shadow var(--fast) var(--ease); }
+  .t.is-open::after { box-shadow: inset 0 0 0 2px var(--accent); }
+  .t:focus-visible { outline: none; }
+  .t:focus-visible::after, .t.is-focus::after { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #000; }
+  .t.is-open:focus-visible::after { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px var(--accent); }
+
+  /* state labels sit just under the printed serial band (top 8.2% of the cover), over the art only */
+  .tag { position: absolute; top: calc(8.4% + 5px); left: 6px; max-width: calc(100% - 12px); padding: 5px 8px 6px; border-radius: 6px; background: #000;
+    border: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; }
+  .st { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; line-height: 15px; font-weight: 600; }
+  .st::before { content: ""; width: 7px; height: 7px; flex: none; background: currentColor; border-radius: 50%; }
+  .st.ok { color: var(--ok); }
+  .st.busy { color: var(--busy); } .st.busy::before { animation: spin 1.4s linear infinite;
+    border-radius: 50%; background: conic-gradient(currentColor 0 25%, transparent 0); -webkit-mask: radial-gradient(circle, transparent 1.6px, #000 1.7px); width: 8px; height: 8px; }
+  .st.warn { color: var(--warn); } .st.warn::before { border-radius: 1px; transform: rotate(45deg); width: 6px; height: 6px; margin: 0 1px; }
+  .st.bad { color: var(--bad); } .st.bad::before { border-radius: 0; width: 8px; height: 8px;
+    clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); }
+  .tag.quiet { padding: 4px 8px 5px 7px; }
+  .tag small { color: var(--soft); font-size: 11px; line-height: 14px; padding-left: 13px; }
+  .tag .track { height: 2px; margin: 2px 0 1px 14px; background: #2a2a2a; border-radius: 2px; overflow: hidden; }
+  .tag .track i { display: block; height: 100%; background: var(--busy); }
+  @keyframes spin { to { transform: rotate(1turn); } }
+
+  .cap { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    padding: 9px; background: #000; border-top: 1px solid var(--line); font-size: 12px; color: var(--soft);
+    transform: translateY(101%); transition: transform var(--base) var(--ease); }
+  .cap .mono { font-size: 10.5px; color: var(--ink); }
+  .cap .hint { display: inline-flex; align-items: center; gap: 5px; color: var(--ink); font-weight: 600; }
+  .t:hover .cap, .t:focus-visible .cap, .t.is-focus .cap { transform: none; }
+
+  .add { grid-column: span 2; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: var(--bg); color: var(--soft); font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--line);
+    transition: color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), background var(--fast) var(--ease); }
+  .add .plus { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; border: 1px dashed var(--line-hi);
+    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease), transform var(--base) var(--ease); }
+  .add .plus svg.i { width: 18px; height: 18px; }
+  .add:hover, .add:focus-visible { color: var(--ink); background: var(--tile); box-shadow: inset 0 0 0 1px var(--line-hi); outline: none; }
+  .add:hover .plus, .add:focus-visible .plus { border: 1px solid var(--accent); color: var(--accent); transform: rotate(90deg); }
+  .add:focus-visible { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #000; }
+
+  /* ---------- the game panel ---------- */
+  .panel { position: fixed; z-index: 9; top: var(--top); right: 8px; bottom: 8px; width: var(--panel); background: #000; border: 1px solid var(--line);
+    border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; isolation: isolate; box-shadow: -40px 0 60px -30px #000; }
+  .panel .wash { position: absolute; inset: 0 0 auto; height: 260px; z-index: -1; background: url(capas/bt3.svg) center 30% / cover;
+    filter: blur(48px) saturate(1.1); opacity: 0.3; transform: scale(1.3);
+    -webkit-mask-image: linear-gradient(#000 20%, transparent); mask-image: linear-gradient(#000 20%, transparent); }
+  .panel header { display: flex; align-items: center; justify-content: space-between; height: 48px; flex: none; padding: 0 10px 0 20px; border-bottom: 1px solid var(--line); }
+  .panel header h2 { font-size: 14px; font-weight: 600; }
+  .x { width: 32px; height: 32px; border-radius: 7px; display: grid; place-items: center; color: var(--soft); transition: color var(--fast), background var(--fast); }
+  .x:hover { color: var(--ink); background: var(--raise); }
+  .pbody { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 20px 18px; display: flex; gap: 16px; }
+  .pbody .cover { display: none; }
+  .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+  .info h3 { font-size: 30px; line-height: 1.08; font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; }
+  .meta { display: flex; align-items: center; gap: 12px; }
+  .meta .mono { font-size: 12.5px; color: var(--soft); }
+  .seal { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; font-weight: 600;
+    color: var(--ok); box-shadow: inset 0 0 0 1px rgb(61 220 132 / 0.4); }
+  .seal svg.i { width: 12px; height: 12px; stroke-width: 2.2; }
+  .desc { color: #cfcacc; font-size: 14.5px; line-height: 1.45; }
+  .acts { display: flex; gap: 8px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 42px; padding: 0 16px; border-radius: 8px; font-size: 14px;
+    font-weight: 600; white-space: nowrap; transition: background var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); }
+  .btn.primary svg.i { fill: currentColor; stroke: none; }
+  .btn.primary:hover { background: var(--accent-hi); }
+  .btn.ghost { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .btn.ghost:hover { background: var(--raise); box-shadow: inset 0 0 0 1px #4a4a4a; }
+  .btn.wide { width: 100%; height: 38px; }
+
+  .room { border: 1px solid var(--line); border-radius: 10px; }
+  .room .head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
+  .room .live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .room .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: ping 1.8s var(--ease) infinite; }
+  @keyframes ping { from { box-shadow: 0 0 0 0 rgb(61 220 132 / 0.6); } to { box-shadow: 0 0 0 7px rgb(61 220 132 / 0); } }
+  .code { font: 700 22px/1 var(--mono); letter-spacing: 0.22em; margin-right: -0.22em; color: var(--ink); }
+  .slots { display: grid; grid-template-columns: 1fr 1fr; }
+  .slot { display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 13px; line-height: 17px; min-width: 0; }
+  .slot + .slot { border-left: 1px solid var(--line); }
+  .slot b { display: block; font-weight: 600; color: var(--ink); }
+  .slot div > span { color: var(--soft); }
+  .slot .av { width: 28px; height: 28px; }
+  .slot .open { width: 28px; height: 28px; flex: none; border-radius: 50%; border: 1px dashed #555; display: grid; place-items: center; font: 600 11px/1 var(--mono); color: var(--soft); }
+  .room .go { padding: 0 10px 10px; }
+
+  /* fills what used to be the empty middle: who of the call is in this game, and the quieter actions */
+  .more { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .more h4 { font-size: 13px; font-weight: 600; color: var(--soft); }
+  .more ul { display: flex; flex-direction: column; gap: 8px; }
+  .more li { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
+  .more li .av { width: 24px; height: 24px; font-size: 11px; }
+  .more li span:last-child { color: var(--soft); }
+  .minor { display: flex; gap: 6px; margin-top: 2px; }
+  .minor .btn { height: 32px; padding: 0 12px; font-size: 13px; color: var(--soft); }
+  .minor .btn:hover { color: var(--ink); }
+
+  .pads { display: flex; align-items: center; gap: 18px; padding: 11px 20px; border-top: 1px solid var(--line); color: var(--soft); font-size: 12.5px; flex: none; }
+  .pad { display: inline-flex; align-items: center; gap: 7px; }
+  .pad svg { width: 18px; height: 18px; fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .pad svg circle.ring { stroke: var(--line-hi); }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+  /* ===== 960×540 — the default Discord activity: one screen holds the whole library ===== */
+  @media (max-width: 1100px) {
+    :root { --top: 52px; --pb: 6px; --rows: 2; --cols: 4; --panel: 0px; }
+    .bar { top: 6px; left: 6px; right: 6px; height: 40px; gap: 14px; }
+    .beta { display: none; }
+    .nav { padding: 0 9px; } .nav[aria-current=page]::after { bottom: -5px; }
+    .nav:not([aria-current]) .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .bar nav .sep { margin: 0 4px; }
+    .home { grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "hello wall" "panel wall"; padding: var(--top) 0 var(--pb) 6px; height: 100dvh; min-height: 0; }
+    .hello { padding: 10px 12px 14px 8px; }
+    .hello h1 { font-size: 22px; }
+    .hello .sum { margin-top: 4px; font-size: 13px; }
+    .people { margin-top: 10px; gap: 4px; }
+    .person { grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: center; }
+    .person .av { width: 20px; height: 20px; font-size: 10px; }
+    .person div { display: flex; gap: 6px; min-width: 0; }
+    .person b, .person div > span { font-size: 12.5px; line-height: 18px; margin: 0; white-space: nowrap; }
+    .person div > span { overflow: hidden; text-overflow: ellipsis; }
+    .sec { grid-area: auto; position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .t.big { grid-column: auto; grid-row: auto; }
+    .add { grid-column: auto; }
+    .panel { grid-area: panel; position: static; width: auto; margin-right: 6px; box-shadow: none; }
+    .panel header { height: 38px; padding: 0 8px 0 14px; } .panel header h2 { font-size: 13px; }
+    .x, .desc, .more, .pads { display: none; }
+    .pbody { padding: 12px 12px 10px; }
+    .info { gap: 10px; }
+    .info h3 { font-size: 20px; line-height: 1.12; }
+    .acts .btn { height: 36px; padding: 0 12px; font-size: 13px; }
+    .room .head { padding: 8px 12px 7px; } .code { font-size: 18px; }
+    .slot { padding: 7px 10px; gap: 8px; font-size: 12.5px; } .slot .av, .slot .open { width: 24px; height: 24px; }
+    .btn.wide { height: 32px; } .room .go { padding: 0 8px 8px; }
+  }
+
+  /* ===== 390×844 — phone, portrait: one column; the panel is a card in the flow, and a bottom sheet when a game opens ===== */
+  @media (max-width: 520px) {
+    :root { --top: 0px; --cols: 3; }
+    .bar { position: sticky; top: 0; left: auto; right: auto; margin: 6px; height: auto; flex-wrap: wrap; row-gap: 4px; padding: 8px 6px 4px 12px; }
+    .beta { display: inline; }
+    .bar nav { order: 2; flex-basis: 100%; height: 40px; overflow-x: auto; scrollbar-width: none; margin: 0 -6px 0 -12px; padding: 0 6px; }
+    .nav { padding: 0 10px; } .nav[aria-current=page]::after { bottom: 0; }
+    .nav:not([aria-current]) .lbl { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+    .home { display: flex; flex-direction: column; height: auto; padding: 0 0 24px; }
+    .hello { padding: 16px 16px 20px; }
+    .hello h1 { font-size: 32px; }
+    .hello .sum { margin-top: 8px; font-size: 14px; }
+    .people { margin-top: 18px; gap: 12px; }
+    .person { grid-template-columns: 28px minmax(0, 1fr); gap: 10px; align-items: start; }
+    .person .av { width: 28px; height: 28px; font-size: 11px; }
+    .person div { display: block; }
+    .person b, .person div > span { white-space: normal; font-size: 13.5px; }
+    .panel { margin: 0 8px; }
+    .panel header { height: 44px; }
+    .desc { display: block; }
+    .pbody { padding: 18px 16px 16px; } .info { gap: 12px; }
+    .info h3 { font-size: 26px; }
+    .acts .btn { height: 44px; flex: 1; }
+    .btn.wide { height: 40px; }
+    .sec { position: static; width: auto; height: auto; clip-path: none; margin: 28px 16px 0; padding: 0 0 12px; border-top: 0; }
+    .grid { --tw: calc((100vw - (var(--cols) - 1) * var(--gap)) / var(--cols)); }
+    .add { grid-column: span 2; }
+    /* a game opened from the wall: the same panel, as a bottom sheet */
+    .sheet body::after { content: ""; position: fixed; inset: 0; z-index: 14; background: rgb(0 0 0 / 0.66); }
+    .sheet .panel { position: fixed; z-index: 15; top: auto; left: 0; right: 0; bottom: 0; margin: 0; max-height: 86dvh; border-radius: 16px 16px 0 0; border-bottom: 0;
+      box-shadow: 0 -30px 60px -20px #000; }
+    .sheet .panel::before { content: ""; position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 4px; background: var(--line-hi); }
+    .sheet .panel header { height: 50px; padding-top: 6px; }
+    .sheet .x, .sheet .more { display: flex; }
+  }
+
+  /* ===== 640×360 — Discord picture-in-picture: only "continuar jogando" and the room ===== */
+  @media (max-height: 420px) and (min-width: 521px) {
+    :root { --top: 0px; }
+    .bar, .grid, .sec, .hello .sum { display: none; }
+    .panel header { height: 34px; padding: 0 14px; }
+    .home { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "hello" "panel"; padding: 8px; row-gap: 8px; height: 100dvh; }
+    .hello { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 0 6px; }
+    .hello h1 { font-size: 17px; letter-spacing: -0.02em; }
+    .people { flex-direction: row; margin: 0; gap: 0; }
+    .person { display: block; margin-left: -6px; }
+    .person .av { width: 26px; height: 26px; box-shadow: 0 0 0 2px #000; }
+    .person div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .panel { margin: 0; }
+    .wash { display: none; }
+    .pbody { padding: 0; gap: 14px; overflow: hidden; }
+    .pbody .cover { display: block; height: 100%; aspect-ratio: 2 / 3; flex: none; border-radius: 11px 0 0 11px; }
+    .info { padding: 12px 14px 12px 0; gap: 9px; justify-content: center; }
+    .info h3 { font-size: 21px; }
+    .acts .btn { height: 36px; }
+  }
+
+  /* ---------- the showcase (no ?frame) ---------- */
+  .show { --s: 0.56; padding: 40px 48px 48px; }
+  .show > h1 { font-size: 30px; font-weight: 600; letter-spacing: -0.03em; }
+  .show > p { color: var(--soft); font-size: 14px; margin-top: 6px; max-width: 760px; }
+  .row { display: flex; gap: 40px; margin-top: 34px; align-items: flex-start; }
+  .size { flex: none; }
+  .fr { width: calc(var(--w) * var(--s) * 1px); height: calc(var(--h) * var(--s) * 1px); overflow: hidden; border: 1px solid var(--line-hi); border-radius: 8px; box-sizing: content-box; }
+  .fr iframe { display: block; border: 0; transform: scale(var(--s)); transform-origin: 0 0; }
+  .size h2 { margin-top: 14px; font-size: 15px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; }
+  .size h2 .mono { font-size: 12.5px; color: var(--soft); }
+  .size dl { margin: 8px 0 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 4px 10px; font-size: 12.5px; line-height: 1.4;
+    max-width: calc(var(--w) * var(--s) * 1px); min-width: 218px; }
+  .size dt { color: var(--soft); } .size dd { margin: 0; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-lib" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="9" rx="1.2"/><rect x="13.5" y="4" width="6.5" height="9" rx="1.2"/><path d="M4 17h16M4 20h10"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="16.5" cy="9.5" r="2.6"/><path d="M16.5 14.2c2.2.1 3.7 1.6 4.1 4.3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M7.5 7h9a4.5 4.5 0 0 1 4.4 3.6l.9 4.7a2.6 2.6 0 0 1-4.6 2.1L15.5 15h-7l-1.7 2.4a2.6 2.6 0 0 1-4.6-2.1l.9-4.7A4.5 4.5 0 0 1 7.5 7z"/><path d="M8 9.8v3M6.5 11.3h3"/><circle cx="16" cy="10.6" r=".6"/><circle cx="17.4" cy="12.4" r=".6"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M7.5 7.5h.01M7.5 16.5h.01M11 7.5h5M11 16.5h5"/></symbol>
+  <symbol id="i-web" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9h17"/><path d="M10 15l4-4M11 11h3v3"/></symbol>
+  <symbol id="i-pc" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="11.5" rx="1.8"/><path d="M9 20h6M12 16v4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
+  <symbol id="i-door" viewBox="0 0 24 24"><path d="M5 20h14M7 20V5.5A1.5 1.5 0 0 1 8.5 4h7A1.5 1.5 0 0 1 17 5.5V20"/><path d="M13.5 12h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="p-cross" viewBox="0 0 20 20"><circle class="ring" cx="10" cy="10" r="9"/><path d="M6.6 6.6l6.8 6.8M13.4 6.6l-6.8 6.8"/></symbol>
+  <symbol id="p-tri" viewBox="0 0 20 20"><circle class="ring" cx="10" cy="10" r="9"/><path d="M10 5.6l4.6 8H5.4z"/></symbol>
+  <symbol id="p-circle" viewBox="0 0 20 20"><circle class="ring" cx="10" cy="10" r="9"/><circle cx="10" cy="10" r="4.4"/></symbol>
+</svg>
+
+<header class="bar">
+  <div class="brand">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#ff5a8a"/><g fill="#000"><rect x="14" y="14" width="10" height="36" rx="5"/><rect x="40" y="14" width="10" height="36" rx="5"/><path d="M22 20v24l20-12z"/></g></svg>
+    HypePlay <span class="beta">BETA</span>
+  </div>
+  <nav aria-label="Seções">
+    <button class="nav" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-lib"/></svg><span class="lbl">Biblioteca</span><span class="n">7</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-people"/></svg><span class="lbl">Pessoas</span><span class="n">3</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg><span class="lbl">Adicionar jogo</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-pad"/></svg><span class="lbl">Controle</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-server"/></svg><span class="lbl">Servidor</span></button>
+    <span class="sep" aria-hidden="true"></span>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-web"/></svg><span class="lbl">Abrir no navegador</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-pc"/></svg><span class="lbl">App para PC</span></button>
+  </nav>
+</header>
+
+<main class="home">
+  <section class="hello" aria-label="Boa noite">
+    <h1>Boa noite, Ana</h1>
+    <p class="sum num"><b>7</b> jogos no servidor · <b>2</b> salas abertas agora</p>
+    <ul class="people" aria-label="Na call">
+      <li class="person"><span class="av" style="--c:#ff5a8a">A</span><div><b>Ana <small>(você)</small></b><span>Na biblioteca</span></div></li>
+      <li class="person"><span class="av" style="--c:#7cc4ff">B</span><div><b>Bruno</b><span>Jogando <em>Dragon Ball Z: Budokai Tenkaichi 3</em></span></div></li>
+      <li class="person"><span class="av" style="--c:#f2c46b">C</span><div><b>Carla</b><span>Assistindo <em>Dragon Ball Z: Budokai Tenkaichi 3</em></span></div></li>
+    </ul>
+  </section>
+
+  <aside class="panel" id="panel" aria-labelledby="panel-title">
+    <div class="wash" aria-hidden="true"></div>
+    <header>
+      <h2>Continuar jogando</h2>
+      <button class="x" aria-label="Fechar"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="pbody">
+      <img class="cover" src="capas/bt3.svg" alt="">
+      <div class="info">
+        <h3 id="panel-title">Dragon Ball Z: Budokai Tenkaichi 3</h3>
+        <div class="meta"><span class="mono">SLUS-21678</span><span class="seal"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg>Testado</span></div>
+        <p class="desc">Adicionado por Bruno. A ISO fica no servidor: é só jogar.</p>
+        <div class="acts">
+          <button class="btn primary"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Jogar agora</button>
+          <button class="btn ghost"><svg class="i" aria-hidden="true"><use href="#i-door"/></svg>Abrir uma sala</button>
+        </div>
+        <section class="room" aria-label="Sala aberta KRTZ">
+          <div class="head"><span class="live">Sala aberta</span><span class="code" aria-label="Código K R T Z">KRTZ</span></div>
+          <div class="slots">
+            <div class="slot"><span class="av" style="--c:#7cc4ff">B</span><div><b>Bruno</b><span>jogando</span></div></div>
+            <div class="slot"><span class="open" aria-hidden="true">P2</span><div><b>Vaga de jogador 2</b></div></div>
+          </div>
+          <div class="go"><button class="btn ghost wide">Entrar como jogador 2</button></div>
+        </section>
+        <section class="more" aria-label="Na call, neste jogo">
+          <h4>Na call, neste jogo</h4>
+          <ul>
+            <li><span class="av" style="--c:#7cc4ff">B</span><b>Bruno</b><span>Jogando</span></li>
+            <li><span class="av" style="--c:#f2c46b">C</span><b>Carla</b><span>Assistindo</span></li>
+          </ul>
+          <div class="minor"><button class="btn ghost">Trocar a capa</button><button class="btn ghost">Remover</button></div>
+        </section>
+      </div>
+    </div>
+    <footer class="pads" aria-label="Controle">
+      <span class="pad"><svg role="img" aria-label="Cruz"><use href="#p-cross"/></svg>Abrir</span>
+      <span class="pad"><svg role="img" aria-label="Triângulo"><use href="#p-tri"/></svg>Sala</span>
+      <span class="pad"><svg role="img" aria-label="Círculo"><use href="#p-circle"/></svg>Voltar</span>
+    </footer>
+  </aside>
+
+  <div class="sec">
+    <div><h2>Seus jogos</h2><p>Enviados uma vez, para todo mundo</p></div>
+    <svg class="i" aria-hidden="true"><use href="#i-down"/></svg>
+  </div>
+
+  <div class="grid">
+    <button class="t big is-open" aria-label="Dragon Ball Z: Budokai Tenkaichi 3, SLUS-21678, pronto, 1 sala aberta (aberto no painel)" aria-expanded="true" aria-controls="panel">
+      <img src="capas/bt3.svg" alt="">
+      <span class="tag quiet"><span class="st ok">Pronto · 1 sala aberta</span></span>
+    </button>
+    <button class="t" aria-label="Naruto: Ultimate Ninja 2, SLUS-21410, recebendo 62%">
+      <img src="capas/naruto.svg" alt="">
+      <span class="tag"><span class="st busy num">Recebendo 62%</span><span class="track"><i style="width:62%"></i></span></span>
+      <span class="cap"><span class="mono">SLUS-21410</span><span class="hint">Abrir</span></span>
+    </button>
+    <button class="t" aria-label="Gran Turismo 4, SCUS-97328, compilando 3 de 5: Extraindo os dados">
+      <img src="capas/gt4.svg" alt="">
+      <span class="tag"><span class="st busy num">Compilando 3/5</span><small>Extraindo os dados</small></span>
+      <span class="cap"><span class="mono">SCUS-97328</span><span class="hint">Abrir</span></span>
+    </button>
+    <button class="t is-focus" aria-label="Ōkami, SLUS-21115, falta a BIOS">
+      <img src="capas/okami.svg" alt="">
+      <span class="tag"><span class="st warn">Falta a BIOS</span></span>
+      <span class="cap"><span class="mono">SLUS-21115</span><span class="hint"><span class="pad"><svg role="img" aria-label="Cruz"><use href="#p-cross"/></svg></span>Abrir</span></span>
+    </button>
+    <button class="t" aria-label="Burnout 3: Takedown, SLUS-21050, envio parado em 41%">
+      <img src="capas/burnout.svg" alt="">
+      <span class="tag"><span class="st warn num">Envio parado em 41%</span></span>
+      <span class="cap"><span class="mono">SLUS-21050</span><span class="hint">Abrir</span></span>
+    </button>
+    <button class="t" aria-label="Shadow of the Colossus, SCUS-97472, falhou: a compilação falhou">
+      <img src="capas/sotc.svg" alt="">
+      <span class="tag"><span class="st bad">Falhou</span><small>A compilação falhou.</small></span>
+      <span class="cap"><span class="mono">SCUS-97472</span><span class="hint">Abrir</span></span>
+    </button>
+    <button class="t" aria-label="Winning Eleven 9, SLUS-21326, pronto, 1 sala aberta">
+      <img src="capas/pes.svg" alt="">
+      <span class="tag quiet"><span class="st ok">Pronto · 1 sala aberta</span></span>
+      <span class="cap"><span class="mono">SLUS-21326</span><span class="hint">Abrir</span></span>
+    </button>
+    <button class="add"><span class="plus"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></span>Adicionar jogo</button>
+  </div>
+</main>
+
+<template id="vitrine">
+  <div class="show">
+    <h1>Mosaico em quatro janelas</h1>
+    <p>A mesma home, o mesmo arquivo, nos tamanhos em que a atividade abre. Todas na mesma escala (56%), para comparar o tamanho real.</p>
+    <div class="row">
+      <div class="size" style="--w:1280;--h:720">
+        <div class="fr"><iframe src="?frame=1" width="1280" height="720" title="Home em 1280 por 720"></iframe></div>
+        <h2>Janela grande <span class="mono">1280 × 720</span></h2>
+        <dl>
+          <dt>Barra</dt><dd>Completa, com os nomes das seções.</dd>
+          <dt>Painel</dt><dd>Aberto à direita (380 px): sala, quem da call está no jogo, Trocar a capa, Remover, dicas do controle.</dd>
+          <dt>Parede</dt><dd>4 colunas × 3 linhas; a linha sai da altura da janela, então a tela fecha numa borda. BT3 em 2×2.</dd>
+          <dt>Saudação</dt><dd>Coluna à esquerda, com a call inteira; fica com a sobra de largura.</dd>
+        </dl>
+      </div>
+      <div class="size" style="--w:960;--h:540">
+        <div class="fr"><iframe src="?frame=1" width="960" height="540" title="Home em 960 por 540"></iframe></div>
+        <h2>Atividade padrão <span class="mono">960 × 540</span></h2>
+        <dl>
+          <dt>Barra</dt><dd>Só ícones (nome no leitor de tela); a seção ativa mantém o nome.</dd>
+          <dt>Painel</dt><dd>Vira o cartão de baixo da coluna esquerda: título, Jogar agora, sala. Sem descrição nem extras.</dd>
+          <dt>Parede</dt><dd>4 × 2: a biblioteca inteira numa tela, capas de 160 × 240.</dd>
+          <dt>Saudação</dt><dd>Uma linha; a call em linhas curtas.</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="row">
+      <div class="size" style="--w:640;--h:360">
+        <div class="fr"><iframe src="?frame=1" width="640" height="360" title="Home em 640 por 360"></iframe></div>
+        <h2>Picture-in-picture <span class="mono">640 × 360</span></h2>
+        <dl>
+          <dt>Barra</dt><dd>Some.</dd>
+          <dt>Painel</dt><dd>É a tela: capa, Jogar agora, Abrir uma sala, sala KRTZ.</dd>
+          <dt>Parede</dt><dd>Some.</dd>
+          <dt>Saudação</dt><dd>Uma linha; a call vira avatares.</dd>
+        </dl>
+      </div>
+      <div class="size" style="--w:390;--h:844">
+        <div class="fr"><iframe src="?frame=1" width="390" height="844" title="Home no celular"></iframe></div>
+        <h2>Celular <span class="mono">390 × 844</span></h2>
+        <dl>
+          <dt>Barra</dt><dd>Marca em cima; seções numa fileira que rola.</dd>
+          <dt>Painel</dt><dd>Cartão no fluxo, logo depois da saudação.</dd>
+          <dt>Parede</dt><dd>3 colunas de ponta a ponta.</dd>
+          <dt>Saudação</dt><dd>No topo, completa.</dd>
+        </dl>
+      </div>
+      <div class="size" style="--w:390;--h:844">
+        <div class="fr"><iframe src="?frame=1&amp;sheet=1" width="390" height="844" title="Celular com um jogo aberto"></iframe></div>
+        <h2>Celular, jogo aberto <span class="mono">390 × 844</span></h2>
+        <dl>
+          <dt>Painel</dt><dd>Folha de baixo, com os extras e o fechar.</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</template>
+<script>
+  if (document.documentElement.classList.contains('vitrine')) document.body.replaceChildren(document.getElementById('vitrine').content);
+</script>
+</body>
+</html>

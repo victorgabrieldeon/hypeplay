@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HypePlay — Vitrine</title>
+<!-- Estilo 12 "Vitrine": loja de launcher, monocromática — banner de destaque, coluna de salas, fileira de capas 2:3. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400..800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0c0d; --panel: #141416; --raise: #1c1c1f; --raise2: #26262a; --raise3: #313136;
+    --line: rgb(255 255 255 / 0.08); --line-hi: rgb(255 255 255 / 0.15);
+    --ink: #f4f4f5; --soft: #a6a6ad; --faint: #8a8a91;
+    --ok: #6fdc9c; --work: #a3b8ff; --warn: #f2c063; --err: #ff8b84;
+    --sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+    --ease: cubic-bezier(0.22, 0.7, 0.2, 1); --t: 240ms;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); color-scheme: dark; }
+  body { margin: 0; color: var(--ink); font: 400 14px/20px var(--sans); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, p { margin: 0; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  img { display: block; }
+  ::selection { background: #f4f4f5; color: #0c0c0d; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 99px; background: rgb(255 255 255 / 0.16) padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: rgb(255 255 255 / 0.36); }
+  :focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  .mono { font-family: var(--mono); font-weight: 500; font-size: 0.92em; letter-spacing: 0.01em; }
+  svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* estado = forma + cor + texto */
+  .st { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; line-height: 18px; font-weight: 500; }
+  .st svg { width: 10px; height: 10px; flex: none; }
+  .st.ok { color: var(--ok); } .st.work { color: var(--work); } .st.warn { color: var(--warn); } .st.err { color: var(--err); }
+  .st.work svg { animation: spin 1.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .wrap { padding: 0 32px; }
+
+  /* ---------- topo ---------- */
+  .topbar { height: 60px; display: flex; align-items: center; gap: 28px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 9px; margin-right: 6px; }
+  .brand svg { width: 24px; height: 24px; }
+  .brand b { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+  .beta { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: var(--soft); border: 1px solid var(--line-hi); border-radius: 4px; padding: 0 5px; line-height: 16px; }
+  nav { display: flex; align-items: stretch; gap: 22px; height: 100%; flex: 1; }
+  .nav { position: relative; display: inline-flex; align-items: center; gap: 8px; color: var(--soft); font-size: 14px; font-weight: 500; white-space: nowrap; transition: color var(--t) var(--ease); }
+  .nav::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: #fff; transform: scaleX(0); transition: transform var(--t) var(--ease); }
+  .nav:hover { color: var(--ink); }
+  .nav.on { color: var(--ink); }
+  .nav.on::after { transform: scaleX(1); }
+  .nav .n { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--soft); background: var(--raise); border-radius: 6px; padding: 0 6px; line-height: 18px; }
+  .nav.on .n { color: var(--ink); background: var(--raise2); }
+  .nav svg.i { width: 15px; height: 15px; }
+  .nav.push { margin-left: auto; }
+
+  .hello { display: flex; align-items: baseline; gap: 16px; padding: 20px 0 16px; }
+  .hello h1 { font-size: 26px; line-height: 32px; font-weight: 650; letter-spacing: -0.025em; }
+  .hello p { color: var(--soft); font-size: 14px; }
+
+  /* ---------- destaque + coluna ---------- */
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: 16px; height: 432px; }
+  .hero { position: relative; border-radius: 16px; overflow: hidden; background: #08080a; isolation: isolate; }
+  .hero .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 46%; z-index: -2; transition: transform 1.2s var(--ease); }
+  .hero:hover .art { transform: scale(1.015); }
+  .hero::before { content: ""; position: absolute; inset: 0; z-index: -1;
+    background: linear-gradient(90deg, rgb(12 12 13 / 0.96) 0%, rgb(12 12 13 / 0.82) 34%, rgb(12 12 13 / 0.1) 72%),
+      linear-gradient(0deg, rgb(12 12 13 / 0.85) 0%, rgb(12 12 13 / 0) 40%); }
+  .hero .body { position: absolute; left: 40px; bottom: 36px; width: 520px; display: grid; gap: 14px; }
+  .hero h2 { font-size: 46px; line-height: 48px; font-weight: 700; letter-spacing: -0.035em; text-wrap: balance; }
+  .meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: var(--soft); }
+  .meta .resume { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); font-weight: 600; }
+  .meta .sep { width: 1px; height: 12px; background: var(--line-hi); }
+  .tested { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px 0 6px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .tested svg { width: 13px; height: 13px; stroke-width: 2.2; color: var(--ok); }
+  .hero p.lead { color: #c9c9ce; font-size: 15px; line-height: 22px; max-width: 420px; }
+  .actions { display: flex; gap: 10px; margin-top: 6px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border-radius: 10px; font-weight: 600; white-space: nowrap; height: 46px; padding: 0 22px; font-size: 15px;
+    transition: background-color var(--t) var(--ease), color var(--t) var(--ease), box-shadow var(--t) var(--ease), transform 120ms var(--ease); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: #f4f4f5; color: #0c0c0d; padding-left: 18px; }
+  .btn.primary svg { width: 17px; height: 17px; fill: currentColor; stroke: none; }
+  .btn.primary:hover { background: #fff; box-shadow: 0 6px 18px rgb(0 0 0 / 0.35); }
+  .btn.second { background: var(--raise2); color: var(--ink); }
+  .btn.second:hover { background: var(--raise3); }
+  .btn.small { height: 36px; font-size: 13.5px; padding: 0 14px; width: 100%; border-radius: 9px; }
+  .btn.outline { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .btn.outline:hover { background: var(--raise2); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.28); }
+
+  .col { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .col h2 { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+  .col h2 .n { font-size: 12px; font-weight: 600; color: var(--soft); font-variant-numeric: tabular-nums; }
+  .room { background: var(--raise); border-radius: 12px; padding: 11px 12px 12px; display: grid; gap: 7px; }
+  .room .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .room .code { font-family: var(--mono); font-size: 21px; font-weight: 600; letter-spacing: 0.14em; }
+  .room .game { font-size: 12.5px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -3px; }
+  .room .st { font-size: 12px; }
+  .room .top img { width: 26px; height: 39px; border-radius: 4px; box-shadow: 0 0 0 1px var(--line-hi); }
+  .slot { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+  .slot .soft { color: var(--soft); }
+  .empty { width: 22px; height: 22px; border-radius: 50%; border: 1.5px dashed rgb(255 255 255 / 0.32); display: grid; place-items: center; color: var(--soft); flex: none; }
+  .empty svg { width: 11px; height: 11px; }
+  .av { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #0c0c0d; flex: none; }
+  .av.ana { background: #bdb5d9; } .av.bruno { background: #d9b6a9; } .av.carla { background: #a9cbd4; }
+  .lrow { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 11px; align-items: center; padding: 4px 6px; margin: 0 -6px; border-radius: 10px; text-align: left; transition: background-color var(--t) var(--ease); }
+  .lrow:hover { background: var(--raise); }
+  .lrow img { width: 24px; height: 36px; border-radius: 4px; box-shadow: 0 0 0 1px var(--line-hi); }
+  .lrow b { display: block; font-size: 13.5px; font-weight: 600; }
+  .divide { height: 1px; background: var(--line); margin: 2px 0; }
+  .call { margin-top: auto; display: grid; gap: 7px; }
+  .who { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; }
+  .who .av { margin-top: 1px; }
+  .who div { font-size: 12.5px; line-height: 17px; color: var(--soft); text-wrap: pretty; }
+  .who b { font-size: 13px; font-weight: 600; color: var(--ink); margin-right: 5px; }
+  .who b small { font-size: 11.5px; font-weight: 500; color: var(--soft); margin-left: 4px; }
+  .who .av { width: 20px; height: 20px; font-size: 10.5px; margin-top: -1px; }
+
+  /* ---------- fileira ---------- */
+  .shelf { padding: 30px 0 40px; }
+  .shelf header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .shelf h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; }
+  .shelf header p { color: var(--soft); font-size: 14px; }
+  .hints { margin-left: auto; display: flex; gap: 16px; color: var(--soft); font-size: 13px; }
+  .hints span { display: inline-flex; align-items: center; gap: 6px; }
+  .hints svg { width: 18px; height: 18px; }
+  .arrows { display: flex; gap: 8px; margin-left: 10px; }
+  .arrow { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--raise); color: var(--ink); transition: background-color var(--t) var(--ease); }
+  .arrow:hover { background: var(--raise3); }
+  .arrow[disabled] { color: var(--faint); background: var(--panel); cursor: default; }
+  .row { display: grid; grid-auto-flow: column; grid-auto-columns: 186px; gap: 20px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 12px; padding: 12px 12px 10px; margin: -12px -12px 0; scrollbar-width: none; }
+  .row::-webkit-scrollbar { display: none; }
+  .card { display: grid; align-content: start; gap: 6px; text-align: left; scroll-snap-align: start; outline: none; min-width: 0; }
+  .cov { position: relative; aspect-ratio: 2 / 3; border-radius: 11px; overflow: hidden; background: var(--raise); box-shadow: 0 0 0 1px var(--line);
+    transition: transform var(--t) var(--ease), box-shadow var(--t) var(--ease); }
+  .cov img { width: 100%; height: 100%; transition: transform 600ms var(--ease); }
+  .card .name { margin-top: 6px; font-size: 14.5px; line-height: 19px; font-weight: 600; letter-spacing: -0.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .serial { font-family: var(--mono); font-size: 11.5px; color: var(--faint); letter-spacing: 0.02em; }
+  .card .st .sub { color: var(--soft); font-weight: 400; display: block; }
+  .card:hover .cov { transform: translateY(-4px); box-shadow: 0 0 0 1px var(--line-hi), 0 16px 32px rgb(0 0 0 / 0.5); }
+  .card:hover .cov img { transform: scale(1.03); }
+  /* foco de controle ou teclado: anel branco com folga, sem brilho */
+  .card:focus-visible .cov, .card.is-focus .cov { transform: translateY(-4px); box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px #fff, 0 16px 32px rgb(0 0 0 / 0.5); }
+  .badge { position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 7px; background: #0c0c0d; font-size: 12.5px; font-weight: 600; box-shadow: 0 0 0 1px var(--line-hi); }
+  .badge svg { width: 10px; height: 10px; }
+  .badge.warn { color: var(--warn); } .badge.err { color: var(--err); }
+  .prog { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 12px 12px; background: linear-gradient(0deg, rgb(12 12 13 / 0.95), rgb(12 12 13 / 0)); display: grid; gap: 6px; }
+  .prog .track { height: 4px; border-radius: 4px; background: rgb(255 255 255 / 0.16); overflow: hidden; }
+  .prog .track i { display: block; height: 100%; background: var(--work); border-radius: inherit; }
+  .prog .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .prog .steps i { height: 4px; border-radius: 2px; background: rgb(255 255 255 / 0.16); }
+  .prog .steps i.d { background: var(--work); }
+  .add .cov { display: grid; place-items: center; align-content: center; gap: 12px; background: transparent; box-shadow: inset 0 0 0 1.5px var(--line-hi); color: var(--soft); font-weight: 600; }
+  .add .cov .plus { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--raise); color: var(--ink); transition: background-color var(--t) var(--ease); }
+  .add:hover .cov { box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.3); color: var(--ink); }
+  .add:hover .plus { background: var(--raise3); }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  @media (max-width: 900px) {
+    .wrap { padding: 0 16px; }
+    .topbar { overflow-x: auto; gap: 18px; }
+    .hello { flex-wrap: wrap; gap: 4px 12px; }
+    .stage { grid-template-columns: 1fr; height: auto; }
+    .hero { min-height: 420px; }
+    .hero .art { object-position: 50% 8%; }
+    .hero .body { left: 20px; right: 20px; width: auto; bottom: 24px; }
+    .hero h2 { font-size: 32px; line-height: 36px; }
+    .actions { flex-wrap: wrap; }
+    .hints { display: none; }
+    .row { grid-auto-columns: 150px; gap: 14px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14a6.5 6.5 0 0 1 3.5 6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M6.5 8h11a4.5 4.5 0 0 1 4.3 5.8l-1.1 3.7a2.5 2.5 0 0 1-4.4.8L15 16H9l-1.3 2.3a2.5 2.5 0 0 1-4.4-.8l-1.1-3.7A4.5 4.5 0 0 1 6.5 8z"/><path d="M8 11v3M6.5 12.5h3"/><circle cx="16" cy="11.5" r=".6"/><circle cx="17.5" cy="13.5" r=".6"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4v4h4"/><path d="M12 8v4l3 2"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.8v14.4a1 1 0 0 0 1.5.86l12-7.2a1 1 0 0 0 0-1.72l-12-7.2A1 1 0 0 0 7 4.8z"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="s-ok" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="currentColor"/></symbol>
+  <symbol id="s-work" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.6" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1.6"/><path d="M5 1.4A3.6 3.6 0 0 1 8.6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="s-warn" viewBox="0 0 10 10"><path d="M5 .8 9.6 9H.4z" fill="currentColor"/></symbol>
+  <symbol id="s-err" viewBox="0 0 10 10"><rect x=".6" y=".6" width="8.8" height="8.8" rx="2" fill="currentColor"/><path d="M3.3 3.3l3.4 3.4M6.7 3.3 3.3 6.7" stroke="#0c0c0d" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="b-cross" viewBox="0 0 18 18"><circle cx="9" cy="9" r="8" fill="#26262a"/><path d="M6.2 6.2l5.6 5.6M11.8 6.2l-5.6 5.6" stroke="#e4e4e7" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="b-tri" viewBox="0 0 18 18"><circle cx="9" cy="9" r="8" fill="#26262a"/><path d="M9 5.3l3.8 6.5H5.2z" fill="none" stroke="#e4e4e7" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="b-circ" viewBox="0 0 18 18"><circle cx="9" cy="9" r="8" fill="#26262a"/><circle cx="9" cy="9" r="3.7" fill="none" stroke="#e4e4e7" stroke-width="1.6"/></symbol>
+</svg>
+
+<header class="wrap topbar">
+  <div class="brand">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#f4f4f5"/><g fill="#0c0c0d"><rect x="14" y="14" width="10" height="36" rx="5"/><rect x="40" y="14" width="10" height="36" rx="5"/><path d="M22 20v24l20-12z"/></g></svg>
+    <b>HypePlay</b><span class="beta">BETA</span>
+  </div>
+  <nav aria-label="Principal">
+    <button class="nav on" aria-current="page">Biblioteca<span class="n">7</span></button>
+    <button class="nav">Pessoas<span class="n">3</span></button>
+    <button class="nav"><svg class="i"><use href="#i-plus"/></svg>Adicionar jogo</button>
+    <button class="nav"><svg class="i"><use href="#i-pad"/></svg>Controle</button>
+    <button class="nav"><svg class="i"><use href="#i-server"/></svg>Servidor</button>
+    <button class="nav push"><svg class="i"><use href="#i-external"/></svg>Abrir no navegador</button>
+    <button class="nav"><svg class="i"><use href="#i-download"/></svg>App para PC</button>
+  </nav>
+</header>
+
+<main class="wrap">
+  <div class="hello">
+    <h1>Boa noite, Ana</h1>
+    <p>7 jogos no servidor · 2 salas abertas agora</p>
+  </div>
+
+  <div class="stage">
+    <section class="hero" aria-labelledby="h-title">
+      <img class="art" src="capas/bt3.svg" alt="">
+      <div class="body">
+        <h2 id="h-title">Dragon Ball Z: Budokai Tenkaichi 3</h2>
+        <div class="meta">
+          <span class="resume"><svg class="i"><use href="#i-clock"/></svg>Continuar jogando</span>
+          <span class="sep"></span>
+          <span class="mono">SLUS-21678</span>
+          <span class="tested"><svg class="i"><use href="#i-check"/></svg>Testado</span>
+        </div>
+        <p class="lead">Adicionado por Bruno. A ISO fica no servidor: é só jogar.</p>
+        <div class="actions">
+          <button class="btn primary"><svg class="i"><use href="#i-play"/></svg>Jogar agora</button>
+          <button class="btn second"><svg class="i"><use href="#i-users"/></svg>Abrir uma sala</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="col">
+      <h2>Salas abertas<span class="n">2</span></h2>
+      <div class="room" aria-label="Sala KRTZ">
+        <div class="top"><span class="code">KRTZ</span></div>
+        <div class="game">Dragon Ball Z: Budokai Tenkaichi 3</div>
+        <div class="slot"><span class="av bruno">B</span><span>Bruno jogando</span></div>
+        <div class="slot"><span class="empty"><svg class="i"><use href="#i-plus"/></svg></span><span class="soft">Vaga de jogador 2</span></div>
+        <button class="btn outline small"><svg class="i"><use href="#i-users"/></svg>Entrar como jogador 2</button>
+      </div>
+      <button class="lrow"><img src="capas/pes.svg" alt=""><span><b>Winning Eleven 9</b><span class="st ok"><svg><use href="#s-ok"/></svg>1 sala aberta</span></span></button>
+      <div class="divide"></div>
+      <section class="call" aria-label="Na call">
+        <h2>Na call</h2>
+        <div class="who"><span class="av ana">A</span><div><b>Ana<small>você</small></b><span>Na biblioteca</span></div></div>
+        <div class="who"><span class="av bruno">B</span><div><b>Bruno</b><span>Jogando Dragon Ball Z: Budokai Tenkaichi 3</span></div></div>
+        <div class="who"><span class="av carla">C</span><div><b>Carla</b><span>Assistindo Dragon Ball Z: Budokai Tenkaichi 3</span></div></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="shelf" aria-labelledby="s-title">
+    <header>
+      <h2 id="s-title">Seus jogos</h2>
+      <p>Enviados uma vez, para todo mundo</p>
+      <div class="hints" aria-label="Controle">
+        <span><svg><use href="#b-cross"/></svg>Abrir</span>
+        <span><svg><use href="#b-tri"/></svg>Sala</span>
+        <span><svg><use href="#b-circ"/></svg>Voltar</span>
+      </div>
+      <div class="arrows">
+        <button class="arrow" disabled aria-label="Anteriores"><svg class="i"><use href="#i-left"/></svg></button>
+        <button class="arrow" aria-label="Próximos"><svg class="i"><use href="#i-right"/></svg></button>
+      </div>
+    </header>
+    <div class="row">
+      <button class="card"><span class="cov"><img src="capas/bt3.svg" alt=""></span><span class="name">Dragon Ball Z: Budokai Tenkaichi 3</span><span class="st ok"><svg><use href="#s-ok"/></svg>Pronto · 1 sala aberta</span><span class="serial">SLUS-21678</span></button>
+      <button class="card"><span class="cov"><img src="capas/naruto.svg" alt=""><span class="prog"><span class="track" role="progressbar" aria-label="Envio da ISO" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><i style="width:62%"></i></span></span></span><span class="name">Naruto: Ultimate Ninja 2</span><span class="st work"><svg><use href="#s-work"/></svg>Recebendo <span class="mono">62%</span></span><span class="serial">SLUS-21410</span></button>
+      <button class="card"><span class="cov"><img src="capas/gt4.svg" alt=""><span class="prog"><span class="steps" role="progressbar" aria-label="Compilação" aria-valuenow="3" aria-valuemin="0" aria-valuemax="5"><i class="d"></i><i class="d"></i><i class="d"></i><i></i><i></i></span></span></span><span class="name">Gran Turismo 4</span><span class="st work"><svg><use href="#s-work"/></svg>Compilando <span class="mono">3/5</span></span><span class="st"><span class="sub">Extraindo os dados</span></span><span class="serial">SCUS-97328</span></button>
+      <button class="card is-focus"><span class="cov"><img src="capas/okami.svg" alt=""><span class="badge warn"><svg><use href="#s-warn"/></svg>Falta a BIOS</span></span><span class="name">Ōkami</span><span class="serial">SLUS-21115</span></button>
+      <button class="card"><span class="cov"><img src="capas/burnout.svg" alt=""><span class="badge warn"><svg><use href="#s-warn"/></svg>Envio parado em <span class="mono">41%</span></span></span><span class="name">Burnout 3: Takedown</span><span class="serial">SLUS-21050</span></button>
+      <button class="card"><span class="cov"><img src="capas/sotc.svg" alt=""><span class="badge err"><svg><use href="#s-err"/></svg>Falhou</span></span><span class="name">Shadow of the Colossus</span><span class="st"><span class="sub">A compilação falhou.</span></span><span class="serial">SCUS-97472</span></button>
+      <button class="card"><span class="cov"><img src="capas/pes.svg" alt=""></span><span class="name">Winning Eleven 9</span><span class="st ok"><svg><use href="#s-ok"/></svg>Pronto · 1 sala aberta</span><span class="serial">SLUS-21326</span></button>
+      <button class="card add"><span class="cov"><span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>Adicionar jogo</span></button>
+    </div>
+  </section>
+</main>
+</body>
+</html>

@@ -14,6 +14,8 @@ export const state = {
   games: null,
   /** who else is around (server/presence.ts): the same call first */
   people: [],
+  /** friends, requests, invites and the friends' activity (server/social.ts; home/friends.js draws them) */
+  social: null,
   /** the PC app's systems this server has a package for (routes.ts APP_FILES): linux, windows */
   apps: [],
   /** the drawer's game, by key */
@@ -29,7 +31,7 @@ export const state = {
 export const gameOf = (key) => state.games?.find((g) => g.key === key);
 
 /** Only touches the page where something changed: keeps focus and hover where they are between polls. */
-function set(el, html) {
+export function set(el, html) {
   if (el._html === html) return;
   el._html = html;
   el.innerHTML = html;
@@ -47,7 +49,7 @@ const greeting = (h) => (h >= 5 && h < 12 ? 'Bom dia' : h >= 12 && h < 18 ? 'Boa
  * One person around: what they have open, and their PS2 room (to join as player 2 while the place is free, or watch).
  * BT3's rooms aren't anyone's to join from here: those only say the game.
  */
-function person(p) {
+export function person(p, extra = '', name = esc(p.name)) {
   const room = p.room && gameOf(p.room.key) ? p.room : null;
   const title = p.game?.title ?? (room && gameOf(room.key).name);
   const doing = p.game?.watch ? `Assistindo ${title}` : title ? `Jogando ${title}` : 'Na biblioteca';
@@ -56,8 +58,8 @@ function person(p) {
     `<button class="btn ${cls} small" data-play="${esc(room.key)}" data-join="${esc(room.code)}"${watch ? ' data-watch' : ''} aria-label="${esc(`${label} na sala de ${p.name}`)}">${icon(watch ? 'play' : 'users')}${label}</button>`;
   const acts = room ? `<div class="acts">${room.busy ? '' : join('Entrar', '', false)}${join('Assistir', 'second', true)}</div>` : '';
   return `<div class="person"><div class="avatar" aria-hidden="true">${esc(initials(p.name))}</div>
-    <div class="who"><b>${esc(p.name)}${p.call ? '<span class="tag">NA CALL</span>' : ''}</b>
-      <span class="state ${title ? 'ok live' : ''}">${esc(doing)}</span>${about ? `<small>${esc(about)}</small>` : ''}</div>${acts}</div>`;
+    <div class="who"><b>${name}${p.call ? '<span class="tag">NA CALL</span>' : ''}</b>
+      <span class="state ${title ? 'ok live' : ''}">${esc(doing)}</span>${about ? `<small>${esc(about)}</small>` : ''}</div>${acts}${extra}</div>`;
 }
 
 function renderPeople() {
@@ -96,7 +98,7 @@ export function render() {
   }
   // (a short window shows two rows: one big cover there, or the bigs would be all of it)
   set($('grid'), arrange(state.games, top, state.sending, matchMedia('(max-height: 620px)').matches ? 1 : 3).map(({ g, big }, i) => card(g, state.sending, state.open, i, big)).join('') + addCard(n));
-  renderPeople();
+  hooks.people();
   const g = state.open && gameOf(state.open);
   if (state.open && !g) closeDrawer(); // removed meanwhile
   else if (g) {
@@ -118,7 +120,7 @@ export async function poll() {
     if (r.status === 403) { state.expired = true; render(); return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const body = await r.json();
-    Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], apps: body.apps ?? [] });
+    Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], social: body.social ?? null, apps: body.apps ?? [] });
     for (const g of state.games) {
       const s = g.status;
       if (s.state === 'uploading' && !s.mine && !s.stale) {
@@ -176,6 +178,9 @@ export const hooks = {
   add: () => {},
   controller: () => {},
   settings: () => {},
+  store: () => {},
+  /** "Pessoas" in the words' column; friends.js draws its "Amigos" there once loaded */
+  people: () => renderPeople(),
 };
 
 /** The wall's columns: as many whole covers as fit beside the words; what's left of the width goes to the words. */
@@ -254,7 +259,7 @@ $('file').addEventListener('change', async (e) => {
 });
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
+  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-store],[data-nav]');
   if (!el) {
     if (e.target === $('scrim')) closeDrawer();
     return;
@@ -264,6 +269,7 @@ document.addEventListener('click', async (e) => {
   if ('add' in d) return hooks.add();
   if ('controller' in d) return hooks.controller();
   if ('settings' in d) return hooks.settings();
+  if ('store' in d) return hooks.store();
   if (d.nav) {
     for (const b of document.querySelectorAll('[data-nav]')) b.classList.toggle('on', b === el);
     return document.getElementById(d.nav)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
@@ -328,4 +334,4 @@ document.addEventListener('drop', (e) => {
 poll();
 setInterval(() => { if (!state.expired) poll(); }, 2000);
 // The add-a-game wizard, the controller screen and the intro set their hooks once loaded.
-for (const m of ['./wizard.js', './controller.js', './settings.js', './intro.js', './gamepadnav.js']) import(m).catch((e) => console.warn('home:', m, e));
+for (const m of ['./wizard.js', './controller.js', './settings.js', './store.js', './intro.js', './gamepadnav.js', './friends.js']) import(m).catch((e) => console.warn('home:', m, e));

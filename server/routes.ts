@@ -20,6 +20,11 @@
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
  *             ps2/<id>/fast/<file>         the "versão rápida" (ps2-builder/), its disc, and the code it met untranslated
  *             vimm                         POST { link }: download a PS2 game from vimm.net into the library; GET: how it goes (vimm.ts)
+ *             vimm/search?q=, vimm/cover/<id>?name=   the "loja": Vimm's PS2 vault searched (a letter lists it), its drawn covers
+ *             friends/<id>                 POST: ask (or accept); DELETE: unfriend, decline or cancel (social.ts)
+ *             profile/<id>, users?q=       someone's profile (hours, games, badges); people to add, by name
+ *             invite, invite/<id>          POST { to, key }: come play (with my room); POST { accept }: take it or dismiss it
+ *             status                       PUT { status, note }: online, away, busy (no invites), invisible
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
  *
@@ -42,6 +47,7 @@ import { BT3_SERIAL } from "./iso9660";
 import { ID, PS2_MAX, PS2_MIN, type Fast, type Library, type Ps2Game } from "./library";
 import { CALL, type Pass, type Passes } from "./pass";
 import type { People } from "./people";
+import type { Social } from "./social";
 import { gameFrom, Presence } from "./presence";
 import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
 import { patchTabStation } from "./ps2page";
@@ -81,7 +87,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** The home's own scripts (page/home/), plain ES modules. */
-const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js"]);
+const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js", "friends.js", "store.js"]);
 /** TabStationToo's files (emulator/ps2/, pinned by emulator/ps2-files.json): nothing else of that folder is served. */
 const ENGINE_FILES = new Set(
   (JSON.parse(readFileSync(join(import.meta.dir, "..", "emulator", "ps2-files.json"), "utf8")) as { files: { path: string }[] }).files
@@ -137,6 +143,8 @@ export interface AppOptions {
   library?: Library;
   saves?: Saves;
   people?: People;
+  /** Friends, hours played and invites (social.ts); without it, those routes answer 404. */
+  social?: Social;
   ps2Rooms?: Ps2Rooms;
   /** The app's public address (PUBLIC_URL), for "Abrir no navegador" and signing in from a browser (/login, /auth). */
   publicUrl?: string;
@@ -201,6 +209,7 @@ export function createApp({
   library,
   saves,
   people,
+  social,
   ps2Rooms,
   publicUrl = "",
   clientId = "",
@@ -409,12 +418,15 @@ export function createApp({
     );
     const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
     presence.library(pass);
+    social?.seen(pass);
+    const around = new Set(presence.others(pass.id).map((p) => p.id));
     return {
       me: pass.name,
       last: (await people?.last(pass.id)) ?? null,
       publicUrl: publicFor(req),
       games: [...ports, ...ps2],
       people: peopleFor(pass),
+      social: social?.view(pass.id, (id) => around.has(id)) ?? null,
       apps: await appsHere(),
     };
   }
@@ -433,6 +445,7 @@ export function createApp({
   function peopleFor(pass: Pass) {
     return presence
       .others(pass.id)
+      .filter((p) => social?.statusOf(p.id) !== "invisible")
       .map((p) => {
         const r = ps2Rooms?.byHost(p.id)[0];
         const room = r ? { key: `ps2/${r.game}`, code: r.code, busy: r.busy, watchers: r.watchers } : null;
@@ -449,8 +462,56 @@ export function createApp({
     let title: string | null = null;
     if (g && shelf.has(g.key)) title = shelf.get(g.key)!.game.name;
     else if (g?.key.startsWith("ps2/") && library) title = (await library.get(g.key.slice(4)))?.name ?? null;
-    presence.playing(pass, g && title ? { key: g.key, title, watch: g.watch } : null);
+    const game = g && title ? { key: g.key, title, watch: g.watch } : null;
+    presence.playing(pass, game);
+    social?.beat(pass, game, game ? presence.others(pass.id).filter((p) => p.game?.key === game.key).map((p) => p.id) : []);
     return respond(null, 204);
+  }
+
+  /** A game's name by its key, when the catalog has it. */
+  async function titleOf(key: string): Promise<string | null> {
+    if (shelf.has(key)) return shelf.get(key)!.game.name;
+    return key.startsWith("ps2/") && library ? ((await library.get(key.slice(4)))?.name ?? null) : null;
+  }
+
+  /** friends/<id>, profile/<id>, users, invite, status: social.ts. */
+  async function friends(req: Request, pass: Pass, path: string): Promise<Response> {
+    const s = social!;
+    const who = /^\/(friends|profile|invite)\/([\w-]{1,40})$/.exec(path);
+    if (who?.[1] === "friends") {
+      if (req.method === "DELETE") return s.remove(pass.id, who[2]!) ? respond(null, 204) : text("Não encontrado", 404);
+      if (req.method !== "POST") return text("Método não permitido", 405);
+      const r = s.add(pass.id, who[2]!);
+      return r === "bad" ? text("Pedido inválido", 400) : json({ result: r });
+    }
+    if (who?.[1] === "profile") {
+      const p = s.profile(pass.id, who[2]!);
+      return p ? json(p) : text("Não encontrado", 404);
+    }
+    if (who?.[1] === "invite") {
+      if (req.method !== "POST") return text("Método não permitido", 405);
+      const accept = (await body<{ accept?: unknown }>(req))?.accept === true;
+      const inv = s.answer(pass.id, who[2]!, accept);
+      return inv ? json(inv) : text("Esse convite já venceu", 410);
+    }
+    if (path === "/users") return json(s.search(pass.id, (new URL(req.url).searchParams.get("q") ?? "").slice(0, 40)));
+    if (path === "/invite") {
+      if (req.method !== "POST") return text("Método não permitido", 405);
+      const b = await body<{ to?: unknown; key?: unknown }>(req);
+      const title = typeof b?.key === "string" ? await titleOf(b.key) : null;
+      if (typeof b?.to !== "string" || !title) return json({ error: "Pedido inválido" }, 400);
+      const key = b.key as string;
+      // (a room I host in that game goes along: accepting it joins me)
+      const code = ps2Rooms?.byHost(pass.id).find((r) => `ps2/${r.game}` === key)?.code;
+      const r = s.invite(pass.id, b.to, { key, title, ...(code ? { code } : {}) });
+      return r.ok ? respond(null, 204) : json({ error: r.error }, r.status);
+    }
+    if (path === "/status") {
+      if (req.method !== "PUT") return text("Método não permitido", 405);
+      const b = await body<{ status?: unknown; note?: unknown }>(req);
+      return b && s.setStatus(pass.id, b) ? respond(null, 204) : text("Pedido inválido", 400);
+    }
+    return text("Não encontrado", 404);
   }
 
   async function cover(key: string): Promise<Response> {
@@ -829,6 +890,7 @@ export function createApp({
       await people.played(pass.id, key as string);
       return respond(null, 204);
     }
+    if (social && /^\/(friends|profile|invite)\/[^/]+$|^\/(users|invite|status)$/.test(path)) return friends(req, pass, path);
     if (library && path === "/ps2") {
       if (req.method !== "POST") return text("Método não permitido", 405);
       const b = await body<{ serial?: unknown; name?: unknown; copy?: unknown }>(req);
@@ -844,6 +906,20 @@ export function createApp({
       const link = (await body<{ link?: unknown }>(req))?.link;
       const r = vimm.start(pass, typeof link === "string" ? link : "");
       return r.ok ? json(vimm.status(), 202) : json({ error: r.error }, r.status);
+    }
+    if (vimm && path === "/vimm/search") {
+      const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
+      if (!q) return json({ error: "Digite o nome de um jogo" }, 400);
+      return vimm.search(q).then(
+        (games) => json({ games }),
+        (err) => (console.warn("vimm search failed", err), json({ error: "O vimm.net não respondeu. Tente de novo." }, 502)),
+      );
+    }
+    // the "loja"'s covers: drawn here (cover.ts), never vimm's art; the id seeds the colors, the name is the title
+    const art = vimm && /^\/vimm\/cover\/(\d{1,9})$/.exec(path);
+    if (art) {
+      const name = (new URL(req.url).searchParams.get("name") ?? "").slice(0, 120);
+      return respond(generatedCover(`VIMM ${art[1]}`, name), 200, { "Content-Type": TYPES.svg!, "Cache-Control": "private, max-age=31536000, immutable" });
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
     if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "", server) : text("Não encontrado", 404);

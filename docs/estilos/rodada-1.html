@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HypePlay — 10 direções de design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #ecebe6; --ink: #17161a; --soft: #55535c; --line: #d3d1ca; --card: #fbfbf8; --pick: #2140d8; }
+  * { box-sizing: border-box; }
+  ::selection { background: var(--pick); color: #fff; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 500 15px/1.55 "Hanken Grotesk", system-ui, sans-serif; }
+  header, main, footer { max-width: 1400px; margin: 0 auto; padding: 0 32px; }
+  header { padding-top: 56px; padding-bottom: 32px; }
+  h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.03em; margin: 0 0 12px; font-weight: 800; }
+  header p { max-width: 70ch; color: var(--soft); margin: 0; }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(620px, 1fr)); gap: 40px 32px; padding-bottom: 64px; }
+  article { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .frame { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: #ddd; border-bottom: 1px solid var(--line); }
+  .frame iframe { position: absolute; top: 0; left: 0; width: 1280px; height: 720px; border: 0; transform-origin: 0 0; pointer-events: none; }
+  .frame:focus-visible { outline: 3px solid var(--pick); outline-offset: -3px; }
+  .frame .open { position: absolute; right: 12px; bottom: 12px; background: var(--ink); color: #fff; font-weight: 700; font-size: 13px; padding: 6px 12px; border-radius: 999px; opacity: 0; transition: opacity .15s; }
+  .frame:hover .open, .frame:focus-visible .open { opacity: 1; }
+  .body { padding: 20px 24px 24px; }
+  h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.02em; display: flex; gap: 10px; align-items: baseline; }
+  h2 .n { font: 500 13px "JetBrains Mono", monospace; color: var(--soft); }
+  .thesis { margin: 0 0 16px; font-size: 16px; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; padding: 0; list-style: none; }
+  .swatches li { display: flex; align-items: center; gap: 6px; font: 500 12px "JetBrains Mono", monospace; color: var(--soft); background: var(--bg); padding: 3px 8px 3px 3px; border-radius: 999px; }
+  .swatches i { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15); }
+  dl { margin: 0; display: grid; grid-template-columns: 9.5em 1fr; gap: 8px 16px; font-size: 14px; }
+  dt { font-weight: 700; }
+  dd { margin: 0; color: var(--soft); }
+  footer { padding-bottom: 80px; }
+  footer h2 { font-size: 26px; margin-bottom: 12px; }
+  footer ol { max-width: 75ch; padding-left: 1.2em; }
+  footer li { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>HypePlay: 10 direções para a home</h1>
+  <p>Todos os estilos mostram o mesmo conteúdo (<a href="conteudo.md">conteudo.md</a>) com as capas reais que o servidor gera, numa tela de 1280×720. Os nomes de pessoas e os números são de exemplo. Clique numa prévia para abrir em tamanho real.</p>
+</header>
+<main id="list"></main>
+<footer>
+  <h2>Para escolher o caminho</h2>
+  <ol>
+    <li>Qual estilo (ou mistura: o layout de um com a paleta de outro)?</li>
+    <li>Claro ou escuro? A home costuma ser usada à noite numa call, mas vários estilos aqui são claros de propósito.</li>
+    <li>O roxo da marca e o logo H-play continuam, ou a marca também muda?</li>
+    <li>O que vem primeiro: o Discord (mouse, janela pequena) ou a TV com controle (sofá, tela grande)?</li>
+  </ol>
+</footer>
+<script>
+const S = [
+ {
+  "n": "01",
+  "file": "01-locadora.html",
+  "name": "Locadora",
+  "thesis": "A biblioteca é a parede da locadora: estojos na prateleira com trilho de preço, o destaque no balcão com a ficha de aluguel e a sala KRTZ como comanda presa no prendedor.",
+  "palette": [
+   [
+    "#e4ecec",
+    "parede fluorescente"
+   ],
+   [
+    "#1d2526",
+    "tinta"
+   ],
+   [
+    "#173fa8",
+    "letreiro / primário"
+   ],
+   [
+    "#ffd83a",
+    "adesivo amarelo"
+   ],
+   [
+    "#c8231c",
+    "adesivo vermelho"
+   ],
+   [
+    "#fff3a8",
+    "comanda"
+   ],
+   [
+    "#1f7a45",
+    "pronto"
+   ],
+   [
+    "#f4f6f4",
+    "melamina"
+   ]
+  ],
+  "fonts": "Lilita One (letreiro, títulos), Archivo e Archivo Narrow (texto, etiquetas), Kalam (marcador nos adesivos), Courier Prime (dados)",
+  "layout": "A lateral vira letreiro no topo. A primeira tela tem 3 colunas: mural com a call, balcão com o estojo e a ficha, e a comanda KRTZ. As capas viram estojos numa prateleira com etiqueta impressa no trilho. Jogo com problema ganha adesivo escrito à mão. O foco “tira o estojo da prateleira”.",
+  "risk": "Bem mais temático: pode envelhecer rápido. Com 9 jogos ou mais, a prateleira precisa ser quebrada em fileiras, e hoje só a primeira tem trilho.",
+  "cost": "CSS reescrito quase todo. library.js: o destaque muda de estrutura e a sala vira bloco próprio; o card vira estojo, adesivo e etiqueta. gamepadnav.js quase nada; drawer.js só retema."
+ },
+ {
+  "n": "02",
+  "file": "02-revista.html",
+  "name": "Revista de games",
+  "thesis": "A home é uma página dupla de revista: a matéria de capa é o destaque, o quadro de dica é a sala aberta, e “Seus jogos” é um índice onde a nota de cada jogo é o estado dele.",
+  "palette": [
+   [
+    "#ffffff",
+    "papel"
+   ],
+   [
+    "#111111",
+    "preto de impressão"
+   ],
+   [
+    "#00aeef",
+    "ciano"
+   ],
+   [
+    "#ec008c",
+    "magenta"
+   ],
+   [
+    "#b4006b",
+    "magenta de texto / primário"
+   ],
+   [
+    "#fff200",
+    "amarelo"
+   ],
+   [
+    "#00a651",
+    "nota pronto"
+   ],
+   [
+    "#e4002b",
+    "nota erro"
+   ]
+  ],
+  "fonts": "Anton (manchete, notas), Barlow Condensed (nav, nomes, botões), Barlow (texto), JetBrains Mono (dados)",
+  "layout": "Masthead no topo e duas páginas com dobra. À esquerda, a capa inclinada sobre chapas CMYK sobrepostas de verdade, a manchete gigante e a dica amarela da sala. À direita, a saudação como editorial e o índice em 2 colunas com o box de nota (check, 62%, 3/5, !, X).",
+  "risk": "Barulho. Com mais de 7 jogos o índice passa da página e a metáfora da página dupla quebra quando rola. Ōkami e Burnout dividem o amarelo.",
+  "cost": "CSS reescrito. library.js: o destaque muda de estrutura; o card vira entrada de índice com um valor curto de nota além do estado. gamepadnav.js quase nada."
+ },
+ {
+  "n": "03",
+  "file": "03-caderno.html",
+  "name": "Caderno de detonado",
+  "thesis": "A home é uma página dupla de caderno brochura: a turma anota à mão quem está na call e em que pé está cada jogo.",
+  "palette": [
+   [
+    "#ffffff",
+    "papel"
+   ],
+   [
+    "#b7cfe8",
+    "pauta"
+   ],
+   [
+    "#e2545c",
+    "margem"
+   ],
+   [
+    "#1c3394",
+    "caneta azul"
+   ],
+   [
+    "#b8202b",
+    "caneta vermelha"
+   ],
+   [
+    "#237a3b",
+    "pronto"
+   ],
+   [
+    "#fff06b",
+    "marca-texto"
+   ],
+   [
+    "#23315f",
+    "capa do caderno"
+   ]
+  ],
+  "fonts": "Patrick Hand (anotações), Atkinson Hyperlegible (botões, nav, impresso), JetBrains Mono (dados)",
+  "layout": "Sem lateral: a nav são as divisórias coloridas de caderno de 10 matérias na borda direita. À esquerda, a lista de chamada da call, a capa colada com durex, o título circulado e KRTZ em quadradinhos. À direita, os jogos como checklist com o estado anotado (barra hachurada, quadradinhos de passo, marca-texto). Tudo cai na pauta.",
+  "risk": "A página é fixa: um 8º jogo não cabe, então precisa virar página ou rolar por dentro. A letra à mão em nomes longos é mais lenta de ler, e as divisórias pastéis puxam para o infantil.",
+  "cost": "CSS quase todo novo. library.js: o card vira linha de lista e o estado muda só de marcação; o destaque ganha a capa colada. gamepadnav.js só seletores."
+ },
+ {
+  "n": "04",
+  "file": "04-cdr.html",
+  "name": "CD-R gravado",
+  "thesis": "O jogo em destaque é o próprio CD-R gravado em casa, com o nome a canetão, e a biblioteca é uma fileira de envelopes de papel com janela.",
+  "palette": [
+   [
+    "#dfe2e6",
+    "alumínio escovado"
+   ],
+   [
+    "#121316",
+    "canetão"
+   ],
+   [
+    "#444852",
+    "impresso"
+   ],
+   [
+    "#4a2bd1",
+    "violeta da marca, escurecido"
+   ],
+   [
+    "#fbfbf8",
+    "envelope"
+   ],
+   [
+    "#ece1bd",
+    "fita crepe"
+   ],
+   [
+    "#ffd23f",
+    "adesivo atenção"
+   ],
+   [
+    "#c0241c",
+    "adesivo erro"
+   ]
+  ],
+  "fonts": "Permanent Marker (canetão), Archivo variável condensada (interface), Azeret Mono (dados)",
+  "layout": "Nav impressa no topo. O destaque tem 3 colunas: a call; a caixinha slim com o disco prateado grande por cima (gira com hover/foco em “Jogar agora”); e título, botões e a sala como etiqueta adesiva. A grade vira envelopes quadrados com janela redonda; o que pede atenção leva fita crepe ou adesivo.",
+  "risk": "A janela redonda corta a capa 2:3 e as capas geradas ficam parecidas, então a identidade depende do nome a canetão. A iridescência não pode subir sem refazer a conta de contraste.",
+  "cost": "CSS novo, sem JS para o giro (o foco de controle já gira o disco via :has). library.js: o card vira envelope e o estado vira fita/adesivo. gamepadnav.js nada."
+ },
+ {
+  "n": "05",
+  "file": "05-sofa.html",
+  "name": "Sofá (TV, controle na mão)",
+  "thesis": "A TV é a luz da sala: a parede inteira toma a cor da capa em foco, e tudo se lê de longe com o controle na mão.",
+  "palette": [
+   [
+    "hsl(249 38% 30%)",
+    "parede (matiz da capa em foco)"
+   ],
+   [
+    "#f7f5fc",
+    "texto / aba ativa"
+   ],
+   [
+    "#63e3a0",
+    "pronto"
+   ],
+   [
+    "#9cc8ff",
+    "em andamento"
+   ],
+   [
+    "#ffc455",
+    "atenção"
+   ],
+   [
+    "#ff8a7a",
+    "erro"
+   ]
+  ],
+  "fonts": "Atkinson Hyperlegible Next (feita para leitura à distância) e Atkinson Hyperlegible Mono (dados)",
+  "layout": "Sem lateral: 7 abas em pílula no topo. Destaque tipográfico; a sala KRTZ e a call numa placa no canto. A grade vira uma única fileira horizontal; o card em foco cresce e acende a parede. As dicas ✕ △ ○ ficam fixas no rodapé. As setas ← → já funcionam no mock.",
+  "risk": "As capas geradas ficam todas entre o azul e o violeta (matiz 201–297), então a parede quase não muda; o efeito aparece com capas reais. O resto da fileira só aparece rolando para o lado.",
+  "cost": "CSS: sai a lateral, entram a fileira e o fundo com --h. library.js: o servidor precisa mandar o matiz de cada jogo. gamepadnav.js: trocar --h no foco, refazer a legenda em SVG e ligar o △ (hoje não é lido)."
+ },
+ {
+  "n": "06",
+  "file": "06-painel.html",
+  "name": "Painel de embarque",
+  "thesis": "A biblioteca é o painel de plaquinhas de uma rodoviária: as salas são partidas, os jogos são destinos, e as letras viram uma vez ao abrir.",
+  "palette": [
+   [
+    "#2a2c30",
+    "parede grafite"
+   ],
+   [
+    "#141518",
+    "carcaça"
+   ],
+   [
+    "#2a2c31",
+    "plaquinha"
+   ],
+   [
+    "#f2efe6",
+    "letra branca"
+   ],
+   [
+    "#f6c445",
+    "letra amarela / Jogar / foco"
+   ],
+   [
+    "#3fae69",
+    "faixa pronto"
+   ],
+   [
+    "#2f6aa3",
+    "faixa em andamento"
+   ],
+   [
+    "#c13a32",
+    "faixa erro"
+   ]
+  ],
+  "fonts": "Barlow (interface e placas), Barlow Condensed (uma célula por letra nas plaquinhas), JetBrains Mono (serial, %)",
+  "layout": "A nav vira placas de sinalização de terminal com pictogramas. Dois painéis: “Continuar jogando” e “Salas abertas” com KRTZ em plaquinhas grandes e faixa EMBARQUE. A grade vira o painel de destinos, uma linha por jogo com faixa de status, e ao lado um mostrador grande do jogo em foco.",
+  "risk": "Denso: Winning Eleven 9 e “Adicionar jogo” ficam abaixo da dobra. Nas linhas as capas viram miniaturas de 30 px. Nome longo precisa de regra de quebra, e no celular a tabela rola para o lado.",
+  "cost": "CSS: sai a lateral, entram placas, células e faixas. library.js: o card vira linha, mais ~30 linhas para montar as plaquinhas e o painel de salas. gamepadnav.js: as mesmas mudanças de legenda/△ do Sofá."
+ },
+ {
+  "n": "07",
+  "file": "07-lanhouse.html",
+  "name": "LAN house",
+  "thesis": "A home vira o balcão de uma LAN house: quem está na call aparece no gerenciador de máquinas, com LED e cronômetro, e a sala KRTZ é a máquina livre esperando o jogador 2.",
+  "palette": [
+   [
+    "#cdc6b5",
+    "parede"
+   ],
+   [
+    "#ebe5d7",
+    "plástico bege"
+   ],
+   [
+    "#33322e",
+    "gabinete"
+   ],
+   [
+    "#13292a",
+    "visor LCD"
+   ],
+   [
+    "#4fe0c4",
+    "LED"
+   ],
+   [
+    "#0a6e60",
+    "pronto / Jogar"
+   ],
+   [
+    "#b0281a",
+    "alerta"
+   ],
+   [
+    "#ffe94d",
+    "cartaz"
+   ]
+  ],
+  "fonts": "Barlow Condensed (títulos, botões), Barlow (texto), JetBrains Mono (serial, código, cronômetros), Permanent Marker só no cartaz",
+  "layout": "Sem lateral: nav vira régua de botões com contadores em visor LCD. O destaque é um console de 3 peças (monitor, comanda, gabinete KRTZ com cadeiras P1/P2). À direita, as pessoas como estações. A grade vira uma vitrine com etiqueta de papel em cada capa.",
+  "risk": "O bege pode ler como ERP de balcão e não como diversão, e o cronômetro sugere cobrança por hora.",
+  "cost": "CSS muito (sai a lateral). library.js pouco: os cronômetros saem dos horários que o servidor já manda (presence.ts, rooms). drawer.js e gamepadnav.js quase nada."
+ },
+ {
+  "n": "08",
+  "file": "08-fliperama.html",
+  "name": "Fliperama de shopping",
+  "thesis": "A home é o salão: carpete de confete no chão, jogos como gabinetes com placa de prêmio, a máquina principal com “insira a ficha” e a sala KRTZ com as fichas 1 e 2. Sem neon.",
+  "palette": [
+   [
+    "#141b4d",
+    "carpete"
+   ],
+   [
+    "#e8378e",
+    "confete"
+   ],
+   [
+    "#ffcf33",
+    "confete / Jogar / foco"
+   ],
+   [
+    "#23c3d9",
+    "confete"
+   ],
+   [
+    "#0c1136",
+    "moldura calma"
+   ],
+   [
+    "#f7f1e1",
+    "placa esmaltada"
+   ],
+   [
+    "#b0195f",
+    "placa KRTZ"
+   ],
+   [
+    "#e6b94e",
+    "ficha de latão"
+   ]
+  ],
+  "fonts": "Bungee (letreiro, títulos, botões), Rubik (texto), JetBrains Mono (dados)",
+  "layout": "Topo em letreiro, marca cunhada numa ficha. O salão tem 3 peças: placa de saudação, máquina principal e placa KRTZ. O carpete só aparece no chão; capas e estados ficam sempre em superfícies sólidas. “Adicionar jogo” é a catraca.",
+  "risk": "O carpete cansa numa sessão longa. A Bungee é só caixa alta, então os títulos gritam, e nomes longos ocupam 3 linhas.",
+  "cost": "CSS muito (sai a lateral, entram carpete, placas e gabinetes). library.js pouco (destaque em 3 peças). drawer.js e gamepadnav.js quase nada."
+ },
+ {
+  "n": "09",
+  "file": "09-manual.html",
+  "name": "Manual de instruções",
+  "thesis": "A home é uma página dupla do livreto do jogo: “Como começar” com o diagrama do controle e linhas-guia de um lado, e o índice de jogos com página e estado do outro.",
+  "palette": [
+   [
+    "#ffffff",
+    "papel"
+   ],
+   [
+    "#111214",
+    "tinta / primário"
+   ],
+   [
+    "#00a0e3",
+    "ciano processo (só chapadas e fios)"
+   ],
+   [
+    "#0067a5",
+    "azul de texto"
+   ],
+   [
+    "#e3f4fc",
+    "retícula 10%"
+   ],
+   [
+    "#4d535a",
+    "texto secundário"
+   ]
+  ],
+  "fonts": "Fira Sans e Fira Sans Condensed (humanista técnica), Fira Mono (dados)",
+  "layout": "A lateral vira faixa de sumário no topo; a página dupla tem dobra e número de página. O destaque é uma caixa com a capa em Fig. 1 e a sala KRTZ num box ciano com as vagas J1/J2. O diagrama do controle (o traçado de pads.js) aponta ✕ Jogar, △ Sala e ○ Voltar. A grade vira um índice numerado com pontilhado até o estado; cada estado tem uma forma impressa e texto.",
+  "risk": "Pode parecer documento, frio para uma noite de jogo. As capas escuras pesam no branco, e o diagrama ocupa espaço que quem já sabe jogar não usa.",
+  "cost": "Médio. CSS: tokens claros, a grade vira lista. library.js: card vira linha de índice, o estado ganha forma. gamepadnav.js nada (a lista vertical até simplifica)."
+ },
+ {
+  "n": "10",
+  "file": "10-discord.html",
+  "name": "Discord-nativo (o padrão, bem-feito)",
+  "thesis": "A porta segura: parece parte do Discord sem copiar. Densidade de app, a call como protagonista e as salas como canais ao vivo.",
+  "palette": [
+   [
+    "#111214",
+    "lateral / call"
+   ],
+   [
+    "#18191c",
+    "conteúdo"
+   ],
+   [
+    "#1f2124",
+    "painéis"
+   ],
+   [
+    "#eceef1",
+    "texto"
+   ],
+   [
+    "#ff8a3d",
+    "acento brasa"
+   ],
+   [
+    "#45c283",
+    "pronto"
+   ],
+   [
+    "#62adff",
+    "em andamento"
+   ],
+   [
+    "#f47070",
+    "erro"
+   ]
+  ],
+  "fonts": "Onest (UI), Geist Mono (dados)",
+  "layout": "Três colunas: lateral de 224 px, conteúdo e a coluna “Na call” (avatares com anel de fala, atividade de cada um, salas abertas como canais com J1/J2 aninhados). O destaque é um painel compacto, e a grade vira uma lista densa (56 px por linha) com seletor Lista/Grade. O acento laranja substitui o roxo de propósito, porque o roxo fica perto demais do blurple.",
+  "risk": "Genérico, mais um painel escuro: a identidade fica só no laranja e no ícone de sala. A coluna da call fica meio vazia com 3 pessoas.",
+  "cost": "Médio-baixo. Os dados da call já existem (app.js:53). library.js: os cards viram linhas e o seletor Lista/Grade é estado novo. gamepadnav.js nada."
+ }
+];
+const list = document.getElementById("list");
+for (const s of S) {
+  const a = document.createElement("article");
+  a.innerHTML = `
+    <a class="frame" href="${s.file}" target="_blank" aria-label="Abrir ${s.name} em tamanho real">
+      <iframe src="${s.file}" loading="lazy" tabindex="-1" title="${s.name}"></iframe><span class="open">Abrir em tamanho real</span>
+    </a>
+    <div class="body">
+      <h2><span class="n">${s.n}</span>${s.name}</h2>
+      <p class="thesis">${s.thesis}</p>
+      <ul class="swatches">${s.palette.map(([hex, role]) => `<li><i style="background:${hex}"></i>${hex} ${role}</li>`).join("")}</ul>
+      <dl>
+        <dt>Fontes</dt><dd>${s.fonts}</dd>
+        <dt>Layout</dt><dd>${s.layout}</dd>
+        <dt>Risco</dt><dd>${s.risk}</dd>
+        <dt>Custo</dt><dd>${s.cost}</dd>
+      </dl>
+    </div>`;
+  list.append(a);
+}
+const fit = () => document.querySelectorAll(".frame").forEach(f => f.querySelector("iframe").style.transform = `scale(${f.clientWidth / 1280})`);
+addEventListener("resize", fit); fit();
+</script>
+</body>
+</html>

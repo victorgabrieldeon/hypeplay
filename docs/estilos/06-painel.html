@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HypePlay — Painel de embarque</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --hall: #2a2c30;      /* the station wall around the boards */
+    --hall-line: #3a3d42;
+    --board: #141518;     /* the board's housing */
+    --head: #0c0d0f;      /* the board's header strip */
+    --flap: #2a2c31;      /* a flap, top half */
+    --flap-b: #222428;    /* a flap, bottom half */
+    --white: #f2efe6;
+    --yellow: #f6c445;
+    --dim: #a3a5ab;
+    --ok: #3fae69; --busy: #2f6aa3; --warn: #f0b232; --err: #c13a32;
+    --u: 'Barlow', ui-sans-serif, system-ui, sans-serif;
+    --c: 'Barlow Condensed', 'Barlow', ui-sans-serif, sans-serif;
+    --m: 'JetBrains Mono', ui-monospace, monospace;
+    color-scheme: dark;
+    scrollbar-color: #5a5d63 var(--hall);
+  }
+  ::selection { background: var(--yellow); color: #121212; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--hall); color: var(--white); font-family: var(--u); min-height: 100vh; }
+  .i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .mono { font-family: var(--m); font-weight: 500; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; text-align: left; }
+  :focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  /* the flaps: one cell per letter, split across the middle */
+  .sf { display: inline-flex; gap: 1px; font: 600 var(--fs, 15px)/1 var(--c); text-transform: uppercase; letter-spacing: 0; color: var(--white); }
+  .sf.y { color: var(--yellow); }
+  .sf > i { position: relative; display: inline-grid; place-items: center; width: var(--cw, 12px); height: var(--ch, 22px); font-style: normal;
+    background: linear-gradient(var(--flap) 50%, var(--flap-b) 50%); border-radius: 2px; overflow: hidden; }
+  .sf > i::after { content: ''; position: absolute; left: 0; right: 0; top: calc(50% - 0.5px); height: 1px; background: #050506; }
+  .sf > i.fa::before, .sf > i.fb::before { content: ''; position: absolute; inset: 0 0 50% 0; background: linear-gradient(#3a3c42, #2e3035); transform-origin: bottom; z-index: 1; }
+  .sf > i.fa::before { animation: fall-a 70ms linear forwards; }
+  .sf > i.fb::before { animation: fall-b 70ms linear forwards; }
+  @keyframes fall-a { from { transform: scaleY(1); } to { transform: scaleY(0); } }
+  @keyframes fall-b { from { transform: scaleY(1); } to { transform: scaleY(0); } }
+
+  /* top: brand + wayfinding signs */
+  .signs { display: flex; align-items: stretch; height: 52px; background: #111214; border-bottom: 1px solid #000; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 22px 0 24px; font-weight: 700; font-size: 20px; letter-spacing: 0.01em; }
+  .brand svg { width: 30px; height: 30px; }
+  .signs nav, .signs ul, .signs li { display: flex; }
+  .signs ul { list-style: none; margin: 0; padding: 0; }
+  .signs a { display: flex; align-items: center; gap: 9px; height: 100%; padding: 0 16px; color: var(--white); text-decoration: none; font-weight: 600; font-size: 15px; border-left: 1px solid #26282c; white-space: nowrap; }
+  .signs a .i { font-size: 18px; color: var(--yellow); }
+  .signs a .n { font-family: var(--m); font-size: 13px; color: var(--dim); }
+  .signs a[aria-current] { background: var(--yellow); color: #111; }
+  .signs a[aria-current] .i, .signs a[aria-current] .n { color: #111; }
+  .signs a:hover:not([aria-current]) { background: #1c1d20; }
+
+  .wrap { padding: 0 24px 24px; }
+  .hello { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 68px; }
+  h1 { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.1; }
+  .sum { margin: 2px 0 0; font-size: 15px; color: var(--dim); }
+  .call { display: flex; gap: 20px; list-style: none; margin: 0; padding: 0; }
+  .call li { display: grid; grid-template-columns: 28px auto; gap: 8px; align-items: center; font-size: 13px; line-height: 1.25; color: var(--dim); max-width: 250px; }
+  .call b { color: var(--white); font-weight: 600; font-size: 14px; display: block; }
+  .av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #141414; }
+
+  /* boards */
+  .board { background: var(--board); border-radius: 6px; box-shadow: inset 0 0 0 1px #000, 0 1px 0 var(--hall-line); }
+  .board > h2 { display: flex; align-items: baseline; gap: 14px; margin: 0; height: 30px; padding: 0 14px; background: var(--head); border-radius: 6px 6px 0 0;
+    font: 600 15px/30px var(--c); letter-spacing: 0.08em; text-transform: uppercase; color: var(--yellow); }
+  .board > h2 span { font: 400 14px/30px var(--u); letter-spacing: 0; text-transform: none; color: var(--dim); }
+  .cols { display: grid; align-items: center; height: 24px; padding: 0 12px; font: 600 12px/1 var(--c); letter-spacing: 0.1em; text-transform: uppercase; color: #8f9298; border-bottom: 1px solid #0a0a0b; }
+
+  .top { display: grid; grid-template-columns: 560px 1fr; gap: 16px; }
+
+  /* Continuar jogando */
+  .gate { display: grid; grid-template-columns: 120px 1fr; gap: 18px; padding: 14px; }
+  .poster { width: 120px; aspect-ratio: 2 / 3; border-radius: 3px; overflow: hidden; box-shadow: 0 0 0 3px #08090a, 0 0 0 4px #33363b; }
+  .poster img, .thumb img, .big img { width: 100%; height: 100%; display: block; }
+  .gate h3 { margin: 0; font-size: 26px; line-height: 1.08; font-weight: 700; }
+  .gate .meta { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; font-size: 14px; }
+  .gate .meta .mono { color: var(--yellow); }
+  .seal { padding: 2px 8px; border-radius: 3px; background: var(--ok); color: #0b130e; font: 700 13px/1.3 var(--c); letter-spacing: 0.06em; text-transform: uppercase; }
+  .gate p.say { margin: 8px 0 0; font-size: 15px; color: var(--dim); line-height: 1.35; }
+  .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .btn { color: var(--white); display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border-radius: 4px; font-weight: 700; font-size: 16px; box-shadow: inset 0 0 0 1.5px var(--white); }
+  .btn.go { background: var(--yellow); color: #111; box-shadow: none; }
+  .btn.sm { height: 34px; font-size: 14px; padding: 0 12px; }
+  .btn .i { font-size: 18px; }
+
+  /* Salas abertas: departures */
+  .deps .cols, .dep { grid-template-columns: 116px 1fr 150px; gap: 14px; }
+  .dep { display: grid; align-items: center; padding: 10px 12px; border-bottom: 1px solid #0a0a0b; }
+  .dep:last-child { border-bottom: 0; }
+  .dep .sub { grid-column: 2 / 4; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 14px; color: var(--dim); }
+  .dep .sub b { color: var(--white); font-weight: 600; }
+  .code { --fs: 24px; --cw: 24px; --ch: 34px; }
+  .code.blank > i, .sf .blank { color: transparent; }
+
+  /* status strip: lamp + words, never colour alone */
+  .status { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; border-radius: 3px; font: 700 14px/1 var(--c); letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; position: relative; overflow: hidden; }
+  .status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+  .status.ok { background: var(--ok); color: #0b130e; }
+  .status.busy { background: #1d3550; color: #fff; }
+  .status.busy .fill { position: absolute; inset: 0 auto 0 0; background: var(--busy); z-index: 0; }
+  .status.busy > * { position: relative; z-index: 1; }
+  .status.busy::before { position: relative; z-index: 1; }
+  .status.warn { background: var(--warn); color: #1a1306; }
+  .status.err { background: var(--err); color: #fff; }
+
+  /* Seus jogos: destinations */
+  .lower { display: grid; grid-template-columns: 1fr 252px; gap: 16px; margin-top: 14px; }
+  .games .cols, .row { grid-template-columns: 30px 452px 104px 182px 1fr; gap: 12px; }
+  .row { display: grid; align-items: center; width: 100%; height: 48px; padding: 0 12px; border-bottom: 1px solid #0a0a0b; }
+  .row:hover { background: #191a1e; }
+  .thumb { width: 30px; height: 45px; border-radius: 2px; overflow: hidden; }
+  .row .mono { font-size: 13px; color: var(--yellow); }
+  .status .mono, .row .status .mono { color: inherit; font-size: 13px; }
+  .row .det { font-size: 13px; line-height: 1.2; color: var(--dim); }
+  .row .det b { color: var(--white); font-weight: 600; }
+  .row.pad-focus { background: #1d1f23; outline: 3px solid var(--yellow); outline-offset: -3px; }
+  .row.add { color: var(--white); font-weight: 600; font-size: 15px; }
+  .row.add .plus { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 3px; box-shadow: inset 0 0 0 1.5px #55585e; color: var(--yellow); font-size: 18px; }
+  .meter { height: 6px; border-radius: 3px; background: #2b2d31; margin-top: 4px; }
+  .meter i { display: block; height: 100%; width: 62%; background: #5d9be0; border-radius: 3px; }
+
+  /* the focused destination, big: the cover is the protagonist here */
+  .focus { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .big { width: 150px; aspect-ratio: 2 / 3; border-radius: 3px; overflow: hidden; box-shadow: 0 0 0 3px #08090a, 0 0 0 4px #33363b; }
+  .focus .serial { font-size: 13px; color: var(--yellow); }
+  .hints { display: flex; gap: 14px; margin-top: auto; padding-top: 10px; border-top: 1px solid #26282c; font-size: 14px; font-weight: 600; }
+  .hints span { display: inline-flex; align-items: center; gap: 6px; }
+  .hints svg { width: 22px; height: 22px; }
+
+  @media (prefers-reduced-motion: reduce) { .sf > i::before { display: none; } }
+  @media (max-width: 900px) {
+    .signs { height: auto; flex-wrap: wrap; } .signs ul { overflow-x: auto; }
+    .hello { height: auto; padding: 14px 0; flex-direction: column; align-items: flex-start; } .call { flex-wrap: wrap; }
+    .top, .lower { grid-template-columns: 1fr; }
+    .games { overflow-x: auto; } .games > * { min-width: 860px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-lib" viewBox="0 0 24 24"><rect x="4" y="4" width="5" height="16" rx="1"/><rect x="11" y="4" width="5" height="16" rx="1"/><path d="m18 5.2 2.6.7-3.4 13.5-2.4-.6"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M15.5 4.8a3.4 3.4 0 0 1 0 6.4M18 14.8c1.9.7 3 2.4 3.5 5.2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M7 7h10a4.5 4.5 0 0 1 4.4 5.4l-.9 4.3a2.5 2.5 0 0 1-4.3 1.1L14 15.5h-4l-2.2 2.3a2.5 2.5 0 0 1-4.3-1.1l-.9-4.3A4.5 4.5 0 0 1 7 7z"/><path d="M8 10v3M6.5 11.5h3"/><path d="M15.5 11h.1M17.5 12.5h.1"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="7" rx="1.5"/><rect x="3.5" y="13" width="17" height="7" rx="1.5"/><path d="M7 7.5h.1M7 16.5h.1M11 7.5h6M11 16.5h6"/></symbol>
+  <symbol id="i-web" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.5 5.2 3.5 8.5s-1.1 6.1-3.5 8.5c-2.4-2.4-3.5-5.2-3.5-8.5s1.1-6.1 3.5-8.5z"/></symbol>
+  <symbol id="i-pc" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="1.5"/><path d="M9 20h6M12 16.5V20"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
+</svg>
+
+<header class="signs">
+  <div class="brand">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="10" fill="#f6c445"/><g fill="#111"><rect x="14" y="14" width="10" height="36" rx="2"/><rect x="40" y="14" width="10" height="36" rx="2"/><path d="M22 20v24l20-12z"/></g></svg>
+    HypePlay
+  </div>
+  <nav aria-label="Principal">
+    <ul>
+      <li><a href="#" aria-current="page"><svg class="i"><use href="#i-lib"/></svg>Biblioteca <span class="n">7</span></a></li>
+      <li><a href="#"><svg class="i"><use href="#i-users"/></svg>Pessoas <span class="n">3</span></a></li>
+      <li><a href="#"><svg class="i"><use href="#i-plus"/></svg>Adicionar jogo</a></li>
+      <li><a href="#"><svg class="i"><use href="#i-pad"/></svg>Controle</a></li>
+      <li><a href="#"><svg class="i"><use href="#i-server"/></svg>Servidor</a></li>
+      <li><a href="#"><svg class="i"><use href="#i-web"/></svg>Abrir no navegador</a></li>
+      <li><a href="#"><svg class="i"><use href="#i-pc"/></svg>App para PC</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main class="wrap">
+  <div class="hello">
+    <div>
+      <h1>Boa noite, Ana</h1>
+      <p class="sum">7 jogos no servidor · 2 salas abertas agora</p>
+    </div>
+    <ul class="call" aria-label="Na call">
+      <li><span class="av" style="background:#f0b7d6">A</span><span><b>Ana (você)</b>Na biblioteca</span></li>
+      <li><span class="av" style="background:#9fe0c4">B</span><span><b>Bruno</b>Jogando Dragon Ball Z: Budokai Tenkaichi 3</span></li>
+      <li><span class="av" style="background:#ffd59a">C</span><span><b>Carla</b>Assistindo Dragon Ball Z: Budokai Tenkaichi 3</span></li>
+    </ul>
+  </div>
+
+  <div class="top">
+    <section class="board" aria-labelledby="g-h">
+      <h2 id="g-h">Continuar jogando</h2>
+      <div class="gate">
+        <div class="poster"><img src="capas/bt3.svg" alt="Capa de Dragon Ball Z: Budokai Tenkaichi 3"></div>
+        <div>
+          <h3>Dragon Ball Z: Budokai Tenkaichi 3</h3>
+          <p class="meta"><span class="mono">SLUS-21678</span><span class="seal">Testado</span></p>
+          <p class="say">Adicionado por Bruno. A ISO fica no servidor: é só jogar.</p>
+          <div class="actions">
+            <button class="btn go" data-play><svg class="i"><use href="#i-play"/></svg>Jogar agora</button>
+            <button class="btn"><svg class="i"><use href="#i-users"/></svg>Abrir uma sala</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="board deps" aria-labelledby="d-h">
+      <h2 id="d-h">Salas abertas</h2>
+      <div class="cols" aria-hidden="true"><span>Sala</span><span>Jogo</span><span>Situação</span></div>
+      <div class="dep">
+        <span class="sf y code" data-sf>KRTZ</span>
+        <span class="sf" data-sf>Dragon Ball Z: BT3</span>
+        <span><span class="status ok">Embarque</span></span>
+        <div class="sub"><span><b>Bruno</b> jogando · Vaga de jogador 2</span><button class="btn sm"><svg class="i"><use href="#i-users"/></svg>Entrar como jogador 2</button></div>
+      </div>
+      <div class="dep">
+        <span class="sf y code blank" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="sf" data-sf>Winning Eleven 9</span>
+        <span><span class="status ok">1 sala aberta</span></span>
+      </div>
+    </section>
+  </div>
+
+  <div class="lower">
+    <section class="board games" aria-labelledby="s-h">
+      <h2 id="s-h">Seus jogos <span>Enviados uma vez, para todo mundo</span></h2>
+      <div class="cols" aria-hidden="true"><span></span><span>Jogo</span><span>Serial</span><span>Situação</span><span>Detalhe</span></div>
+      <button class="row" data-open="bt3">
+        <span class="thumb"><img src="capas/bt3.svg" alt=""></span>
+        <span class="sf" data-sf>Dragon Ball Z: Budokai Tenkaichi 3</span>
+        <span class="mono">SLUS-21678</span>
+        <span><span class="status ok">Pronto</span></span>
+        <span class="det"><b>1 sala aberta</b></span>
+      </button>
+      <button class="row" data-open="naruto">
+        <span class="thumb"><img src="capas/naruto.svg" alt=""></span>
+        <span class="sf" data-sf>Naruto: Ultimate Ninja 2</span>
+        <span class="mono">SLUS-21410</span>
+        <span><span class="status busy"><i class="fill" style="width:62%"></i><span>Recebendo <span class="mono">62%</span></span></span></span>
+        <span class="det"><span class="meter" role="progressbar" aria-label="Envio da ISO" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" style="display:block"><i></i></span></span>
+      </button>
+      <button class="row" data-open="gt4">
+        <span class="thumb"><img src="capas/gt4.svg" alt=""></span>
+        <span class="sf" data-sf>Gran Turismo 4</span>
+        <span class="mono">SCUS-97328</span>
+        <span><span class="status busy"><i class="fill" style="width:60%"></i><span>Compilando <span class="mono">3/5</span></span></span></span>
+        <span class="det">Extraindo os dados</span>
+      </button>
+      <button class="row pad-focus" data-open="okami">
+        <span class="thumb"><img src="capas/okami.svg" alt=""></span>
+        <span class="sf" data-sf>Ōkami</span>
+        <span class="mono">SLUS-21115</span>
+        <span><span class="status warn">Falta a BIOS</span></span>
+        <span class="det"></span>
+      </button>
+      <button class="row" data-open="burnout">
+        <span class="thumb"><img src="capas/burnout.svg" alt=""></span>
+        <span class="sf" data-sf>Burnout 3: Takedown</span>
+        <span class="mono">SLUS-21050</span>
+        <span><span class="status warn">Envio parado em <span class="mono">41%</span></span></span>
+        <span class="det"></span>
+      </button>
+      <button class="row" data-open="sotc">
+        <span class="thumb"><img src="capas/sotc.svg" alt=""></span>
+        <span class="sf" data-sf>Shadow of the Colossus</span>
+        <span class="mono">SCUS-97472</span>
+        <span><span class="status err">Falhou</span></span>
+        <span class="det">A compilação falhou.</span>
+      </button>
+      <button class="row" data-open="pes">
+        <span class="thumb"><img src="capas/pes.svg" alt=""></span>
+        <span class="sf" data-sf>Winning Eleven 9</span>
+        <span class="mono">SLUS-21326</span>
+        <span><span class="status ok">Pronto</span></span>
+        <span class="det"><b>1 sala aberta</b></span>
+      </button>
+      <button class="row add" data-add>
+        <span class="plus"><svg class="i"><use href="#i-plus"/></svg></span>
+        <span>Adicionar jogo</span>
+      </button>
+    </section>
+
+    <aside class="board focus" aria-label="Em foco: Ōkami">
+      <div class="big"><img src="capas/okami.svg" alt="Capa de Ōkami"></div>
+      <span class="sf" data-sf style="--fs:20px;--cw:17px;--ch:28px">Ōkami</span>
+      <span class="mono serial">SLUS-21115</span>
+      <span><span class="status warn">Falta a BIOS</span></span>
+      <div class="hints" aria-label="Controle">
+        <span><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="10" fill="#0c0d0f"/><path d="m7 7 8 8M15 7l-8 8" stroke="#f2efe6" stroke-width="2" stroke-linecap="round"/></svg>Abrir</span>
+        <span><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="10" fill="#0c0d0f"/><path d="M11 6.3 15.8 14.6H6.2z" fill="none" stroke="#f2efe6" stroke-width="1.8" stroke-linejoin="round"/></svg>Sala</span>
+        <span><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="10" fill="#0c0d0f"/><circle cx="11" cy="11" r="4.6" fill="none" stroke="#f2efe6" stroke-width="1.8"/></svg>Voltar</span>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script>
+  // The flaps: each [data-sf] becomes one cell per letter (the words stay for screen readers). On load every cell
+  // runs through the drum in order, like a Solari board, then stops on its letter. Once; never with reduced motion.
+  const DRUM = ' ABCDEFGHIJKLMNOPQRSTUVWXYZÁÃÇÉÊÍÓÕÚŌ0123456789:.-/%';
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cells = [];
+  document.querySelectorAll('[data-sf]').forEach((el) => {
+    const text = el.textContent;
+    el.textContent = '';
+    const sr = Object.assign(document.createElement('span'), { className: 'sr', textContent: text });
+    el.append(sr);
+    [...text.toLocaleUpperCase('pt-BR')].forEach((ch, col) => {
+      const c = document.createElement('i');
+      c.setAttribute('aria-hidden', 'true');
+      c.textContent = ch;
+      el.append(c);
+      const at = DRUM.indexOf(ch);
+      if (still || at <= 0) return;
+      const steps = Math.min(at, 6 + Math.floor(Math.random() * 10));
+      cells.push({ c, pos: at - steps, at, wait: Math.floor(col * 0.6 + Math.random() * 4) });
+      c.textContent = DRUM[at - steps];
+    });
+  });
+  // shortcut: a 40 ms tick for every cell on the page; fine for ~400 cells, batch per board if it ever stutters
+  let flip = false;
+  const tick = () => {
+    flip = !flip;
+    let left = 0;
+    for (const s of cells) {
+      if (s.pos === s.at) continue;
+      left++;
+      if (s.wait-- > 0) continue;
+      s.pos++;
+      s.c.textContent = DRUM[s.pos];
+      s.c.className = flip ? 'fa' : 'fb';
+    }
+    if (left) setTimeout(tick, 40);
+    else for (const s of cells) s.c.className = '';
+  };
+  if (cells.length) setTimeout(tick, 120);
+</script>
+</body>
+</html>

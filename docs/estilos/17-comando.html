@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HypePlay — 17 Comando</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  /* Comando: a home é uma paleta de comandos. Busca no topo, resultados agrupados numa lista que anda com as setas,
+     e um painel fixo à direita que mostra o item selecionado. Neutro escuro com um fio de violeta; o violeta da
+     marca só em ação primária, seleção e foco. */
+  :root {
+    --bg: #111015;      /* fundo */
+    --rail: #0c0b10;    /* trilho de ícones */
+    --s1: #17151d;      /* painéis */
+    --s2: #1c1a23;      /* elevado, hover */
+    --s3: #24212d;      /* teclas, chips */
+    --sel: #221d33;     /* linha selecionada (tinta violeta) */
+    --line: #29262f;
+    --line-2: #363240;
+    --text: #ece9f4;    /* 15,8:1 sobre --bg */
+    --text-2: #9f9aae;  /* 6,9:1 sobre --bg · 6,0:1 sobre --sel */
+    --accent: #8b6cff;  /* anéis, marcas */
+    --accent-text: #a58fff; /* texto em violeta: 7,2:1 sobre --bg */
+    --accent-fill: #7254ef; /* fundo do botão: branco 4,96:1 */
+    --accent-fill-hi: #6447e0;
+    --ok: #54d58f; --busy: #8db8ff; --warn: #f2b552; --bad: #ff7b7b;
+    --ana: #c9b8ff; --bruno: #ffb86b; --carla: #6fe0c8; --on-av: #1a1220;
+    --ui: "Figtree", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --ease: cubic-bezier(.2, .7, .2, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); color: var(--text); color-scheme: dark; scrollbar-color: var(--line-2) transparent; scrollbar-width: thin; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: #4a4458; }
+  ::selection { background: rgb(139 108 255 / .42); color: #fff; }
+  body { font: 400 14px/1.4 var(--ui); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .mono { font-family: var(--mono); font-weight: 500; letter-spacing: .02em; }
+  .muted { color: var(--text-2); }
+
+  /* teclas desenhadas */
+  kbd { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 22px; height: 22px; padding: 0 6px;
+        font: 600 11.5px/1 var(--ui); color: var(--text); background: var(--s3); border-radius: 5px;
+        box-shadow: inset 0 -1px 0 #0006, inset 0 0 0 1px var(--line-2); }
+  kbd .i { width: 13px; height: 13px; stroke-width: 2; }
+
+  .app { height: 100vh; min-height: 640px; display: grid; grid-template-columns: 56px minmax(0, 1fr) 488px; grid-template-rows: 72px minmax(0, 1fr); }
+
+  /* trilho */
+  .rail { grid-row: 1 / -1; background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; padding: 16px 0 12px; gap: 4px; z-index: 3; }
+  .logo { width: 30px; height: 30px; margin-bottom: 18px; }
+  .rail .sp { flex: 1; }
+  .nb { position: relative; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: var(--text-2);
+        transition: background 160ms var(--ease), color 160ms var(--ease); }
+  .nb .i { width: 20px; height: 20px; }
+  .nb:hover { background: var(--s2); color: var(--text); }
+  .nb[aria-current] { background: var(--sel); color: #fff; box-shadow: inset 0 0 0 1px #3a3058; }
+  .nb .n { position: absolute; top: 3px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font: 600 10px/16px var(--mono);
+           background: var(--s3); color: var(--text); box-shadow: 0 0 0 2px var(--rail); }
+  .nb[aria-current] .n { background: var(--accent-fill); color: #fff; }
+  .tip { position: absolute; left: calc(100% + 10px); top: 50%; white-space: nowrap; pointer-events: none; padding: 6px 9px; border-radius: 6px;
+         font: 500 12.5px/1 var(--ui); background: var(--s3); color: var(--text); box-shadow: 0 6px 20px #0008, inset 0 0 0 1px var(--line-2);
+         opacity: 0; transform: translate(-4px, -50%); transition: opacity 140ms var(--ease), transform 140ms var(--ease); }
+  .nb:hover .tip, .nb:focus-visible .tip { opacity: 1; transform: translate(0, -50%); }
+
+  /* topo */
+  .top { grid-column: 2 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 24px; padding: 0 24px; border-bottom: 1px solid var(--line); }
+  .hello { display: grid; grid-template-columns: auto 1fr; column-gap: 14px; align-items: center; }
+  .hello .word { grid-row: 1 / 3; font: 700 15px/1 var(--ui); letter-spacing: -.01em; padding-right: 14px; border-right: 1px solid var(--line-2); align-self: stretch; display: flex; align-items: center; }
+  .hello h1 { font: 650 19px/1.2 var(--ui); font-weight: 650; letter-spacing: -.01em; }
+  .hello p { font-size: 13px; color: var(--text-2); margin-top: 2px; white-space: nowrap; }
+  .search { justify-self: center; width: min(100%, 540px); display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 10px 0 16px; border-radius: 12px; background: var(--s1);
+            box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text-2); transition: box-shadow 160ms var(--ease), background 160ms var(--ease); cursor: text; }
+  .search:hover { background: var(--s2); }
+  .search:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px rgb(139 108 255 / .18); }
+  .search .i { width: 19px; height: 19px; }
+  .search input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; font: 500 15.5px/1 var(--ui); color: var(--text); }
+  .search input::placeholder { color: var(--text-2); }
+  .search .keys { display: flex; gap: 4px; }
+  .call { justify-self: end; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2); }
+  .stack { display: flex; }
+  .stack .av + .av { margin-left: -7px; }
+  .av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 700 12.5px/1 var(--ui); color: var(--on-av); flex: none; box-shadow: 0 0 0 2px var(--bg); }
+  .av.a { background: var(--ana); } .av.b { background: var(--bruno); } .av.c { background: var(--carla); }
+
+  /* lista */
+  .list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  .filters { display: flex; align-items: center; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  .chip { height: 28px; padding: 0 11px; border-radius: 7px; font-size: 13px; font-weight: 500; color: var(--text-2); display: inline-flex; align-items: center; gap: 7px;
+          transition: background 160ms var(--ease), color 160ms var(--ease); }
+  .chip:hover { background: var(--s2); color: var(--text); }
+  .chip[aria-pressed="true"] { background: var(--s3); color: var(--text); }
+  .chip .mono { font-size: 11px; color: var(--text-2); }
+  .filters .hint { margin-left: auto; font-size: 12.5px; color: var(--text-2); }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 16px; }
+  .gh { display: flex; align-items: baseline; gap: 10px; padding: 14px 10px 6px; }
+  .gh h2 { font: 600 13px/1 var(--ui); color: var(--text); }
+  .gh span { font-size: 12.5px; color: var(--text-2); }
+  .gh .mono { margin-left: auto; font-size: 11.5px; }
+  .row { width: 100%; display: grid; grid-template-columns: 26px minmax(0, 1fr) 100px 210px 30px; align-items: center; gap: 14px; min-height: 48px;
+         padding: 6px 10px; border-radius: 9px; text-align: left; position: relative; transition: background 140ms var(--ease); }
+  .row:hover { background: var(--s2); }
+  .row:hover .th { filter: brightness(1.12); }
+  .th { width: 26px; height: 39px; border-radius: 3px; object-fit: cover; box-shadow: 0 0 0 1px #ffffff14; transition: filter 160ms var(--ease); display: block; }
+  .nm { min-width: 0; }
+  .nm b { display: block; font-weight: 550; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nm small { display: block; font-size: 12.5px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .row .ser { font-size: 12px; color: var(--text-2); }
+  .row .end { justify-self: end; display: flex; opacity: 0; transition: opacity 140ms var(--ease); }
+  .row:hover .end { opacity: .7; }
+  /* seleção do teclado: o que está no painel */
+  .row[aria-selected="true"] { background: var(--sel); box-shadow: inset 0 0 0 1px #3a3058; }
+  .row[aria-selected="true"] .end, .row.pad-focus .end { opacity: 1; }
+  /* foco do controle (gamepadnav.js põe .pad-focus) */
+  .row.pad-focus { background: var(--s2); outline: 2px solid var(--accent); outline-offset: -2px; }
+  .row.pad-focus .th { filter: brightness(1.12); }
+  .avrow { width: 26px; display: grid; place-items: center; }
+  .you { font-size: 11.5px; font-weight: 600; color: var(--text-2); background: var(--s3); padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: 1px; }
+  .code { display: inline-flex; gap: 2px; }
+  .code i { font: 600 12px/20px var(--mono); font-style: normal; width: 18px; text-align: center; border-radius: 4px; background: var(--s3); color: var(--text); }
+  .addth { width: 26px; height: 39px; border-radius: 3px; border: 1px dashed var(--line-2); display: grid; place-items: center; color: var(--text-2); }
+  .addth .i { width: 14px; height: 14px; }
+
+  /* estado = forma + texto */
+  .st { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; min-width: 0; }
+  .st > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st svg { width: 10px; height: 10px; flex: none; }
+  .ok { color: var(--ok); } .busy { color: var(--busy); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  .st .sub { color: var(--text-2); font-weight: 400; }
+  .bar { width: 64px; height: 4px; border-radius: 2px; background: var(--s3); overflow: hidden; flex: none; }
+  .bar i { display: block; height: 100%; background: var(--busy); border-radius: 2px; }
+  .slot { width: 22px; height: 22px; border-radius: 50%; border: 1.5px dashed #6b6578; }
+
+  .keys-foot { display: flex; align-items: center; gap: 16px; padding: 9px 18px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+  .keys-foot > span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* painel de pré-visualização */
+  .pane { display: flex; flex-direction: column; min-height: 0; background: var(--s1); position: relative; overflow: hidden; }
+  .pane-h { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 12px 0 20px; border-bottom: 1px solid var(--line); position: relative; z-index: 1; background: var(--s1); }
+  .pane-h h2 { font: 600 13px/1 var(--ui); }
+  .ib { width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; color: var(--text-2); transition: background 140ms var(--ease), color 140ms var(--ease); }
+  .ib:hover { background: var(--s2); color: var(--text); }
+  .pane-b { flex: 1; min-height: 0; overflow-y: auto; position: relative; isolation: isolate; padding: 22px 20px; display: flex; flex-direction: column; gap: 18px; }
+  /* a capa ampliada e desfocada, só atrás do topo do painel */
+  .backdrop { position: absolute; inset: 0 0 auto 0; height: 300px; z-index: -1; overflow: hidden; }
+  .backdrop img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 40%; filter: blur(28px) saturate(1.1); transform: scale(1.3); opacity: .32; }
+  .backdrop::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(23 21 29 / .25), var(--s1) 92%); }
+  .hero { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 22px; align-items: start; }
+  .cover { width: 150px; aspect-ratio: 2 / 3; border-radius: 6px; display: block; box-shadow: 0 14px 34px #0009, 0 0 0 1px #ffffff1a; }
+  .hero h3 { font: 700 23px/1.15 var(--ui); letter-spacing: -.015em; text-wrap: balance; }
+  .meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 12.5px; }
+  .meta .mono { color: #c0bccb; font-size: 12px; } /* sobre a capa desfocada: ≥5:1 no pior ponto medido */
+  .seal { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 5px; background: rgb(84 213 143 / .12); color: var(--ok); font-weight: 600; }
+  .seal .i { width: 13px; height: 13px; stroke-width: 2.2; }
+  .hero p { text-wrap: pretty; margin-top: 12px; font-size: 14px; line-height: 1.5; color: #c9c5d4; }
+  .actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+  .btn { height: 42px; padding: 0 16px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; font-weight: 600; font-size: 14.5px;
+         transition: background 160ms var(--ease), box-shadow 160ms var(--ease), transform 160ms var(--ease); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent-fill); color: #fff; }
+  .btn.primary:hover { background: var(--accent-fill-hi); }
+  .btn.primary .i { fill: currentColor; stroke: none; }
+  .btn.primary kbd { background: rgb(255 255 255 / .16); box-shadow: none; color: #fff; margin-left: 4px; }
+  .btn.second { background: var(--s3); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .btn.second:hover { background: #2c2837; }
+
+  .room { border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .room-h { display: flex; align-items: center; gap: 10px; }
+  .room-h h4 { font: 600 13px/1 var(--ui); }
+  .room-h .code i { font-size: 15px; line-height: 26px; width: 24px; }
+  .room-h .st { margin-left: auto; font-size: 12.5px; }
+  .seats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .seat { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px; background: var(--s1); box-shadow: inset 0 0 0 1px var(--line); min-width: 0; }
+  .seat b { display: block; font-size: 13.5px; font-weight: 600; }
+  .seat small { display: block; font-size: 12px; color: var(--text-2); }
+  .seat.free { background: none; box-shadow: none; border: 1px dashed var(--line-2); }
+  .seat .slot { width: 28px; height: 28px; }
+  .btn.join { width: 100%; background: rgb(139 108 255 / .12); color: #cdbfff; box-shadow: inset 0 0 0 1px rgb(139 108 255 / .45); }
+  .btn.join:hover { background: rgb(139 108 255 / .2); }
+  .pane-f { display: flex; align-items: center; gap: 18px; padding: 10px 20px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+  .pane-f > span { display: inline-flex; align-items: center; gap: 7px; }
+  .pb { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--s3); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text); }
+  .pb svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (max-width: 1020px) {
+    .app { grid-template-columns: 56px minmax(0, 1fr); grid-template-rows: auto auto auto; height: auto; }
+    .top { grid-template-columns: 1fr; padding: 14px 16px; gap: 12px; }
+    .call { justify-self: start; }
+    .pane { grid-column: 2; grid-row: 2; }
+    .list { grid-column: 2; grid-row: 3; }
+    .rail { grid-row: 1 / 4; }
+    .row { grid-template-columns: 26px minmax(0, 1fr) 150px; }
+    .row .ser, .row .end { display: none; }
+  }
+  @media (max-width: 560px) {
+    .hero { grid-template-columns: 96px 1fr; }
+    .cover { width: 96px; }
+    .seats, .actions { grid-template-columns: 1fr; }
+    .row { grid-template-columns: 26px minmax(0, 1fr); }
+    .row .st { grid-column: 2; }
+    .filters .hint, .keys-foot { display: none; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-lib" viewBox="0 0 24 24"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10.5" y="4" width="4.5" height="16" rx="1.2"/><path d="M17 6.2l2.6-.7 2.9 13.4-2.6.7z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.6-3.2 2.9-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="16.6" cy="9.2" r="2.5"/><path d="M16.8 14.4c2.2.1 3.7 1.6 4.2 4.3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M7.2 7h9.6a4 4 0 0 1 3.9 3.2l.9 4.4a2.6 2.6 0 0 1-4.5 2.2L15.5 15h-7l-1.6 1.8a2.6 2.6 0 0 1-4.5-2.2l.9-4.4A4 4 0 0 1 7.2 7z"/><path d="M8 9.8v3.4M6.3 11.5h3.4M15.5 10.6h.01M17.6 12.4h.01"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01M12 7.5h4M12 16.5h4"/></symbol>
+  <symbol id="i-web" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M3 9h18M6.5 6.8h.01M9 6.8h.01"/></symbol>
+  <symbol id="i-pc" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.6v12.8a.8.8 0 0 0 1.2.7l10.3-6.4a.8.8 0 0 0 0-1.4L9.2 4.9A.8.8 0 0 0 8 5.6z"/></symbol>
+  <symbol id="i-room" viewBox="0 0 24 24"><path d="M6 20V5.5A1.5 1.5 0 0 1 7.5 4h9A1.5 1.5 0 0 1 18 5.5V20M3.5 20h17"/><path d="M14 12.5h.01"/></symbol>
+  <symbol id="i-join" viewBox="0 0 24 24"><circle cx="10" cy="8.5" r="3.2"/><path d="M4 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5M19 8v6M16 11h6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6.5 10.5L12 5l5.5 5.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6.5 13.5L12 19l5.5-5.5"/></symbol>
+  <symbol id="i-enter" viewBox="0 0 24 24"><path d="M19 5v7a2 2 0 0 1-2 2H6M10 9.5L5.5 14l4.5 4.5"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/></symbol>
+  <!-- estados: forma, além da cor -->
+  <symbol id="s-ok" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="currentColor"/></symbol>
+  <symbol id="s-busy" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 1.2A3.8 3.8 0 0 1 5 8.8z" fill="currentColor"/></symbol>
+  <symbol id="s-warn" viewBox="0 0 10 10"><path d="M5 .8l4.4 8H.6z" fill="currentColor"/></symbol>
+  <symbol id="s-bad" viewBox="0 0 10 10"><rect x="1.6" y="1.6" width="6.8" height="6.8" rx="1" transform="rotate(45 5 5)" fill="currentColor"/></symbol>
+  <!-- botões do controle -->
+  <symbol id="b-cross" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3L3 9"/></symbol>
+  <symbol id="b-tri" viewBox="0 0 12 12"><path d="M6 2.3l4 7H2z"/></symbol>
+  <symbol id="b-circ" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3.6"/></symbol>
+</svg>
+
+<div class="app">
+  <nav class="rail" aria-label="Seções">
+    <svg class="logo" viewBox="0 0 64 64" role="img" aria-label="HypePlay">
+      <rect width="64" height="64" rx="16" fill="#7254ef"/>
+      <g fill="#fff"><rect x="14" y="14" width="10" height="36" rx="5"/><rect x="40" y="14" width="10" height="36" rx="5"/><path d="M22 20v24l20-12z"/></g>
+    </svg>
+    <button class="nb" aria-current="page" aria-label="Biblioteca, 7 jogos"><svg class="i"><use href="#i-lib"/></svg><span class="n">7</span><span class="tip">Biblioteca</span></button>
+    <button class="nb" aria-label="Pessoas, 3"><svg class="i"><use href="#i-users"/></svg><span class="n">3</span><span class="tip">Pessoas</span></button>
+    <button class="nb" aria-label="Adicionar jogo"><svg class="i"><use href="#i-plus"/></svg><span class="tip">Adicionar jogo</span></button>
+    <button class="nb" aria-label="Controle"><svg class="i"><use href="#i-pad"/></svg><span class="tip">Controle</span></button>
+    <button class="nb" aria-label="Servidor"><svg class="i"><use href="#i-server"/></svg><span class="tip">Servidor</span></button>
+    <span class="sp"></span>
+    <button class="nb" aria-label="Abrir no navegador"><svg class="i"><use href="#i-web"/></svg><span class="tip">Abrir no navegador</span></button>
+    <button class="nb" aria-label="App para PC"><svg class="i"><use href="#i-pc"/></svg><span class="tip">App para PC</span></button>
+  </nav>
+
+  <header class="top">
+    <div class="hello">
+      <span class="word">HypePlay</span>
+      <h1>Boa noite, Ana</h1>
+      <p>7 jogos no servidor · 2 salas abertas agora</p>
+    </div>
+    <label class="search">
+      <svg class="i"><use href="#i-search"/></svg>
+      <input type="search" placeholder="Buscar jogo, sala ou pessoa" aria-label="Buscar jogo, sala ou pessoa">
+      <span class="keys" aria-label="Atalho Ctrl K"><kbd>Ctrl</kbd><kbd>K</kbd></span>
+    </label>
+    <div class="call">
+      <span>Na call</span>
+      <span class="stack" aria-label="Ana, Bruno e Carla"><span class="av a">A</span><span class="av b">B</span><span class="av c">C</span></span>
+    </div>
+  </header>
+
+  <main class="list">
+    <div class="filters" role="toolbar" aria-label="Filtrar">
+      <button class="chip" aria-pressed="true">Tudo</button>
+      <button class="chip" aria-pressed="false">Salas <span class="mono">2</span></button>
+      <button class="chip" aria-pressed="false">Jogos <span class="mono">7</span></button>
+      <button class="chip" aria-pressed="false">Pessoas <span class="mono">3</span></button>
+    </div>
+
+    <div class="scroll" role="listbox" aria-label="Biblioteca">
+      <div class="gh"><h2>Salas abertas</h2><span class="mono muted">2</span></div>
+      <button class="row" role="option" aria-selected="false">
+        <img class="th" src="capas/bt3.svg" alt="">
+        <span class="nm"><b>Dragon Ball Z: Budokai Tenkaichi 3</b><small>Bruno jogando</small></span>
+        <span class="code" aria-label="Sala KRTZ"><i>K</i><i>R</i><i>T</i><i>Z</i></span>
+        <span class="st"><span class="slot" aria-hidden="true"></span><span class="sub">Vaga de jogador 2</span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <img class="th" src="capas/pes.svg" alt="">
+        <span class="nm"><b>Winning Eleven 9</b><small>1 sala aberta</small></span>
+        <span></span>
+        <span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+
+      <div class="gh"><h2>Seus jogos</h2><span>Enviados uma vez, para todo mundo</span><span class="mono muted">7</span></div>
+      <button class="row" role="option" aria-selected="true">
+        <img class="th" src="capas/bt3.svg" alt="">
+        <span class="nm"><b>Dragon Ball Z: Budokai Tenkaichi 3</b></span>
+        <span class="ser mono">SLUS-21678</span>
+        <span class="st ok"><svg><use href="#s-ok"/></svg><span>Pronto <span class="sub">· 1 sala aberta</span></span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <img class="th" src="capas/naruto.svg" alt="">
+        <span class="nm"><b>Naruto: Ultimate Ninja 2</b></span>
+        <span class="ser mono">SLUS-21410</span>
+        <span class="st busy"><svg><use href="#s-busy"/></svg><span>Recebendo <span class="mono">62%</span></span><span class="bar" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><i style="width:62%"></i></span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <img class="th" src="capas/gt4.svg" alt="">
+        <span class="nm"><b>Gran Turismo 4</b><small>Extraindo os dados</small></span>
+        <span class="ser mono">SCUS-97328</span>
+        <span class="st busy"><svg><use href="#s-busy"/></svg><span>Compilando <span class="mono">3/5</span></span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+      <button class="row pad-focus" role="option" aria-selected="false">
+        <img class="th" src="capas/okami.svg" alt="">
+        <span class="nm"><b>Ōkami</b></span>
+        <span class="ser mono">SLUS-21115</span>
+        <span class="st warn"><svg><use href="#s-warn"/></svg><span>Falta a BIOS</span></span>
+        <span class="end"><span class="pb" aria-label="Abrir com ✕"><svg><use href="#b-cross"/></svg></span></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <img class="th" src="capas/burnout.svg" alt="">
+        <span class="nm"><b>Burnout 3: Takedown</b></span>
+        <span class="ser mono">SLUS-21050</span>
+        <span class="st warn"><svg><use href="#s-warn"/></svg><span>Envio parado em <span class="mono">41%</span></span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <img class="th" src="capas/sotc.svg" alt="">
+        <span class="nm"><b>Shadow of the Colossus</b><small>A compilação falhou.</small></span>
+        <span class="ser mono">SCUS-97472</span>
+        <span class="st bad"><svg><use href="#s-bad"/></svg><span>Falhou</span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <img class="th" src="capas/pes.svg" alt="">
+        <span class="nm"><b>Winning Eleven 9</b></span>
+        <span class="ser mono">SLUS-21326</span>
+        <span class="st ok"><svg><use href="#s-ok"/></svg><span>Pronto <span class="sub">· 1 sala aberta</span></span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <span class="addth"><svg class="i"><use href="#i-plus"/></svg></span>
+        <span class="nm"><b>Adicionar jogo</b></span>
+        <span></span><span></span>
+        <span class="end"><kbd><svg class="i"><use href="#i-enter"/></svg></kbd></span>
+      </button>
+
+      <div class="gh"><h2>Na call</h2><span class="mono muted">3</span></div>
+      <button class="row" role="option" aria-selected="false">
+        <span class="avrow"><span class="av a">A</span></span>
+        <span class="nm"><b>Ana <span class="you">você</span></b><small>Na biblioteca</small></span>
+        <span></span><span></span><span class="end"></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <span class="avrow"><span class="av b">B</span></span>
+        <span class="nm"><b>Bruno</b><small>Jogando Dragon Ball Z: Budokai Tenkaichi 3</small></span>
+        <span></span><span></span><span class="end"></span>
+      </button>
+      <button class="row" role="option" aria-selected="false">
+        <span class="avrow"><span class="av c">C</span></span>
+        <span class="nm"><b>Carla</b><small>Assistindo Dragon Ball Z: Budokai Tenkaichi 3</small></span>
+        <span></span><span></span><span class="end"></span>
+      </button>
+    </div>
+
+    <div class="keys-foot" aria-hidden="true">
+      <span><kbd><svg class="i"><use href="#i-up"/></svg></kbd><kbd><svg class="i"><use href="#i-down"/></svg></kbd> Mover</span>
+      <span><kbd><svg class="i"><use href="#i-enter"/></svg></kbd> Ação principal</span>
+      <span><kbd>Tab</kbd> Painel</span>
+      <span><kbd>Esc</kbd> Limpar busca</span>
+    </div>
+  </main>
+
+  <aside class="pane" aria-labelledby="pane-title">
+    <div class="pane-h">
+      <h2 id="pane-title">Continuar jogando</h2>
+      <button class="ib" aria-label="Abrir detalhes do jogo"><svg class="i"><use href="#i-expand"/></svg></button>
+    </div>
+    <div class="pane-b">
+      <div class="backdrop" aria-hidden="true"><img src="capas/bt3.svg" alt=""></div>
+      <div class="hero">
+        <img class="cover" src="capas/bt3.svg" alt="Capa de Dragon Ball Z: Budokai Tenkaichi 3">
+        <div>
+          <h3>Dragon Ball Z: Budokai Tenkaichi 3</h3>
+          <div class="meta"><span class="mono">SLUS-21678</span><span class="seal"><svg class="i"><use href="#i-check"/></svg>Testado</span></div>
+          <p>Adicionado por Bruno. A ISO fica no servidor: é só jogar.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn primary"><svg class="i"><use href="#i-play"/></svg>Jogar agora<kbd><svg class="i"><use href="#i-enter"/></svg></kbd></button>
+        <button class="btn second"><svg class="i"><use href="#i-room"/></svg>Abrir uma sala</button>
+      </div>
+      <section class="room" aria-label="Sala KRTZ">
+        <div class="room-h">
+          <h4>Sala aberta</h4>
+          <span class="code" aria-label="KRTZ"><i>K</i><i>R</i><i>T</i><i>Z</i></span>
+        </div>
+        <div class="seats">
+          <div class="seat"><span class="av b">B</span><span><b>Bruno jogando</b><small>Jogador 1</small></span></div>
+          <div class="seat free"><span class="slot" aria-hidden="true"></span><span><b>Vaga de jogador 2</b></span></div>
+        </div>
+        <button class="btn join"><svg class="i"><use href="#i-join"/></svg>Entrar como jogador 2</button>
+      </section>
+    </div>
+    <div class="pane-f" aria-label="Dicas do controle">
+      <span><span class="pb"><svg><use href="#b-cross"/></svg></span>Abrir</span>
+      <span><span class="pb"><svg><use href="#b-tri"/></svg></span>Sala</span>
+      <span><span class="pb"><svg><use href="#b-circ"/></svg></span>Voltar</span>
+    </div>
+  </aside>
+</div>
+</body>
+</html>

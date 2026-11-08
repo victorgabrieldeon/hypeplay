@@ -45,12 +45,18 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   em teste, a maioria dos jogos roda e alguns podem travar ou ficar lentos. A página lê o serial da ISO
   (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. O servidor confere o serial de
   novo com a ISO inteira e guarda a ISO.
-- **Ou baixar do vimm.net, sem passar pelo PC:** no passo da ISO, cole o link de download do jogo no
-  [vimm.net](https://vimm.net/vault/PS2) e o servidor baixa sozinho (um download por vez, com o progresso ali mesmo),
-  abre o `.7z` (o `7z` vem na imagem), lê o serial e põe o jogo na biblioteca, com o nome do arquivo. Como pegar o link:
-  na página do jogo, clique em Download, cancele o download e copie o endereço dele na lista de downloads do navegador
-  (`https://dl3.vimm.net/?mediaId=…`). A página do jogo no vimm.net pede uma verificação de humano: quem passa por ela
-  é você, o servidor só baixa o arquivo do link. Só jogos em ISO (os de CD, em `.bin/.cue`, não). O servidor precisa de
+- **Ou baixar do vimm.net, sem passar pelo PC:** na **Loja**, busque o jogo e clique numa capa com **Instalar no
+  servidor**. Também dá para colar a página (`https://vimm.net/vault/7843`) na Loja ou no passo da ISO de
+  "Adicionar jogo". O servidor consulta um catálogo público de metadados para encontrar o `mediaId` dessa edição,
+  baixa sozinho (um jogo por vez, com progresso), abre o `.7z` (o `7z` vem na imagem), lê o serial e põe o jogo na biblioteca.
+  Não precisa abrir o Vimm nem executar código no console para as edições mapeadas. Use apenas jogos que você tem.
+  A fonte é o [catálogo PS2GD](https://github.com/forbenaj/ps2gd/tree/728c7d5ce988280310a9b593e961584fbd1bd8d1/data/catalogs),
+  uma versão fixa de terceiros, consultada no GitHub e mantida em memória até reiniciar o servidor; não é uma API oficial
+  nem cobre todas as regiões e versões. O ID da página e o `mediaId` são diferentes: não calculamos um a partir do outro.
+  Se a edição não estiver mapeada, o GitHub estiver indisponível ou o link estiver desatualizado, ainda dá para colar o
+  link de download (`https://dl2.vimm.net/?mediaId=…`) ou enviar sua ISO. Para obter o link manual: abra a página,
+  passe pela verificação de humano, clique em Download, cancele e copie o endereço na lista de downloads do navegador.
+  O servidor não tenta resolver essa verificação. Só jogos em ISO (os de CD, em `.bin/.cue`, não). O servidor precisa de
   espaço para o arquivo e a ISO ao mesmo tempo (em `/app/data/vimm/`, apagados no fim).
 - **Jogar:** assim que a ISO entra (e o servidor tem a BIOS), o jogo está pronto para todo mundo, para sempre. A
   página do jogo é a do TabStationToo no nosso design: só o jogo na tela, a nossa barra e o painel de som e imagem.

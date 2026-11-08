@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createLibrary } from "./library";
 import type { Pass } from "./pass";
 import { makeIso } from "./testing/iso";
-import { artIndex, createVault, createVimm, listing, parseHome, parseVault, pickArt, vaultUrl, vimmLink } from "./vimm";
+import { artIndex, createMediaCatalog, createVault, createVimm, listing, parseHome, parseVault, pickArt, vaultUrl, vimmLink, vimmPage } from "./vimm";
 
 const ana: Pass = { id: "42", name: "Ana", exp: Infinity };
 const has7z = !!Bun.which("7z");
@@ -32,6 +32,41 @@ test("only vimm's download links, rebuilt from their parts", () => {
   expect(vimmLink("12345")).toBeNull();
 });
 
+test("vault page links are canonical and never arbitrary fetch targets", () => {
+  expect(vimmPage(" https://vimm.net/vault/7843?foo=bar#x ")).toBe("https://vimm.net/vault/7843");
+  for (const url of ["https://evil.com/vault/7843", "https://vimm.net.evil.com/vault/7843", "https://vimm.net/vault/PS2", "file://vimm.net/vault/1", "7843"])
+    expect(vimmPage(url)).toBeNull();
+});
+
+const catalogEntry = { id: "7843", name: "Adventures of Cookie & Cream, The", download_url: "https://dl2.vimm.net/?mediaId=6615" };
+const catalogFetch = (seen: string[] = [], entries: unknown[] = [catalogEntry]) =>
+  (async (url: string | URL | Request) => {
+    seen.push(String(url));
+    return Response.json(String(url).endsWith("catalog_a.json") ? entries : []);
+  }) as unknown as typeof fetch;
+
+test("public media metadata uses exact vault IDs, validates download hosts and loads once", async () => {
+  const seen: string[] = [];
+  const catalog = createMediaCatalog({ fetch: catalogFetch(seen, [catalogEntry, { id: "2", download_url: "https://evil.com/?mediaId=3" }, null]) });
+  const [one, two] = await Promise.all([catalog(), catalog()]);
+  expect(one).toBe(two);
+  expect(one.get("7843")).toBe("https://dl2.vimm.net/?mediaId=6615");
+  expect(one.has("2")).toBe(false);
+  expect(one.has("6615")).toBe(false);
+  await catalog();
+  expect(seen).toHaveLength(27);
+  expect(seen.every((url) => url.startsWith("https://raw.githubusercontent.com/forbenaj/ps2gd/728c7d5ce988280310a9b593e961584fbd1bd8d1/data/catalogs/"))).toBe(true);
+});
+
+test("failed catalog loads can be retried", async () => {
+  let failed = true;
+  const good = catalogFetch();
+  const catalog = createMediaCatalog({ fetch: (async (...args: Parameters<typeof fetch>) => failed ? new Response("offline", { status: 503 }) : good(...args)) as typeof fetch });
+  await expect(catalog()).rejects.toThrow();
+  failed = false;
+  expect((await catalog()).get("7843")).toBe(catalogEntry.download_url);
+});
+
 test("7z's listing: files after its header, folders apart", () => {
   const out = `7-Zip 25.01\n\nListing archive: x.7z\n\n--\nPath = x.7z\nType = 7z\n\n----------\nPath = Game (USA)\nSize = 0\nFolder = +\n\nPath = Game (USA)/Game (USA).iso\nSize = 1234\nFolder = -\n\n`;
   expect(listing(out)).toEqual([
@@ -50,12 +85,112 @@ test("a page instead of a game fails with a message, and leaves nothing behind",
   const dir = await temp();
   const library = createLibrary(dir, { min: 10 });
   const vimm = createVimm(dir, library, { min: 10, fetch: served("<html>nope</html>", { "content-type": "text/html" }) });
-  expect(vimm.start(ana, "https://vimm.net/vault/1")).toMatchObject({ ok: false, status: 400 });
+  expect(vimm.start(ana, "https://evil.com/vault/1")).toMatchObject({ ok: false, status: 400 });
   expect(vimm.start(ana, "https://dl3.vimm.net/?mediaId=1")).toEqual({ ok: true });
   expect(vimm.start(ana, "https://dl3.vimm.net/?mediaId=2")).toMatchObject({ ok: false, status: 409 });
   await vimm.settled();
   expect(vimm.status()).toMatchObject({ state: "failed", message: expect.stringContaining("não entregou") });
   expect(await readdir(dir)).toEqual([]);
+});
+
+test("a missing media mapping fails clearly without requesting the protected game page", async () => {
+  const dir = await temp();
+  const seen: string[] = [];
+  const vimm = createVimm(dir, createLibrary(dir, { min: 10 }), { fetch: catalogFetch(seen) });
+  expect(vimm.start(ana, "https://vimm.net/vault/70425")).toEqual({ ok: true });
+  expect(vimm.status()).toMatchObject({ state: "resolving", by: "Ana" });
+  expect(vimm.start(ana, catalogEntry.download_url)).toMatchObject({ ok: false, status: 409 });
+  await vimm.settled();
+  expect(vimm.status()).toMatchObject({ state: "failed", message: expect.stringContaining("link de download") });
+  expect(seen.some((url) => url.startsWith("https://vimm.net/"))).toBe(false);
+  expect(await readdir(dir)).toEqual([]);
+});
+
+test("store search marks only exact mapped editions as automatic, and still works if metadata is offline", async () => {
+  const dir = await temp();
+  const html = await Bun.file(join(import.meta.dir, "fixtures/vimm-vault.html")).text();
+  const searchFetch = (offline: boolean) => (async (url: string | URL | Request) => {
+    if (String(url).startsWith("https://vimm.net/")) return new Response(html);
+    if (String(url).startsWith("https://api.github.com/")) return Response.json({ tree: [] });
+    return offline ? new Response("offline", { status: 503 }) : catalogFetch()(url);
+  }) as unknown as typeof fetch;
+  const vimm = createVimm(dir, createLibrary(dir), { fetch: searchFetch(false) });
+  expect(await vimm.vault.search("a")).toMatchObject([{ id: 7843, automatic: true }, { id: 70425, automatic: false }]);
+  const other = await temp();
+  const offline = createVimm(other, createLibrary(other), { fetch: searchFetch(true) });
+  expect(await offline.vault.search("a")).toMatchObject([{ id: 7843, automatic: false }, { id: 70425, automatic: false }]);
+});
+
+test("vault home and search preserve art and share the exact-ID catalog with installation", async () => {
+  const dir = await temp();
+  const search = await Bun.file(join(import.meta.dir, "fixtures/vimm-vault.html")).text();
+  const home = await Bun.file(join(import.meta.dir, "fixtures/vimm-ps2.html")).text();
+  const seen: string[] = [];
+  const get = (async (url: string | URL | Request) => {
+    const u = String(url);
+    seen.push(u);
+    const folder = /trees\/(\w+)$/.exec(u)?.[1];
+    if (folder === "master") return Response.json({ tree: ["Named_Boxarts", "Named_Snaps"].map((path) => ({ path, sha: path })) });
+    if (folder) return Response.json({ tree: SET.filter((p) => p.startsWith(`${folder}/`)).map((p) => ({ path: p.slice(folder.length + 1), sha: "f" })) });
+    if (u.startsWith("https://raw.githubusercontent.com/forbenaj/"))
+      return catalogFetch([], [catalogEntry, { id: "8433", download_url: "https://dl3.vimm.net/?mediaId=9" }])(url);
+    if (u.startsWith("https://raw.githubusercontent.com/libretro-thumbnails/")) return new Response("png");
+    if (u === "https://vimm.net/vault/PS2") return new Response(home);
+    if (u.includes("loadTopTen.php")) return new Response(u.endsWith("page=2") ? '<a href="7843">Cookie &amp; Cream</a>' : '<a href="6615">Other edition</a>');
+    if (u === catalogEntry.download_url) return new Response("unavailable", { status: 503 });
+    return new Response(search);
+  }) as unknown as typeof fetch;
+  const vimm = createVimm(dir, createLibrary(dir), { fetch: get });
+  expect(vimm).not.toHaveProperty("search");
+  const [lists, games] = await Promise.all([vimm.vault.home(), vimm.vault.search("a")]);
+  expect(lists.top.map(({ id, automatic }) => ({ id, automatic }))).toEqual([
+    { id: 8433, automatic: true }, { id: 8199, automatic: false }, { id: 9262, automatic: false },
+    { id: 7843, automatic: true }, { id: 6615, automatic: false },
+  ]);
+  expect(lists.rated.map(({ id, automatic }) => ({ id, automatic }))).toEqual([
+    { id: 8653, automatic: false }, { id: 9015, automatic: false }, { id: 8735, automatic: false }, { id: 8433, automatic: true },
+  ]);
+  expect(lists.top[0]).toMatchObject({ name: "Grand Theft Auto: San Andreas", box: expect.stringContaining("(Europe"), snap: "Grand Theft Auto - San Andreas" });
+  expect(lists.rated.at(-1)).toMatchObject({ box: expect.any(String), snap: "Grand Theft Auto - San Andreas" });
+  expect(games).toMatchObject([
+    { id: 7843, automatic: true, regions: ["USA"], version: "3.00", rating: "8.5", box: null, snap: null },
+    { id: 70425, automatic: false, box: null, snap: null },
+  ]);
+  await Promise.all([vimm.vault.home(), vimm.vault.search("a")]);
+  expect(seen.filter((u) => u.startsWith("https://vimm.net/"))).toHaveLength(4);
+  expect(seen.filter((u) => u.startsWith("https://api.github.com/"))).toHaveLength(3);
+  expect(await vimm.vault.art("box", "../../etc/passwd")).toBeNull();
+  expect(await (await vimm.vault.art("snap", "Grand Theft Auto - San Andreas"))!.text()).toBe("png");
+  expect(vimm.start(ana, "https://vimm.net/vault/7843")).toEqual({ ok: true });
+  expect(vimm.status()).toMatchObject({ state: "resolving" });
+  expect(vimm.start(ana, "https://vimm.net/vault/8433")).toMatchObject({ ok: false, status: 409 });
+  await vimm.settled();
+  expect(vimm.status()).toMatchObject({ state: "failed", message: expect.stringContaining("não entregou") });
+  expect(seen).toContain(catalogEntry.download_url);
+  expect(seen).not.toContain("https://vimm.net/vault/7843");
+  expect(seen.filter((u) => u.startsWith("https://raw.githubusercontent.com/forbenaj/"))).toHaveLength(27);
+});
+
+test("home metadata failures stay usable and retry without caching false availability", async () => {
+  const dir = await temp();
+  const home = '<table><caption>Monthly Top</caption><a href="7843">Cookie &amp; Cream</a></table><table><caption>Overall Rating</caption><a href="/vault/7843">Cookie &amp; Cream</a></table>';
+  const seen: string[] = [];
+  let offline = true;
+  const get = (async (url: string | URL | Request) => {
+    const u = String(url);
+    if (u.startsWith("https://api.github.com/")) return Response.json({ tree: [] });
+    if (u.startsWith("https://raw.githubusercontent.com/")) return offline ? new Response("offline", { status: 503 }) : catalogFetch()(url);
+    seen.push(u);
+    return new Response(u.includes("loadTopTen.php") ? "" : home);
+  }) as unknown as typeof fetch;
+  const vimm = createVimm(dir, createLibrary(dir), { fetch: get });
+  expect(await vimm.vault.home()).toMatchObject({ top: [{ id: 7843, automatic: false }], rated: [{ id: 7843, automatic: false }] });
+  expect(vimm.start(ana, "https://vimm.net/vault/7843")).toEqual({ ok: true });
+  await vimm.settled();
+  expect(vimm.status()).toMatchObject({ state: "failed", message: expect.stringContaining("catálogo de links") });
+  offline = false;
+  expect(await vimm.vault.home()).toMatchObject({ top: [{ id: 7843, automatic: true }], rated: [{ id: 7843, automatic: true }] });
+  expect(seen).toHaveLength(3);
 });
 
 test.skipIf(!has7z)("a vimm archive becomes a library game, its disc in place", async () => {
@@ -70,10 +205,12 @@ test.skipIf(!has7z)("a vimm archive becomes a library game, its disc in place", 
   const library = createLibrary(dir, { min: 10 });
   const seen: string[] = [];
   const headers = { "content-type": "application/x-7z-compressed", "content-length": String(bytes.length), "content-disposition": 'attachment; filename="Game (USA).7z"' };
-  const vimm = createVimm(dir, library, { min: 10, fetch: served(bytes, headers, seen) });
-  expect(vimm.start(ana, "https://dl3.vimm.net/?mediaId=99")).toEqual({ ok: true });
+  const get = (async (url: string | URL | Request) => String(url).startsWith("https://raw.githubusercontent.com/")
+    ? catalogFetch()(url) : served(bytes, headers, seen)(url)) as unknown as typeof fetch;
+  const vimm = createVimm(dir, library, { min: 10, fetch: get });
+  expect(vimm.start(ana, "https://vimm.net/vault/7843")).toEqual({ ok: true });
   await vimm.settled();
-  expect(seen).toEqual(["https://dl3.vimm.net/?mediaId=99"]);
+  expect(seen).toEqual([catalogEntry.download_url]);
   expect(vimm.status()).toEqual({ state: "done", by: "Ana", name: "Game (USA)", key: "ps2/slus-20062", existed: false });
   expect((await library.get("slus-20062"))?.name).toBe("Game (USA)");
   expect((await stat(library.paths("slus-20062").iso)).size).toBe(iso.length);
@@ -85,6 +222,15 @@ test.skipIf(!has7z)("a vimm archive becomes a library game, its disc in place", 
   await again.settled();
   expect(again.status()).toMatchObject({ state: "done", key: "ps2/slus-20062", existed: true });
   expect((await library.list()).length).toBe(1);
+});
+
+test("the same search asks vimm.net once", async () => {
+  let asked = 0;
+  const vault = createVault({ fetch: (async (url: string) => url.startsWith("https://api.github.com/")
+    ? Response.json({ tree: [] }) : (asked++, new Response('<tr><td><a href="/vault/5">Okami</a></td></tr>'))) as unknown as typeof fetch });
+  expect(await vault.search("okami")).toMatchObject([{ id: 5, name: "Okami" }]);
+  await vault.search("okami");
+  expect(asked).toBe(1);
 });
 
 test("the vault's list rows become games (vimm.net's own markup)", async () => {

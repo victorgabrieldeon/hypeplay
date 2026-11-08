@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HypePlay — Sofá</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;800&family=Atkinson+Hyperlegible+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  /* the wall behind the TV takes the hue of the cover in focus: --h is that hue */
+  @property --h { syntax: '<number>'; inherits: true; initial-value: 249; }
+  :root {
+    --h: 249;
+    --ink: #f7f5fc;
+    --soft: hsl(var(--h) 40% 86%);
+    --plate: hsl(var(--h) 45% 9% / 0.62);
+    --ok: #63e3a0; --busy: #9cc8ff; --warn: #ffc455; --err: #ff8a7a;
+    --s: 'Atkinson Hyperlegible Next', ui-sans-serif, system-ui, sans-serif;
+    --m: 'Atkinson Hyperlegible Mono', ui-monospace, monospace;
+    color-scheme: dark;
+    scrollbar-color: hsl(var(--h) 45% 60%) hsl(var(--h) 40% 14%);
+    transition: --h 0.7s ease;
+  }
+  @media (prefers-reduced-motion: reduce) { :root { transition: none; } }
+  ::selection { background: hsl(var(--h) 85% 82%); color: hsl(var(--h) 60% 12%); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh; font-family: var(--s); color: var(--ink); overflow-x: hidden;
+    background:
+      radial-gradient(110% 90% at 42% 92%, hsl(var(--h) 44% 44%) 0%, hsl(var(--h) 38% 30%) 38%, transparent 80%),
+      linear-gradient(hsl(var(--h) 30% 17%), hsl(var(--h) 34% 22%));
+    background-attachment: fixed;
+  }
+  .i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .mono { font-family: var(--m); font-weight: 500; letter-spacing: 0.02em; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  :focus-visible, .pad-focus { outline: none; }
+
+  /* top: brand + the tabs, like a console's home */
+  .top { display: flex; align-items: center; gap: 30px; padding: 18px 56px 0; height: 72px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 22px; letter-spacing: -0.01em; }
+  .brand svg { width: 34px; height: 34px; }
+  .tabs { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; }
+  .tabs a { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; color: var(--soft); text-decoration: none; font-size: 17px; font-weight: 600; white-space: nowrap; }
+  .tabs a .n { font-family: var(--m); font-size: 14px; opacity: 0.9; }
+  .tabs a[aria-current] { background: var(--ink); color: hsl(var(--h) 50% 16%); }
+  .tabs a:hover { color: var(--ink); }
+  .tabs a[aria-current]:hover { color: hsl(var(--h) 50% 16%); }
+  .tabs .i { font-size: 15px; }
+
+  /* the top half: greeting + what to continue, the room in the corner */
+  .stage { display: grid; grid-template-columns: 1fr 330px; gap: 40px; padding: 14px 56px 0; }
+  .hello { display: flex; align-items: baseline; gap: 18px; }
+  h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.01em; }
+  .sum { margin: 0; font-size: 18px; color: var(--soft); }
+  .hero { margin-top: 14px; }
+  .hero h2 { margin: 0; font-size: 40px; line-height: 1.08; font-weight: 800; letter-spacing: -0.02em; }
+  .meta { display: flex; align-items: center; gap: 14px; margin: 10px 0 0; font-size: 17px; color: var(--soft); }
+  .meta .resume { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); font-weight: 600; }
+  .seal { padding: 2px 10px; border-radius: 6px; border: 1.5px solid currentColor; color: var(--ok); font-weight: 600; font-size: 15px; }
+  .hero p.say { margin: 8px 0 0; font-size: 18px; color: var(--soft); }
+  .actions { display: flex; gap: 14px; margin-top: 18px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; height: 52px; padding: 0 24px; border-radius: 999px; font-size: 19px; font-weight: 700; background: hsl(var(--h) 40% 92% / 0.14); color: var(--ink); }
+  .btn.primary { background: var(--ink); color: hsl(var(--h) 55% 16%); }
+  .btn .i { font-size: 20px; }
+  .btn:focus-visible { box-shadow: 0 0 0 3px hsl(var(--h) 40% 13%), 0 0 0 6px var(--ink); }
+
+  .corner { display: flex; flex-direction: column; gap: 14px; margin-bottom: -60px; } /* the row's right end starts lower: let the corner hang over it */
+  .room { background: var(--plate); border-radius: 18px; padding: 16px 18px; }
+  .room .row1 { display: flex; align-items: baseline; justify-content: space-between; font-size: 15px; color: var(--soft); }
+  .room .code { font-family: var(--m); font-weight: 700; font-size: 30px; letter-spacing: 0.16em; color: var(--ink); }
+  .room p { margin: 2px 0 12px; font-size: 16px; }
+  .room p b { color: var(--ink); }
+  .live { display: inline-flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex: none; }
+  .room .btn { height: 42px; width: 100%; justify-content: center; font-size: 16px; padding: 0 14px; }
+  .call { list-style: none; margin: 0; padding: 0 4px; display: grid; gap: 8px; }
+  .call li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: center; font-size: 14px; line-height: 1.25; color: var(--soft); }
+  .call b { color: var(--ink); font-weight: 600; }
+  .av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px; color: #16121f; }
+
+  /* the row of cases: the one in focus grows, the rest wait */
+  .shelf { padding: 14px 0 0; }
+  .shelf h2 { margin: 0 56px; font-size: 22px; font-weight: 800; display: flex; align-items: baseline; gap: 12px; }
+  .shelf h2 span { font-size: 17px; font-weight: 400; color: var(--soft); }
+  .row { display: flex; align-items: flex-end; gap: 18px; list-style: none; margin: 0; padding: 12px 56px 6px; overflow-x: auto; scrollbar-width: none; scroll-padding: 0 56px; }
+  .card { flex: none; width: 140px; display: flex; flex-direction: column; gap: 10px; text-align: left; padding: 0; transition: width 0.25s ease; }
+  .case { position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: 10px; overflow: hidden; box-shadow: 0 14px 30px -12px hsl(var(--h) 60% 4% / 0.8); }
+  .case img { width: 100%; height: 100%; display: block; }
+  .badge { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: hsl(var(--h) 45% 8% / 0.85); font-size: 17px; }
+  .bar { position: absolute; left: 10px; right: 10px; bottom: 10px; height: 6px; border-radius: 3px; background: hsl(0 0% 100% / 0.22); }
+  .bar i { display: block; height: 100%; border-radius: 3px; background: var(--busy); }
+  .st { height: 48px; font-size: 15px; line-height: 1.3; }
+  .st .l1 { display: flex; align-items: center; gap: 7px; font-weight: 600; }
+  .st .l2 { display: block; color: var(--soft); padding-left: 16px; font-size: 14px; }
+  .ok { color: var(--ok); } .busy { color: var(--busy); } .warn { color: var(--warn); } .err { color: var(--err); }
+  .st .l1 span { color: var(--ink); }
+  .card.pad-focus, .card:focus-visible { width: 164px; }
+  .card.pad-focus .case, .card:focus-visible .case { box-shadow: 0 0 0 4px var(--ink), 0 22px 46px -14px hsl(var(--h) 60% 4% / 0.9); }
+  .card.pad-focus .st, .card:focus-visible .st { font-size: 16px; }
+  .add .case { display: grid; place-items: center; align-content: center; gap: 10px; border: 2px dashed hsl(var(--h) 40% 80% / 0.55); box-shadow: none; color: var(--soft); font-weight: 600; font-size: 16px; }
+  .add .case .i { font-size: 34px; }
+
+  .hints { position: fixed; left: 0; right: 0; bottom: 0; height: 44px; display: flex; justify-content: flex-end; align-items: center; gap: 28px; padding: 0 56px; font-size: 17px; font-weight: 600;
+    background: linear-gradient(transparent, hsl(var(--h) 40% 8% / 0.7)); }
+  .hints span { display: inline-flex; align-items: center; gap: 9px; }
+  .hints svg { width: 28px; height: 28px; }
+
+  @media (max-width: 760px) {
+    .top { flex-wrap: wrap; height: auto; padding: 14px 20px; gap: 10px; }
+    .tabs { overflow-x: auto; max-width: 100%; }
+    .stage { grid-template-columns: 1fr; padding: 10px 20px; gap: 20px; }
+    .hero h2 { font-size: 30px; }
+    .actions { flex-wrap: wrap; }
+    .shelf h2 { margin: 0 20px; flex-wrap: wrap; }
+    .row { padding: 14px 20px 70px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.3-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M15.5 4.8a3.4 3.4 0 0 1 0 6.4M18 14.8c1.9.7 3 2.4 3.5 5.2"/></symbol>
+  <symbol id="i-resume" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M10.5 9v6l4.5-3z" fill="currentColor"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3.5 2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.1"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></symbol>
+  <symbol id="i-err" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#f7f5fc"/><g fill="hsl(var(--h) 55% 30%)"><rect x="14" y="14" width="10" height="36" rx="5"/><rect x="40" y="14" width="10" height="36" rx="5"/><path d="M22 20v24l20-12z"/></g></svg>
+    HypePlay
+  </div>
+  <nav aria-label="Principal">
+    <ul class="tabs">
+      <li><a href="#" aria-current="page">Biblioteca <span class="n">7</span></a></li>
+      <li><a href="#">Pessoas <span class="n">3</span></a></li>
+      <li><a href="#">Adicionar jogo</a></li>
+      <li><a href="#">Controle</a></li>
+      <li><a href="#">Servidor</a></li>
+      <li><a href="#">Abrir no navegador <svg class="i"><use href="#i-out"/></svg></a></li>
+      <li><a href="#">App para PC <svg class="i"><use href="#i-out"/></svg></a></li>
+    </ul>
+  </nav>
+</header>
+
+<main>
+  <div class="stage">
+    <div>
+      <div class="hello"><h1>Boa noite, Ana</h1>
+      <p class="sum">7 jogos no servidor · 2 salas abertas agora</p></div>
+      <section class="hero" aria-labelledby="hero-t" data-h="225">
+        <h2 id="hero-t">Dragon Ball Z: Budokai Tenkaichi 3</h2>
+        <p class="meta"><span class="resume"><svg class="i"><use href="#i-resume"/></svg>Continuar jogando</span><span class="mono">SLUS-21678</span><span class="seal">Testado</span></p>
+        <p class="say">Adicionado por Bruno. A ISO fica no servidor: é só jogar.</p>
+        <div class="actions">
+          <button class="btn primary" data-play data-h="225"><svg class="i"><use href="#i-play"/></svg>Jogar agora</button>
+          <button class="btn" data-h="225"><svg class="i"><use href="#i-users"/></svg>Abrir uma sala</button>
+        </div>
+      </section>
+    </div>
+
+    <aside class="corner" aria-label="Sala e call">
+      <div class="room">
+        <div class="row1"><span class="live ok"><i class="dot"></i><span style="color:var(--soft)">Sala aberta</span></span><span class="code">KRTZ</span></div>
+        <p><b>Bruno</b> jogando · Vaga de jogador 2</p>
+        <button class="btn" data-h="225"><svg class="i"><use href="#i-users"/></svg>Entrar como jogador 2</button>
+      </div>
+      <ul class="call" aria-label="Na call">
+        <li><span class="av" style="background:#f0b7d6">A</span><span><b>Ana</b> (você) · Na biblioteca</span></li>
+        <li><span class="av" style="background:#9fe0c4">B</span><span><b>Bruno</b> · Jogando Dragon Ball Z: Budokai Tenkaichi 3</span></li>
+        <li><span class="av" style="background:#ffd59a">C</span><span><b>Carla</b> · Assistindo Dragon Ball Z: Budokai Tenkaichi 3</span></li>
+      </ul>
+    </aside>
+  </div>
+
+  <section class="shelf" aria-labelledby="shelf-t">
+    <h2 id="shelf-t">Seus jogos <span>Enviados uma vez, para todo mundo</span></h2>
+    <ul class="row">
+      <li><button class="card" data-h="225" aria-label="Dragon Ball Z: Budokai Tenkaichi 3, SLUS-21678: Pronto, 1 sala aberta">
+        <span class="case"><img src="capas/bt3.svg" alt=""></span>
+        <span class="st"><span class="l1 ok"><i class="dot"></i><span>Pronto</span></span><span class="l2">1 sala aberta</span></span>
+      </button></li>
+      <li><button class="card" data-h="201" aria-label="Naruto: Ultimate Ninja 2, SLUS-21410: Recebendo 62%">
+        <span class="case"><img src="capas/naruto.svg" alt=""><span class="bar" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100"><i style="width:62%"></i></span></span>
+        <span class="st"><span class="l1 busy"><i class="dot"></i><span>Recebendo <span class="mono">62%</span></span></span></span>
+      </button></li>
+      <li><button class="card" data-h="297" aria-label="Gran Turismo 4, SCUS-97328: Compilando 3/5, Extraindo os dados">
+        <span class="case"><img src="capas/gt4.svg" alt=""><span class="bar" role="progressbar" aria-valuenow="3" aria-valuemin="0" aria-valuemax="5"><i style="width:60%"></i></span></span>
+        <span class="st"><span class="l1 busy"><i class="dot"></i><span>Compilando <span class="mono">3/5</span></span></span><span class="l2">Extraindo os dados</span></span>
+      </button></li>
+      <li><button class="card pad-focus" data-h="249" aria-label="Ōkami, SLUS-21115: Falta a BIOS">
+        <span class="case"><img src="capas/okami.svg" alt=""><span class="badge warn"><svg class="i"><use href="#i-warn"/></svg></span></span>
+        <span class="st"><span class="l1 warn"><i class="dot"></i><span>Falta a BIOS</span></span><span class="l2 mono">SLUS-21115</span></span>
+      </button></li>
+      <li><button class="card" data-h="277" aria-label="Burnout 3: Takedown, SLUS-21050: Envio parado em 41%">
+        <span class="case"><img src="capas/burnout.svg" alt=""><span class="badge warn"><svg class="i"><use href="#i-pause"/></svg></span></span>
+        <span class="st"><span class="l1 warn"><i class="dot"></i><span>Envio parado em <span class="mono">41%</span></span></span></span>
+      </button></li>
+      <li><button class="card" data-h="251" aria-label="Shadow of the Colossus, SCUS-97472: Falhou, A compilação falhou.">
+        <span class="case"><img src="capas/sotc.svg" alt=""><span class="badge err"><svg class="i"><use href="#i-err"/></svg></span></span>
+        <span class="st"><span class="l1 err"><i class="dot"></i><span>Falhou</span></span><span class="l2">A compilação falhou.</span></span>
+      </button></li>
+      <li><button class="card" data-h="237" aria-label="Winning Eleven 9, SLUS-21326: Pronto, 1 sala aberta">
+        <span class="case"><img src="capas/pes.svg" alt=""></span>
+        <span class="st"><span class="l1 ok"><i class="dot"></i><span>Pronto</span></span><span class="l2">1 sala aberta</span></span>
+      </button></li>
+      <li><button class="card add" data-add data-h="249">
+        <span class="case"><svg class="i"><use href="#i-plus"/></svg>Adicionar jogo</span>
+        <span class="st"></span>
+      </button></li>
+    </ul>
+  </section>
+</main>
+
+<footer class="hints" aria-label="Controle">
+  <span><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13" fill="hsl(var(--h) 45% 8% / .8)"/><path d="m9 9 10 10M19 9 9 19" stroke="#9cc0ff" stroke-width="2.4" stroke-linecap="round"/></svg>Abrir</span>
+  <span><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13" fill="hsl(var(--h) 45% 8% / .8)"/><path d="M14 8.2 20 18.6H8z" fill="none" stroke="#6fdcbc" stroke-width="2.2" stroke-linejoin="round"/></svg>Sala</span>
+  <span><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="13" fill="hsl(var(--h) 45% 8% / .8)"/><circle cx="14" cy="14" r="5.6" fill="none" stroke="#ff9a8c" stroke-width="2.2"/></svg>Voltar</span>
+</footer>
+
+<script>
+  // mock of the pad focus: the wall takes the hue of whatever is focused; ← → walk the row
+  const cards = [...document.querySelectorAll('.card')];
+  const mark = (el) => {
+    document.querySelector('.pad-focus')?.classList.remove('pad-focus');
+    el.classList.add('pad-focus');
+    if (el.dataset.h) document.documentElement.style.setProperty('--h', el.dataset.h);
+  };
+  document.addEventListener('focusin', (e) => { const el = e.target.closest('[data-h]'); if (el) mark(el); });
+  document.addEventListener('keydown', (e) => {
+    const i = cards.indexOf(document.querySelector('.card.pad-focus'));
+    if (i < 0 || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const next = cards[Math.max(0, Math.min(cards.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)))];
+    next.focus({ preventScroll: true });
+    next.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    e.preventDefault();
+  });
+</script>
+</body>
+</html>

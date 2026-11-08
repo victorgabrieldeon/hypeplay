@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+<!-- Capa "enviada pela pessoa": arte abstrata própria, sem título, sem serial, sem a faixa do servidor. -->
+<defs>
+<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0f3a3a"/><stop offset="1" stop-color="#0a1f24"/></linearGradient>
+<pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="14" cy="14" r="2.4" fill="#e9dcc0" opacity="0.22"/></pattern>
+</defs>
+<rect width="600" height="900" fill="url(#sky)"/>
+<rect x="0" y="0" width="600" height="900" fill="url(#dots)"/>
+<circle cx="404" cy="300" r="214" fill="#e9dcc0"/>
+<circle cx="404" cy="300" r="148" fill="none" stroke="#0f3a3a" stroke-width="10"/>
+<path d="M-40 640 L640 300 L640 430 L-40 770 Z" fill="#f2683c"/>
+<path d="M-40 704 L640 364 L640 382 L-40 722 Z" fill="#0a1f24" opacity="0.55"/>
+<rect x="56" y="118" width="148" height="218" rx="6" fill="#1f5f8b"/>
+<rect x="84" y="150" width="92" height="154" rx="4" fill="none" stroke="#e9dcc0" stroke-width="6" opacity="0.8"/>
+<circle cx="150" cy="560" r="58" fill="none" stroke="#f2c14e" stroke-width="14"/>
+<path d="M0 900 L0 790 Q150 730 300 800 T600 760 L600 900 Z" fill="#071518"/>
+<path d="M0 846 Q150 790 300 850 T600 820" fill="none" stroke="#f2c14e" stroke-width="5" opacity="0.7"/>
+</svg>

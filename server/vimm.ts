@@ -1,8 +1,8 @@
 /**
  * "Baixar do vimm.net": the server downloads a PS2 game straight from Vimm's Lair, instead of someone sending its ISO
- * from their PC. The game's page there sits behind a human check, so the link comes from whoever passed it: Download
- * on the game's page, then the address in the browser's downloads (https://dl3.vimm.net/?mediaId=12345). The server
- * only ever asks a dl*.vimm.net host, with an address it builds itself from the digits.
+ * from their PC. Public snapshot metadata maps vault IDs to download links without visiting protected game pages.
+ * Entries missing from that snapshot can still use a pasted download link. Files only come from dl*.vimm.net,
+ * with addresses rebuilt from their validated parts.
  *
  * One download at a time (vimm limits them per address too), in <dir>/vimm/: the archive, then its one .iso, read for
  * its serial and moved into the library (library.ts), where it plays like a sent one.
@@ -15,6 +15,7 @@ import type { Pass } from "./pass";
 
 export type VimmJob =
   | { state: "idle" }
+  | { state: "resolving"; by: string }
   | { state: "downloading"; by: string; name: string; received: number; size: number | null }
   | { state: "extracting"; by: string; name: string }
   /** `existed`: the library had the game already; `key` is that one */
@@ -35,6 +36,42 @@ export function vimmLink(text: string): string | null {
   const id = u.searchParams.get("mediaId");
   if (!/^https?:$/.test(u.protocol) || !/^dl\d{0,2}\.vimm\.net$/.test(u.hostname) || !id || !/^\d{1,9}$/.test(id)) return null;
   return `https://${u.hostname}/?mediaId=${id}`;
+}
+
+/** A pasted game page identifies an exact edition, never a URL for the server to fetch. */
+export function vimmPage(text: string): string | null {
+  try {
+    const u = new URL(text.trim());
+    return /^https?:$/.test(u.protocol) && u.hostname === "vimm.net" && /^\/vault\/\d{1,9}$/.test(u.pathname)
+      ? `https://vimm.net${u.pathname}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** PS2GD's public snapshot, pinned so metadata cannot silently change. No protected Vimm pages are scraped. */
+export function createMediaCatalog({ fetch: get = fetch }: { fetch?: typeof fetch } = {}) {
+  let pending: Promise<Map<string, string>> | undefined;
+  return function load(): Promise<Map<string, string>> {
+    return pending ??= Promise.all(["number", ..."abcdefghijklmnopqrstuvwxyz"].map(async (section) => {
+      const res = await get(`https://raw.githubusercontent.com/forbenaj/ps2gd/728c7d5ce988280310a9b593e961584fbd1bd8d1/data/catalogs/catalog_${section}.json`, {
+        redirect: "error", signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`media catalog answered ${res.status}`);
+      const entries: unknown = await res.json();
+      if (!Array.isArray(entries)) throw new Error("Invalid media catalog");
+      const links: [string, string][] = [];
+      for (const entry of entries) {
+        if (!entry || typeof entry.id !== "string" || !/^\d{1,9}$/.test(entry.id) || typeof entry.download_url !== "string") continue;
+        const link = vimmLink(entry.download_url);
+        if (link) links.push([entry.id, link]);
+      }
+      return links;
+    })).then((parts) => new Map(parts.flat())).catch((err) => {
+      pending = undefined;
+      throw err;
+    });
+  };
 }
 
 /** `7z l -slt`'s files (after its "----------" line): path, size, folder or not. */
@@ -68,17 +105,33 @@ export interface VimmOptions {
 export function createVimm(dir: string, library: Library, { fetch: get = fetch, min = PS2_MIN, max = PS2_MAX }: VimmOptions = {}) {
   const work = join(dir, "vimm");
   let job: VimmJob = { state: "idle" };
+  const catalog = createMediaCatalog({ fetch: get });
+  const vault = createVault({ fetch: get });
+  async function withAutomatic<T extends ListedGame>(games: T[]) {
+    const links = await catalog().catch(() => null);
+    return games.map((g) => ({ ...g, automatic: links?.has(String(g.id)) ?? false }));
+  }
   // (a download cut by a restart left its files: they're nobody's now)
   const ready = rm(work, { recursive: true, force: true }).catch(() => undefined);
 
   async function run(url: string, pass: Pass): Promise<VimmJob> {
     await ready;
+    const page = vimmPage(url);
+    if (page) {
+      const links = await catalog().catch(() => {
+        throw new Refused("O catálogo de links não respondeu. Tente de novo ou cole o link de download do vimm.net.");
+      });
+      const link = links.get(page.split("/").at(-1)!);
+      if (!link) throw new Refused("Essa edição não está no catálogo automático. Cole o link de download do vimm.net ou envie sua ISO.");
+      url = link;
+      job = { state: "downloading", by: pass.name, name: "", received: 0, size: null };
+    }
     await rm(work, { recursive: true, force: true });
     await mkdir(join(work, "out"), { recursive: true });
     const res = await get(url, { headers: { Referer: "https://vimm.net/", "User-Agent": "Mozilla/5.0 HypePlay" }, redirect: "manual" });
     const type = res.headers.get("content-type") ?? "";
     if (res.status !== 200 || !res.body || /text\/html/.test(type))
-      throw new Refused("O vimm.net não entregou um jogo nesse link. Pegue o link de novo na página do jogo.");
+      throw new Refused("O vimm.net não entregou um jogo nesse link. Ele pode estar desatualizado ou indisponível. Cole um link de download atual ou envie sua ISO.");
     const size = Number(res.headers.get("content-length")) || null;
     if (size && size > max) throw new Refused("Esse arquivo é grande demais para um jogo de PS2.");
     const file = /filename="?([^";]+)"?/i.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "";
@@ -138,16 +191,24 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
   return {
     status: (): VimmJob => ({ ...job }),
 
-    /** The "loja": Vimm's PS2 vault and its lists, with art. */
-    vault: createVault({ fetch: get }),
+    /** The "loja": Vimm's PS2 vault and its lists, with art and exact-edition availability. */
+    vault: {
+      ...vault,
+      search: async (q: string) => withAutomatic(await vault.search(q)),
+      async home() {
+        const home = await vault.home();
+        const [top, rated] = await Promise.all([withAutomatic(home.top), withAutomatic(home.rated)]);
+        return { ...home, top, rated };
+      },
+    },
 
     /** Starts the download and returns at once; the page follows it with status(). */
     start(pass: Pass, link: string): { ok: true } | { ok: false; status: number; error: string } {
-      const url = vimmLink(link);
-      if (!url) return { ok: false, status: 400, error: "Cole o link de download do vimm.net (https://dl3.vimm.net/?mediaId=…)." };
-      if (job.state === "downloading" || job.state === "extracting")
-        return { ok: false, status: 409, error: `${job.by} já está baixando ${job.name || "um jogo"} do vimm.net.` };
-      job = { state: "downloading", by: pass.name, name: "", received: 0, size: null };
+      const url = vimmLink(link) ?? vimmPage(link);
+      if (!url) return { ok: false, status: 400, error: "Cole a página do jogo (https://vimm.net/vault/…) ou o link de download (https://dl2.vimm.net/?mediaId=…)." };
+      if (job.state === "resolving" || job.state === "downloading" || job.state === "extracting")
+        return { ok: false, status: 409, error: `${job.by} já está instalando um jogo do vimm.net.` };
+      job = vimmPage(url) ? { state: "resolving", by: pass.name } : { state: "downloading", by: pass.name, name: "", received: 0, size: null };
       const by = pass.name;
       void run(url, pass)
         .catch((err): VimmJob => {
@@ -164,7 +225,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
 
     /** Done when the current download is (tests). */
     async settled() {
-      while (job.state === "downloading" || job.state === "extracting") await Bun.sleep(10);
+      while (job.state === "resolving" || job.state === "downloading" || job.state === "extracting") await Bun.sleep(10);
     },
   };
 }

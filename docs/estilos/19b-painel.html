@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HypePlay · Mosaico · Painel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400..700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<!--
+  19b, "Mosaico · Painel": a parede ocupa a largura toda; o painel do jogo só aparece quando você escolhe uma capa.
+  A parede tem 9 colunas e 3 linhas exatas. As 3 colunas da direita são o "lugar do painel": fechado, ali fica a
+  saudação (com o atalho de Continuar jogando); aberto, o painel desliza por cima delas e nenhuma capa fica escondida.
+  Endereço: #bt3, #naruto, #gt4, #okami, #burnout, #sotc, #pes abrem o painel daquele jogo; sem hash = fechado.
+-->
+<style>
+  :root {
+    --bg: #000; --tile: #0b0b0b; --raise: #141414; --line: #262626; --line-hi: #3a3a3a;
+    --ink: #f4f2f3; --soft: #a6a2a4; --faint: #6b6769;
+    --accent: #ff5a8a; --accent-hi: #ff7aa1; --on-accent: #000;
+    --ok: #3ddc84; --busy: #7cc4ff; --warn: #f5a524; --bad: #ff4b3e;
+    --sans: "Host Grotesk", ui-sans-serif, system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+    --gap: 2px; --cols: 9; --top: 64px;
+    /* the panel is exactly the 3 right columns of the wall */
+    --pw: calc((100vw - (var(--cols) - 1) * var(--gap)) / var(--cols) * 3 + 2 * var(--gap));
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1); --fast: 140ms; --base: 260ms; --slow: 700ms;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { background: var(--bg); scrollbar-width: thin; scrollbar-color: #333 transparent; }
+  body { margin: 0; color: var(--ink); font: 500 15px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, p, ul { margin: 0; padding: 0; }
+  ul { list-style: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  ::selection { background: var(--accent); color: #000; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 99px; border: 2px solid #000; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--mono); font-weight: 500; letter-spacing: 0.02em; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---------- the floating bar (as in 19) ---------- */
+  .bar { position: fixed; z-index: 10; top: 8px; left: 8px; right: 8px; height: 48px; display: flex; align-items: center; gap: 20px;
+    padding: 0 8px 0 14px; background: #000; border: 1px solid var(--line); border-radius: 10px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; }
+  .brand svg { width: 22px; height: 22px; }
+  .beta { font: 700 9.5px/1 var(--mono); letter-spacing: 0.08em; color: var(--soft); border: 1px solid var(--line-hi); border-radius: 4px; padding: 3px 4px; }
+  .bar nav { display: flex; align-items: center; gap: 2px; height: 100%; min-width: 0; }
+  .bar nav .sep { width: 1px; height: 18px; background: var(--line); margin: 0 8px; }
+  .nav { position: relative; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border-radius: 7px; color: var(--soft);
+    font-size: 13.5px; font-weight: 500; white-space: nowrap; transition: color var(--fast) var(--ease), background var(--fast) var(--ease); }
+  .nav:hover { color: var(--ink); background: var(--raise); }
+  .nav[aria-current=page] { color: var(--ink); }
+  .nav[aria-current=page]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -8px; height: 2px; border-radius: 2px; background: var(--accent); }
+  .nav .n { font: 500 11px/1 var(--mono); color: var(--soft); padding: 3px 5px; border-radius: 4px; background: var(--raise); }
+  .nav[aria-current=page] .n { color: var(--ink); background: #222; }
+
+  /* ---------- the wall: 9 columns, 3 whole rows ---------- */
+  .wall { container-type: inline-size; padding-top: var(--top); }
+  .grid { --colw: calc((100cqw - (var(--cols) - 1) * var(--gap)) / var(--cols));
+    --row: calc((100svh - var(--top) - 2 * var(--gap)) / 3);
+    display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: var(--gap); grid-auto-rows: var(--row); }
+  @media (min-height: 800px) { .grid { --row: calc(var(--colw) * 1.5); } }
+
+  .t { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; background: var(--tile); isolation: isolate; text-align: left; }
+  .t.hero { grid-column: 1 / 4; grid-row: 1 / 4; }
+  .t img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; z-index: -1;
+    filter: brightness(0.56) saturate(0.6); transform: scale(1.001);
+    transition: filter var(--base) var(--ease), transform var(--slow) var(--ease); }
+  .t:hover img, .t:focus-visible img, .t.is-focus img, .t.is-open img { filter: none; }
+  .t:hover img, .t:focus-visible img, .t.is-focus img { transform: scale(1.035); }
+  .t::after { content: ""; position: absolute; inset: 0; pointer-events: none; transition: box-shadow var(--fast) var(--ease); }
+  .t.is-open::after { box-shadow: inset 0 0 0 2px var(--accent); }
+  .t:focus-visible { outline: none; }
+  .t:focus-visible::after, .t.is-focus::after { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #000; }
+  .t.is-open:focus-visible::after { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px var(--accent); }
+  /* the open tile also gets a small coral notch pointing at the panel */
+  .t.is-open::before { content: ""; position: absolute; z-index: 1; right: 0; top: 50%; width: 8px; height: 16px; translate: 0 -50%; background: var(--accent);
+    clip-path: polygon(100% 0, 0 50%, 100% 100%); }
+
+  /* state band: covers the cover's own serial/PS2 strip on purpose; the serial lives in the caption and the panel */
+  .band { position: absolute; top: 0; left: 0; right: 0; min-height: max(30px, 9%); padding: 6px 8px 7px; background: #000;
+    border-bottom: 1px solid var(--line); display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+  .st { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; line-height: 16px; font-weight: 600; }
+  .st::before { content: ""; width: 7px; height: 7px; flex: none; background: currentColor; border-radius: 50%; }
+  .st.ok { color: var(--ok); }
+  .st.busy { color: var(--busy); } .st.busy::before { background: conic-gradient(currentColor 0 25%, transparent 0); box-shadow: inset 0 0 0 2px currentColor;
+    -webkit-mask: radial-gradient(circle, transparent 1.6px, #000 1.7px); width: 8px; height: 8px; animation: spin 1.4s linear infinite; }
+  .st.warn { color: var(--warn); } .st.warn::before { border-radius: 1px; transform: rotate(45deg); width: 6px; height: 6px; margin: 0 1px; }
+  .st.bad { color: var(--bad); } .st.bad::before { border-radius: 0; width: 8px; height: 8px;
+    clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); }
+  .band small { color: var(--soft); font-size: 11.5px; line-height: 15px; padding-left: 13px; }
+  .track { height: 2px; margin: 4px 0 1px 13px; background: #2a2a2a; border-radius: 2px; overflow: hidden; }
+  .track i { display: block; height: 100%; background: var(--busy); }
+  .track.warn i { background: var(--warn); }
+  @keyframes spin { to { transform: rotate(1turn); } }
+
+  .cap { position: absolute; left: 0; right: 0; bottom: 0; min-height: 28%; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px;
+    padding: 9px 10px 10px; background: #000; border-top: 1px solid var(--line); transform: translateY(101%); transition: transform var(--base) var(--ease); }
+  .cap b { font-size: 13px; line-height: 16px; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .cap .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--soft); }
+  .cap .mono { font-size: 10.5px; color: var(--soft); }
+  .cap .hint { display: inline-flex; align-items: center; gap: 5px; color: var(--ink); font-weight: 600; }
+  .t.hero .cap { min-height: 0; padding: 16px 18px 18px; } .t.hero .cap b { font-size: 20px; line-height: 24px; }
+  .t:hover .cap, .t:focus-visible .cap, .t.is-focus .cap { transform: none; }
+  .t.is-open .cap { display: none; }
+
+  .add { grid-column: 4 / 7; grid-row: 3; display: flex; align-items: center; justify-content: center; gap: 14px; width: 100%; height: 100%;
+    background: var(--bg); color: var(--soft); font-size: 14px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--line);
+    transition: color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), background var(--fast) var(--ease); }
+  .add .plus { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; border: 1px dashed var(--line-hi);
+    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease), transform var(--base) var(--ease); }
+  .add .plus svg.i { width: 18px; height: 18px; }
+  .add:hover, .add:focus-visible { color: var(--ink); background: var(--tile); box-shadow: inset 0 0 0 1px var(--line-hi); outline: none; }
+  .add:hover .plus, .add:focus-visible .plus { border: 1px solid var(--accent); color: var(--accent); transform: rotate(90deg); }
+  .add:focus-visible { box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px #000; }
+
+  /* the greeting lives in the panel's place: closed, it is the context; open, the game replaces it */
+  .hello { grid-column: 7 / 10; grid-row: 1 / 4; padding: 26px 26px 22px; display: flex; flex-direction: column; min-width: 0; box-shadow: inset 1px 0 0 var(--line); }
+  .hello h1 { font-size: 46px; line-height: 1; font-weight: 600; letter-spacing: -0.035em; }
+  .hello .sum { margin-top: 14px; color: var(--soft); font-size: 14px; }
+  .hello .sum b { color: var(--ink); font-weight: 600; }
+  .people { margin-top: 24px; display: flex; flex-direction: column; gap: 13px; }
+  .person { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .av { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 700 11.5px/1 var(--sans); color: #000; background: var(--c); }
+  .person b { display: block; font-size: 14px; font-weight: 600; line-height: 18px; }
+  .person b small { color: var(--soft); font-weight: 500; font-size: 13px; }
+  .person div > span { display: block; color: var(--soft); font-size: 13px; line-height: 18px; margin-top: 1px; }
+  .person div > span em { font-style: normal; color: var(--ink); }
+  .quick { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); }
+  .quick h2 { font-size: 15px; font-weight: 600; }
+  .quick p { color: var(--soft); font-size: 13.5px; margin-top: 2px; }
+  .quick .acts { margin-top: 14px; }
+  .hello .sec { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  .hello .sec h2 { font-size: 19px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; }
+  .hello .sec p { color: var(--soft); font-size: 13px; margin-top: 3px; }
+  .hello .sec svg.i { width: 20px; height: 20px; color: var(--soft); margin-bottom: 2px; }
+
+  /* ---------- buttons ---------- */
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 42px; padding: 0 18px; border-radius: 8px; font-size: 14px;
+    font-weight: 600; white-space: nowrap; transition: background var(--fast) var(--ease), color var(--fast) var(--ease), box-shadow var(--fast) var(--ease), transform var(--fast) var(--ease); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); }
+  .btn.primary svg.i.fill { fill: currentColor; stroke: none; }
+  .btn.primary:hover { background: var(--accent-hi); }
+  .btn.ghost { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-hi); }
+  .btn.ghost:hover { background: var(--raise); box-shadow: inset 0 0 0 1px #4a4a4a; }
+  .btn.wide { width: 100%; }
+  .btn .code-s { font: 700 13px/1 var(--mono); letter-spacing: 0.16em; }
+
+  /* ---------- the panel: slides over the 3 right columns ---------- */
+  .panel { position: fixed; z-index: 9; top: var(--top); right: 0; bottom: 0; width: var(--pw); background: #000;
+    box-shadow: inset 1px 0 0 var(--line), -40px 0 60px -30px #000; border-radius: 12px 0 0 0; display: flex; flex-direction: column; overflow: hidden; }
+  /* the poster takes whatever the game's content leaves: short states get a bigger cover, never an empty hole */
+  .poster { position: relative; flex: 1 1 184px; min-height: 184px; max-height: 440px; overflow: hidden; border-radius: 12px 0 0 0; }
+  .poster img { width: 100%; height: 100%; object-fit: cover; object-position: center 30%; display: block; }
+  .poster::after { content: ""; position: absolute; inset: 0; background: linear-gradient(rgb(0 0 0 / 0) 30%, rgb(0 0 0 / 0.75) 68%, #000); pointer-events: none; }
+  .poster .chip { position: absolute; z-index: 1; top: 12px; left: 12px; padding: 5px 9px; border-radius: 6px; background: #000; border: 1px solid var(--line);
+    font-size: 12.5px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+  .poster h3 { position: absolute; z-index: 1; left: 22px; right: 22px; bottom: 12px; font-size: 26px; line-height: 1.1; font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; }
+  .x { position: absolute; z-index: 1; top: 10px; right: 10px; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: var(--ink);
+    background: #000; border: 1px solid var(--line); transition: border-color var(--fast), background var(--fast); }
+  .x:hover { background: var(--raise); border-color: var(--line-hi); }
+  .fly { position: fixed; z-index: 20; object-fit: cover; object-position: center 30%; pointer-events: none; }
+
+  .pbody { flex: 0 1 auto; overflow-y: auto; padding: 14px 22px 14px; display: flex; flex-direction: column; gap: 13px; }
+  .meta { display: flex; align-items: center; gap: 12px; }
+  .meta .mono { font-size: 12.5px; color: var(--soft); }
+  .seal { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; font-weight: 600;
+    color: var(--ok); box-shadow: inset 0 0 0 1px rgb(61 220 132 / 0.4); }
+  .seal svg.i { width: 12px; height: 12px; stroke-width: 2.2; }
+  .pbody > p { color: #cfcacc; font-size: 14.5px; line-height: 1.5; }
+
+  .prog { display: grid; grid-template-columns: 1fr auto; align-items: end; row-gap: 8px; }
+  .prog .big { font: 700 28px/1 var(--mono); letter-spacing: -0.02em; }
+  .prog .bar2 { grid-column: 1 / -1; height: 4px; border-radius: 4px; background: #222; overflow: hidden; }
+  .prog .bar2 i { display: block; height: 100%; background: var(--c); }
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .steps i { height: 4px; border-radius: 4px; background: #222; }
+  .steps i.done { background: var(--busy); }
+  .steps i.now { background: linear-gradient(90deg, var(--busy) 50%, #222 0) 100% 0 / 200% 100%; animation: fill 1.6s var(--ease) infinite alternate; }
+  @keyframes fill { to { background-position: 0 0; } }
+  .steps + p { color: var(--soft); font-size: 13px; margin-top: 8px; }
+  .steps + p b { color: var(--ink); font-weight: 600; }
+  .note { display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding: 14px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--tile); }
+  .note .st { grid-column: 1 / -1; font-size: 14px; }
+  .note p { grid-column: 2; color: #cfcacc; font-size: 13.5px; line-height: 1.5; margin-top: -6px; }
+
+  .room { border: 1px solid var(--line); border-radius: 10px; }
+  .room .head { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px 9px; border-bottom: 1px solid var(--line); }
+  .room .live { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .room .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: ping 1.8s var(--ease) infinite; }
+  @keyframes ping { from { box-shadow: 0 0 0 0 rgb(61 220 132 / 0.6); } to { box-shadow: 0 0 0 7px rgb(61 220 132 / 0); } }
+  .code { font: 700 22px/1 var(--mono); letter-spacing: 0.22em; margin-right: -0.22em; color: var(--ink); }
+  .slots { display: grid; grid-template-columns: 1fr 1fr; }
+  .slot { display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 13px; line-height: 17px; min-width: 0; }
+  .slot + .slot { border-left: 1px solid var(--line); }
+  .slot b { display: block; font-weight: 600; color: var(--ink); }
+  .slot div > span { color: var(--soft); }
+  .slot .open { width: 28px; height: 28px; flex: none; border-radius: 50%; border: 1px dashed #555; display: grid; place-items: center; font: 600 10.5px/1 var(--mono); color: var(--soft); }
+  .watch { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--soft); }
+  .watch .av { width: 22px; height: 22px; font-size: 10px; }
+  .watch b { color: var(--ink); font-weight: 600; }
+  .room .go { padding: 0 12px 12px; }
+  .room .go:first-child { padding-top: 12px; }
+  .more { display: flex; gap: 4px; padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--line); }
+  .link { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; border-radius: 7px; color: var(--soft); font-size: 13px; font-weight: 500;
+    transition: color var(--fast) var(--ease), background var(--fast) var(--ease); }
+  .link:first-child { margin-left: -10px; }
+  .link:hover { color: var(--ink); background: var(--raise); }
+
+  .pads { display: flex; align-items: center; gap: 18px; padding: 11px 22px; flex: none; border-top: 1px solid var(--line); color: var(--soft); font-size: 12.5px; }
+  .pad { display: inline-flex; align-items: center; gap: 7px; }
+  .pad svg { width: 18px; height: 18px; fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .pad svg circle.ring { stroke: var(--line-hi); }
+  .cap .pad svg { width: 16px; height: 16px; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+  @media (max-width: 980px) {
+    :root { --cols: 3; --pw: 100vw; }
+    .bar { position: sticky; overflow-x: auto; } .nav .lbl { display: none; } .bar nav .sep { display: none; }
+    .wall { padding-top: 8px; }
+    .grid { --row: calc(var(--colw) * 1.5); }
+    .t.hero, .hello, .add { grid-column: 1 / -1; grid-row: auto; }
+    .t.hero { grid-row: span 2; }
+    .panel { top: 0; border-radius: 0; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-lib" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="9" rx="1.2"/><rect x="13.5" y="4" width="6.5" height="9" rx="1.2"/><path d="M4 17h16M4 20h10"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="16.5" cy="9.5" r="2.6"/><path d="M16.5 14.2c2.2.1 3.7 1.6 4.1 4.3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M7.5 7h9a4.5 4.5 0 0 1 4.4 3.6l.9 4.7a2.6 2.6 0 0 1-4.6 2.1L15.5 15h-7l-1.7 2.4a2.6 2.6 0 0 1-4.6-2.1l.9-4.7A4.5 4.5 0 0 1 7.5 7z"/><path d="M8 9.8v3M6.5 11.3h3"/><circle cx="16" cy="10.6" r=".6"/><circle cx="17.4" cy="12.4" r=".6"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M7.5 7.5h.01M7.5 16.5h.01M11 7.5h5M11 16.5h5"/></symbol>
+  <symbol id="i-web" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9h17"/><path d="M10 15l4-4M11 11h3v3"/></symbol>
+  <symbol id="i-pc" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="11.5" rx="1.8"/><path d="M9 20h6M12 16v4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
+  <symbol id="i-door" viewBox="0 0 24 24"><path d="M5 20h14M7 20V5.5A1.5 1.5 0 0 1 8.5 4h7A1.5 1.5 0 0 1 17 5.5V20"/><path d="M13.5 12h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 15V4M7 9l5-5 5 5"/><path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9.5" cy="9.5" r="1.6"/><path d="M5 18l5-5 3 3 2.5-2.5L19 17"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></symbol>
+  <symbol id="p-cross" viewBox="0 0 20 20"><circle class="ring" cx="10" cy="10" r="9"/><path d="M6.6 6.6l6.8 6.8M13.4 6.6l-6.8 6.8"/></symbol>
+  <symbol id="p-tri" viewBox="0 0 20 20"><circle class="ring" cx="10" cy="10" r="9"/><path d="M10 5.6l4.6 8H5.4z"/></symbol>
+  <symbol id="p-circle" viewBox="0 0 20 20"><circle class="ring" cx="10" cy="10" r="9"/><circle cx="10" cy="10" r="4.4"/></symbol>
+</svg>
+
+<header class="bar">
+  <div class="brand">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#ff5a8a"/><g fill="#000"><rect x="14" y="14" width="10" height="36" rx="5"/><rect x="40" y="14" width="10" height="36" rx="5"/><path d="M22 20v24l20-12z"/></g></svg>
+    HypePlay <span class="beta">BETA</span>
+  </div>
+  <nav aria-label="Seções">
+    <button class="nav" aria-current="page"><svg class="i" aria-hidden="true"><use href="#i-lib"/></svg><span class="lbl">Biblioteca</span><span class="n">7</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-people"/></svg><span class="lbl">Pessoas</span><span class="n">3</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg><span class="lbl">Adicionar jogo</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-pad"/></svg><span class="lbl">Controle</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-server"/></svg><span class="lbl">Servidor</span></button>
+    <span class="sep" aria-hidden="true"></span>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-web"/></svg><span class="lbl">Abrir no navegador</span></button>
+    <button class="nav"><svg class="i" aria-hidden="true"><use href="#i-pc"/></svg><span class="lbl">App para PC</span></button>
+  </nav>
+</header>
+
+<main class="wall">
+  <div class="grid" id="grid">
+    <!-- game tiles are rendered from `games` below -->
+    <button class="add"><span class="plus"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></span>Adicionar jogo</button>
+    <section class="hello" aria-label="Boa noite">
+      <h1>Boa noite,<br>Ana</h1>
+      <p class="sum num"><b>7</b> jogos no servidor · <b>2</b> salas abertas agora</p>
+      <ul class="people" aria-label="Na call">
+        <li class="person"><span class="av" style="--c:#ff5a8a">A</span><div><b>Ana <small>(você)</small></b><span>Na biblioteca</span></div></li>
+        <li class="person"><span class="av" style="--c:#7cc4ff">B</span><div><b>Bruno</b><span>Jogando <em>Dragon Ball Z: Budokai Tenkaichi 3</em></span></div></li>
+        <li class="person"><span class="av" style="--c:#f2c46b">C</span><div><b>Carla</b><span>Assistindo <em>Dragon Ball Z: Budokai Tenkaichi 3</em></span></div></li>
+      </ul>
+      <div class="quick">
+        <h2>Continuar jogando</h2>
+        <p>Dragon Ball Z: Budokai Tenkaichi 3</p>
+        <div class="acts">
+          <button class="btn primary"><svg class="i fill" aria-hidden="true"><use href="#i-play"/></svg>Jogar agora</button>
+          <button class="btn ghost" data-open="bt3">Sala <span class="code-s" aria-label="K R T Z">KRTZ</span></button>
+        </div>
+      </div>
+      <div class="sec">
+        <div><h2>Seus jogos</h2><p>Enviados uma vez, para todo mundo</p></div>
+        <svg class="i" aria-hidden="true"><use href="#i-left"/></svg>
+      </div>
+    </section>
+  </div>
+</main>
+
+<aside class="panel" id="panel" aria-labelledby="p-title" hidden>
+  <div class="poster">
+    <img id="p-img" src="capas/bt3.svg" alt="">
+    <span class="chip" id="p-chip"></span>
+    <button class="x" id="p-x" aria-label="Fechar"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h3 id="p-title"></h3>
+  </div>
+  <div class="pbody" id="p-body"></div>
+  <footer class="pads" aria-label="Controle">
+    <span class="pad"><svg role="img" aria-label="Cruz"><use href="#p-cross"/></svg>Abrir</span>
+    <span class="pad"><svg role="img" aria-label="Triângulo"><use href="#p-tri"/></svg>Sala</span>
+    <span class="pad"><svg role="img" aria-label="Círculo"><use href="#p-circle"/></svg>Voltar</span>
+  </footer>
+</aside>
+
+<script>
+  const ico = (id, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+  const more = `<div class="more"><button class="link">${ico('i-image')}Trocar a capa</button><button class="link">${ico('i-trash')}Remover</button></div>`;
+  // order = wall order (hero first, then attention, then in progress, then ready)
+  const games = [
+    { id: 'bt3', name: 'Dragon Ball Z: Budokai Tenkaichi 3', serial: 'SLUS-21678', st: 'ok', room: true, hero: true, chip: 'Continuar jogando', seal: true,
+      body: `<p>Adicionado por Bruno. A ISO fica no servidor: é só jogar.</p>
+        <div class="acts"><button class="btn primary">${ico('i-play', 'fill')}Jogar agora</button><button class="btn ghost">${ico('i-door')}Abrir uma sala</button></div>
+        <section class="room" aria-label="Sala aberta KRTZ">
+          <div class="head"><span class="live">Sala aberta</span><span class="code" aria-label="Código K R T Z">KRTZ</span></div>
+          <div class="slots">
+            <div class="slot"><span class="av" style="--c:#7cc4ff">B</span><div><b>Bruno</b><span>jogando</span></div></div>
+            <div class="slot"><span class="open" aria-hidden="true">P2</span><div><b>Vaga de jogador 2</b></div></div>
+          </div>
+          <div class="watch"><span class="av" style="--c:#f2c46b">C</span><span><b>Carla</b> assistindo</span></div>
+          <div class="go"><button class="btn ghost wide">Entrar como jogador 2</button></div>
+        </section>` },
+    { id: 'okami', name: 'Ōkami', serial: 'SLUS-21115', st: 'warn', label: 'Falta a BIOS', focus: true,
+      body: `<div class="note"><span class="st warn">Falta a BIOS</span><p>O jogo já está no servidor, mas o emulador precisa da BIOS do PS2 para ligar. Envie o arquivo da BIOS uma vez e ele serve para a biblioteca toda.</p></div>
+        <div class="acts"><button class="btn primary">${ico('i-chip')}Enviar a BIOS</button></div>` },
+    { id: 'burnout', name: 'Burnout 3: Takedown', serial: 'SLUS-21050', st: 'warn', label: 'Envio parado em 41%', pct: 41,
+      body: `<div class="prog" style="--c:var(--warn)"><span class="st warn">Envio parado</span><span class="big num">41%</span><span class="bar2"><i style="width:41%"></i></span></div>
+        <p>O envio da ISO parou no meio. Continue de onde parou.</p>
+        <div class="acts"><button class="btn primary">${ico('i-up')}Continuar o envio</button></div>` },
+    { id: 'sotc', name: 'Shadow of the Colossus', serial: 'SCUS-97472', st: 'bad', label: 'Falhou', detail: 'A compilação falhou.',
+      body: `<div class="note"><span class="st bad">Falhou</span><p>A compilação falhou. Envie outra ISO deste jogo para tentar de novo.</p></div>
+        <div class="acts"><button class="btn primary">${ico('i-up')}Enviar outra ISO</button></div>` },
+    { id: 'naruto', name: 'Naruto: Ultimate Ninja 2', serial: 'SLUS-21410', st: 'busy', label: 'Recebendo 62%', pct: 62,
+      body: `<div class="prog" style="--c:var(--busy)"><span class="st busy">Recebendo</span><span class="big num">62%</span><span class="bar2"><i style="width:62%"></i></span></div>
+        <p>A ISO está chegando ao servidor. Quando o envio terminar, o servidor prepara o jogo para todo mundo.</p>
+        <div class="acts"><button class="btn primary">${ico('i-up')}Continuar o envio</button></div>` },
+    { id: 'gt4', name: 'Gran Turismo 4', serial: 'SCUS-97328', st: 'busy', label: 'Compilando 3/5', detail: 'Extraindo os dados',
+      body: `<div><span class="st busy num">Compilando 3/5</span><div class="steps" style="margin-top:10px" aria-hidden="true"><i class="done"></i><i class="done"></i><i class="now"></i><i></i><i></i></div>
+        <p>Passo 3 de 5: <b>Extraindo os dados</b></p></div>
+        <p>O servidor está preparando o jogo para todo mundo. Quando terminar, o Jogar agora aparece aqui.</p>` },
+    { id: 'pes', name: 'Winning Eleven 9', serial: 'SLUS-21326', st: 'ok', room: true,
+      body: `<p>A ISO fica no servidor: é só jogar.</p>
+        <div class="acts"><button class="btn primary">${ico('i-play', 'fill')}Jogar agora</button><button class="btn ghost">${ico('i-door')}Abrir uma sala</button></div>
+        <section class="room" aria-label="1 sala aberta"><div class="head"><span class="live">1 sala aberta</span></div>
+          <div class="go" style="padding-top:12px"><button class="btn ghost wide">Entrar na sala</button></div></section>` },
+  ];
+  const byId = Object.fromEntries(games.map(g => [g.id, g]));
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const band = g => g.room ? `<span class="st ok">Pronto</span><small>1 sala aberta</small>`
+    : `<span class="st ${g.st} num">${g.label}</span>` + (g.pct != null ? `<span class="track ${g.st}"><i style="width:${g.pct}%"></i></span>` : '') + (g.detail ? `<small>${g.detail}</small>` : '');
+  const grid = document.getElementById('grid');
+  grid.insertAdjacentHTML('afterbegin', games.map(g => {
+    const state = g.room ? 'pronto, 1 sala aberta' : g.label.toLowerCase() + (g.detail ? ': ' + g.detail : '');
+    const hint = g.focus ? `<span class="pad"><svg role="img" aria-label="Cruz"><use href="#p-cross"/></svg></span>Abrir` : 'Abrir';
+    return `<button class="t${g.hero ? ' hero' : ''}${g.focus ? ' is-focus' : ''}" data-id="${g.id}" aria-controls="panel" aria-expanded="false"
+      aria-label="${esc(g.name)}, ${g.serial}, ${state}"><img src="capas/${g.id}.svg" alt=""><span class="band">${band(g)}</span>
+      <span class="cap"><b>${esc(g.name)}</b><span class="row"><span class="mono">${g.serial}</span><span class="hint">${hint}</span></span></span></button>`;
+  }).join(''));
+
+  const panel = document.getElementById('panel'), pImg = document.getElementById('p-img'), pTitle = document.getElementById('p-title');
+  const pChip = document.getElementById('p-chip'), pBody = document.getElementById('p-body'), poster = panel.querySelector('.poster');
+  const tiles = [...grid.querySelectorAll('.t')];
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+  const ease = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+  let current = null;
+
+  function open(id, { animate = true, focus = false } = {}) {
+    const g = byId[id], tile = grid.querySelector(`.t[data-id="${id}"]`);
+    if (!g || current === id) return;
+    const wasOpen = current !== null;
+    current = id;
+    pImg.src = `capas/${id}.svg`;
+    pTitle.textContent = g.name;
+    pChip.innerHTML = g.chip ? g.chip : `<span class="st ${g.st}">${g.room ? 'Pronto' : g.label}</span>`;
+    pBody.innerHTML = `<div class="meta"><span class="mono">${g.serial}</span>${g.seal ? `<span class="seal">${ico('i-check')}Testado</span>` : ''}</div>${g.body}${more}`;
+    pBody.scrollTop = 0;
+    tiles.forEach(t => { const on = t === tile; t.classList.toggle('is-open', on); t.setAttribute('aria-expanded', on); });
+    panel.hidden = false;
+    if (location.hash !== '#' + id) history.replaceState(null, '', '#' + id);
+    if (focus) (pBody.querySelector('.btn.primary') || document.getElementById('p-x')).focus({ preventScroll: true });
+    if (!animate || still.matches) return;
+
+    // one motion: the cover leaves its tile and grows into the panel's poster while the panel slides in under it
+    const a = tile.getBoundingClientRect(), b = poster.getBoundingClientRect();
+    const fly = Object.assign(document.createElement('img'), { src: pImg.src, className: 'fly', alt: '' });
+    document.body.append(fly);
+    const box = r => ({ left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+    const opts = { duration: 620, easing: ease };
+    // last 30%: the flying cover hands over to the poster (with its shade and title) instead of popping
+    const handover = [{ opacity: 1 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }];
+    pImg.animate([{ opacity: 0 }, { opacity: 0, offset: 0.7 }, { opacity: 1 }], opts);
+    fly.animate(handover, { duration: 620, fill: 'forwards' });
+    fly.animate([{ ...box(a), borderRadius: '0' }, { ...box(b), borderRadius: '12px 0 0 0' }], { ...opts, fill: 'forwards' })
+      .finished.then(() => fly.remove());
+    if (!wasOpen) panel.animate([{ transform: 'translateX(100%)' }, { transform: 'none' }], opts);
+    else pBody.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: 180, easing: ease, fill: 'backwards' });
+  }
+
+  function close() {
+    if (current === null) return;
+    const tile = grid.querySelector(`.t[data-id="${current}"]`), hadFocus = panel.contains(document.activeElement);
+    current = null;
+    tiles.forEach(t => { t.classList.remove('is-open'); t.setAttribute('aria-expanded', 'false'); });
+    history.replaceState(null, '', location.pathname + location.search);
+    if (hadFocus) tile.focus({ preventScroll: true });
+    if (still.matches) { panel.hidden = true; return; }
+    panel.animate([{ transform: 'none' }, { transform: 'translateX(100%)' }], { duration: 260, easing: 'cubic-bezier(0.4, 0, 1, 1)' })
+      .finished.then(() => { if (current === null) panel.hidden = true; });
+  }
+
+  // a click is a "keyboard" open when it came from Enter/Space (detail === 0): then focus moves into the panel
+  tiles.forEach(t => t.addEventListener('click', e => open(t.dataset.id, { focus: e.detail === 0 })));
+  document.querySelector('[data-open]').addEventListener('click', e => { e.stopPropagation(); open('bt3', { focus: e.detail === 0 }); });
+  document.getElementById('p-x').addEventListener('click', close);
+  addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  document.addEventListener('click', e => { if (current && !panel.contains(e.target) && !e.target.closest('.t, [data-open]')) close(); });
+  addEventListener('hashchange', () => { const id = location.hash.slice(1); byId[id] ? open(id) : close(); });
+  // #bt3 (or any game id) opens that panel on load, already in place
+  if (byId[location.hash.slice(1)]) open(location.hash.slice(1), { animate: false });
+</script>
+</body>
+</html>

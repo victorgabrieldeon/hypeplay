@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900" width="600" height="900">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="hsl(249 55% 17%)"/><stop offset="0.75" stop-color="#0b0a14"/></linearGradient>
+<linearGradient id="foil" gradientTransform="rotate(121 .5 .5)"><stop offset="0" stop-color="hsl(249 95% 66%)"/><stop offset="0.35" stop-color="hsl(294 90% 72%)"/><stop offset="0.65" stop-color="hsl(209 90% 60%)"/><stop offset="1" stop-color="hsl(269 95% 76%)"/></linearGradient>
+<radialGradient id="glow"><stop offset="0" stop-color="hsl(249 100% 60%)" stop-opacity="0.5"/><stop offset="1" stop-color="hsl(249 100% 60%)" stop-opacity="0"/></radialGradient>
+<linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0.5" stop-color="#0b0a14" stop-opacity="0"/><stop offset="0.96" stop-color="#0b0a14"/></linearGradient></defs>
+<rect width="600" height="900" fill="url(#bg)"/>
+<circle cx="490" cy="488" r="434" fill="url(#glow)"/>
+<g transform="translate(490 488)">
+<circle r="271" fill="url(#foil)"/>
+<g fill="none" stroke="#fff" stroke-opacity="0.09" stroke-width="2"><circle r="249"/><circle r="222"/><circle r="195"/><circle r="168"/><circle r="141"/></g>
+<path d="M0 0L-232.3 -139.6A271 271 0 0 1 -139.6 -232.3Z" fill="#fff" opacity="0.22"/>
+<path d="M0 0L232.3 139.6A271 271 0 0 1 184.8 198.2Z" fill="#fff" opacity="0.12"/>
+<circle r="98" fill="#0b0a14" opacity="0.5"/>
+<circle r="81" fill="none" stroke="#fff" stroke-opacity="0.3" stroke-width="3"/>
+<circle r="30" fill="#0b0a14"/>
+</g>
+<rect width="600" height="900" fill="url(#fade)"/>
+<rect width="600" height="72" fill="#0b0a14" opacity="0.78"/>
+<rect y="72" width="600" height="2" fill="hsl(249 95% 70%)" opacity="0.6"/>
+<text x="40" y="45" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="22" letter-spacing="2" fill="#a3a1bd">SLUS-21115</text>
+<text x="560" y="45" text-anchor="end" font-family="ui-sans-serif, system-ui, sans-serif" font-weight="800" font-size="22" letter-spacing="3" fill="hsl(249 95% 76%)">PS2</text>
+<rect x="48" y="764" width="56" height="6" rx="3" fill="hsl(249 95% 70%)"/>
+<g font-family="Unbounded, ui-sans-serif, system-ui, sans-serif" font-weight="700" font-size="42" fill="#f3f2fb"><text x="48" y="828">Ōkami</text></g>
+</svg>

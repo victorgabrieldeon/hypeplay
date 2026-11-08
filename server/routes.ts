@@ -20,7 +20,8 @@
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
  *             ps2/<id>/fast/<file>         the "versão rápida" (ps2-builder/), its disc, and the code it met untranslated
  *             vimm                         POST { link }: download a PS2 game from vimm.net into the library; GET: how it goes (vimm.ts)
- *             vimm/search?q=, vimm/cover/<id>?name=   the "loja": Vimm's PS2 vault searched (a letter lists it), its drawn covers
+ *             vimm/store, vimm/search?q=   the "loja": Vimm's PS2 lists (month's top, best rated) and search (a letter lists it)
+ *             vimm/art/<box|snap>/<file>   a game's box art or screenshot (libretro-thumbnails); vimm/cover/<id>: one drawn
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
  *
@@ -846,13 +847,18 @@ export function createApp({
       const r = vimm.start(pass, typeof link === "string" ? link : "");
       return r.ok ? json(vimm.status(), 202) : json({ error: r.error }, r.status);
     }
+    const failed = (err: unknown) => (console.warn("loja: vimm.net failed", err), json({ error: "O vimm.net não respondeu. Tente de novo." }, 502));
+    if (vimm && path === "/vimm/store") return vimm.vault.home().then(json, failed);
     if (vimm && path === "/vimm/search") {
       const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
       if (!q) return json({ error: "Digite o nome de um jogo" }, 400);
-      return vimm.search(q).then(
-        (games) => json({ games }),
-        (err) => (console.warn("vimm search failed", err), json({ error: "O vimm.net não respondeu. Tente de novo." }, 502)),
-      );
+      return vimm.vault.search(q).then((games) => json({ games }), failed);
+    }
+    const shot = vimm && /^\/vimm\/art\/(box|snap)\/(.{1,200})$/.exec(path);
+    if (shot) {
+      const res = await vimm!.vault.art(shot[1] as "box" | "snap", decodeURIComponent(shot[2]!)).catch(() => null);
+      // shortcut: every look asks GitHub (the browser keeps it a year); kept on disk here if that ever gets slow
+      return res ? respond(res.body, 200, { "Content-Type": "image/png", "Cache-Control": "private, max-age=31536000, immutable" }) : text("Não encontrado", 404);
     }
     // the "loja"'s covers: drawn here (cover.ts), never vimm's art; the id seeds the colors, the name is the title
     const art = vimm && /^\/vimm\/cover\/(\d{1,9})$/.exec(path);

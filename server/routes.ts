@@ -19,7 +19,8 @@
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
  *             ps2/<id>/fast/<file>         the "versão rápida" (ps2-builder/), its disc, and the code it met untranslated
- *             vimm                         POST { link }: download a PS2 game from vimm.net into the library; GET: how it goes (vimm.ts)
+ *             vimm                         POST { link, title?, box? }: download a PS2 game from vimm.net into the library (with
+ *                                          its box art as the cover); GET: how it goes (vimm.ts); vimm/ws: the same, pushed
  *             friends/<id>                 POST: ask (or accept); DELETE: unfriend, decline or cancel (social.ts)
  *             profile/<id>, users?q=       someone's profile (hours, games, badges); people to add, by name
  *             invite, invite/<id>          POST { to, key }: come play (with my room); POST { accept }: take it or dismiss it
@@ -123,6 +124,8 @@ export type NetData = { game: string } & (
   | { kind: "room"; params: RoomParams }
   | { kind: "queue"; params: QueueParams }
   | { kind: "relay"; room: string; role: "host" | "guest"; me: string; watch: boolean }
+  /** the vimm download as it goes (vimm.ts watch): `off` once open */
+  | { kind: "vimm"; off?: () => void }
 );
 
 const typeOf = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? TYPES.bin!;
@@ -904,9 +907,14 @@ export function createApp({
     if (vimm && path === "/vimm") {
       if (req.method === "GET") return json(vimm.status());
       if (req.method !== "POST") return text("Método não permitido", 405);
-      const link = (await body<{ link?: unknown }>(req))?.link;
-      const r = vimm.start(pass, typeof link === "string" ? link : "");
+      const b = await body<{ link?: unknown; title?: unknown; box?: unknown }>(req);
+      const str = (v: unknown) => (typeof v === "string" ? v : "");
+      const r = vimm.start(pass, str(b?.link), { title: str(b?.title), box: str(b?.box) });
       return r.ok ? json(vimm.status(), 202) : json({ error: r.error }, r.status);
+    }
+    if (vimm && path === "/vimm/ws") {
+      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
+      return server.upgrade(req, { data: { game: "", kind: "vimm" } }) ? undefined : text("Não deu para abrir a conexão", 400);
     }
     const failed = (err: unknown) => (console.warn("loja: vimm.net failed", err), json({ error: "O vimm.net não respondeu. Tente de novo." }, 502));
     if (vimm && path === "/vimm/store") return vimm.vault.home().then(json, failed);
@@ -961,16 +969,21 @@ export function createApp({
   const websocket: WebSocketHandler<NetData> = {
     open(ws) {
       const d = ws.data;
-      if (d.kind === "relay") relay.open(ws, d.room, d.role, d.me, d.watch);
+      if (d.kind === "vimm") {
+        ws.send(JSON.stringify(vimm!.status()));
+        d.off = vimm!.watch((job) => ws.send(JSON.stringify(job)));
+      } else if (d.kind === "relay") relay.open(ws, d.room, d.role, d.me, d.watch);
       else if (d.kind === "room") roomsOf(ws).openRoom(ws, d.params);
       else roomsOf(ws).openQueue(ws, d.params);
     },
     message(ws, msg) {
+      if (ws.data.kind === "vimm") return;
       if (ws.data.kind === "relay") relay.message(ws, typeof msg === "string" ? msg : new Uint8Array(msg));
       else roomsOf(ws).message(ws, msg);
     },
     close(ws, code) {
-      if (ws.data.kind === "relay") relay.close(ws);
+      if (ws.data.kind === "vimm") ws.data.off?.();
+      else if (ws.data.kind === "relay") relay.close(ws);
       else roomsOf(ws).close(ws, code);
     },
   };

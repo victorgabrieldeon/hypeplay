@@ -18,33 +18,33 @@ async function store(fetch) {
   runInNewContext(source.replace(/^import .*;$/gm, ''), {
     document: { getElementById: (id) => id === 'store' ? layer : fields[id], querySelector: () => nav, querySelectorAll: () => [], body: { classList: { toggle() {} } } },
     location, addEventListener: (event, fn) => events[event] = fn, scrollTo() {},
-    state: { me: 'Ana' }, gameOf: () => null, poll() {}, esc: String, icon: () => '', gb: String, pct: () => 0,
-    fetch: (url, init) => url === 'vimm/store' ? Promise.resolve(Response.json({ top: [{ id: 8849, name: 'Naruto', regions: ['USA'], automatic: true }], rated: [] })) : fetch(url, init),
+    state: { me: 'Ana', vimm: null }, gameOf: () => null, esc: String, icon: () => '', gb: String, pct: () => 0,
+    installing: (v) => ['resolving', 'downloading', 'extracting'].includes(v?.state), CustomEvent,
+    fetch: (url, init) => url === 'vimm/store' ? Promise.resolve(Response.json({ top: [{ id: 8849, name: 'Naruto', regions: ['USA'], automatic: true, box: 'Naruto (USA)' }], rated: [] })) : fetch(url, init),
     setTimeout: (fn) => { timers.set(++clock, fn); return clock; }, clearTimeout: (id) => timers.delete(id),
   });
   await Bun.sleep(0);
   return {
-    layer, fields, buttons, timers,
+    layer, fields, buttons, timers, pushed: (v) => events.vimm({ detail: v }),
     search: () => events.submit({ target: { matches: () => true }, preventDefault() {} }),
     navigate: (hash) => { location.hash = hash; events.hashchange(); },
     install: () => events.click({ target: { closest: () => ({ dataset: { storeInstall: '8849' } }) } }),
   };
 }
 
-test('store status polling retries a transient failure and releases installation controls', async () => {
-  let statuses = 0;
+test("the store sends the game's name and art, and follows the pushed status until the install is done", async () => {
+  const sent = [];
   const ui = await store(async (_, init) => {
-    if (init?.method === 'POST') return Response.json({ state: 'resolving', by: 'Ana' });
-    if (++statuses === 2) throw new Error('offline');
-    return Response.json(statuses === 1 ? { state: 'idle' } : { state: 'done', by: 'Ana', name: 'Naruto' });
+    sent.push(JSON.parse(init.body));
+    return Response.json({ state: 'resolving', by: 'Ana' });
   });
   ui.navigate('#loja/8849');
   await ui.install();
-  await Bun.sleep(0);
+  expect(sent).toEqual([{ link: 'https://vimm.net/vault/8849', title: 'Naruto', box: 'Naruto (USA)' }]);
   expect(ui.buttons[0].disabled).toBe(true);
-  expect(ui.timers.size).toBe(1);
-  const retry = [...ui.timers.values()][0];
-  await retry();
+  ui.pushed({ state: 'downloading', by: 'Ana', name: 'Naruto', received: 5, size: 10 });
+  expect(ui.buttons[0].disabled).toBe(true);
+  ui.pushed({ state: 'done', by: 'Ana', name: 'Naruto' });
   expect(ui.buttons[0].disabled).toBe(false);
   expect(ui.fields['store-job'].innerHTML).toContain('entrou');
 });

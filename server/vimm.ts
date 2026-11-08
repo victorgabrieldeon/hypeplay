@@ -7,8 +7,9 @@
  * One download at a time (vimm limits them per address too), in <dir>/vimm/: the archive, then its one .iso, read for
  * its serial and moved into the library (library.ts), where it plays like a sent one.
  */
-import { mkdir, readdir, rename, rm } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { normalizeCover } from "./cover";
 import { fileRead, readDiscId } from "./iso9660";
 import { PS2_MAX, PS2_MIN, type Library } from "./library";
 import type { Pass } from "./pass";
@@ -105,6 +106,12 @@ export interface VimmOptions {
 export function createVimm(dir: string, library: Library, { fetch: get = fetch, min = PS2_MIN, max = PS2_MAX }: VimmOptions = {}) {
   const work = join(dir, "vimm");
   let job: VimmJob = { state: "idle" };
+  /** What the page shows while it installs: the store's name and box art (a libretro file name), when it gave them. */
+  let shown = { title: "", box: "", vault: 0 };
+  const listeners = new Set<(job: ReturnType<typeof status>) => void>();
+  const status = () => ({ ...job, title: shown.title, cover: shown.box ? `vimm/art/box/${encodeURIComponent(shown.box)}` : shown.vault ? `vimm/cover/${shown.vault}?name=${encodeURIComponent(shown.title)}` : "" });
+  const emit = () => { const now = status(); for (const fn of listeners) fn(now); };
+  const set = (next: VimmJob) => { job = next; emit(); };
   const catalog = createMediaCatalog({ fetch: get });
   const vault = createVault({ fetch: get });
   async function withAutomatic<T extends ListedGame>(games: T[]) {
@@ -124,7 +131,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
       const link = links.get(page.split("/").at(-1)!);
       if (!link) throw new Refused("Essa edição não está no catálogo automático. Cole o link de download do vimm.net ou envie sua ISO.");
       url = link;
-      job = { state: "downloading", by: pass.name, name: "", received: 0, size: null };
+      set({ state: "downloading", by: pass.name, name: "", received: 0, size: null });
     }
     await rm(work, { recursive: true, force: true });
     await mkdir(join(work, "out"), { recursive: true });
@@ -138,13 +145,16 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
     const name = file.replace(/\.(7z|zip|rar)$/i, "").trim().slice(0, 80);
     const by = pass.name;
     const down: Extract<VimmJob, { state: "downloading" }> = { state: "downloading", by, name, received: 0, size };
-    job = down;
+    set(down);
 
     const archive = join(work, "download");
     const writer = Bun.file(archive).writer();
+    let told = 0;
     try {
       for await (const chunk of res.body) {
         down.received += chunk.length;
+        // (chunks come hundreds of times a second: four a second is enough for a progress ring)
+        if (performance.now() - told > 250) { told = performance.now(); emit(); }
         if (down.received > max) throw new Refused("Esse arquivo é grande demais para um jogo de PS2.");
         writer.write(chunk);
         await writer.flush();
@@ -154,7 +164,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
     }
     if (size && down.received !== size) throw new Refused("O download parou no meio. Tente de novo.");
 
-    job = { state: "extracting", by, name };
+    set({ state: "extracting", by, name });
     const files = await sevenZip(["l", "-slt", archive]).then(listing, () => {
       throw new Refused("Não deu para abrir o arquivo que veio do vimm.net.");
     });
@@ -184,12 +194,33 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
       await library.remove(r.game.id);
       throw err;
     }
+    await coverFrom(r.game.id, shown.box || name);
     library.settle(r.game.id);
     return { state: "done", by, name: r.game.name, key: `ps2/${r.game.id}`, existed: false } as const;
   }
 
+  /** The game's box art from libretro-thumbnails as its library cover: `box` is the store's file, or a name to match. */
+  async function coverFrom(id: string, box: string) {
+    try {
+      const art = (await vault.art("box", box)) ?? (await vault.art("box", (await vault.boxFor(box)) ?? ""));
+      if (!art) return;
+      const made = await normalizeCover(new Uint8Array(await art.arrayBuffer()));
+      if (!made.ok) return;
+      await writeFile(library.paths(id).cover, made.image);
+      await library.setCover(id, true);
+    } catch (err) {
+      console.warn("vimm: no cover", err); // (the game is in all the same, with a drawn one)
+    }
+  }
+
   return {
-    status: (): VimmJob => ({ ...job }),
+    status,
+
+    /** Calls `fn` on every change of the download (its bytes four times a second); returns how to stop. */
+    watch(fn: (job: ReturnType<typeof status>) => void) {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    },
 
     /** The "loja": Vimm's PS2 vault and its lists, with art and exact-edition availability. */
     vault: {
@@ -203,12 +234,14 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
     },
 
     /** Starts the download and returns at once; the page follows it with status(). */
-    start(pass: Pass, link: string): { ok: true } | { ok: false; status: number; error: string } {
+    start(pass: Pass, link: string, show: { title?: string; box?: string } = {}): { ok: true } | { ok: false; status: number; error: string } {
       const url = vimmLink(link) ?? vimmPage(link);
       if (!url) return { ok: false, status: 400, error: "Cole a página do jogo (https://vimm.net/vault/…) ou o link de download (https://dl2.vimm.net/?mediaId=…)." };
       if (job.state === "resolving" || job.state === "downloading" || job.state === "extracting")
         return { ok: false, status: 409, error: `${job.by} já está instalando um jogo do vimm.net.` };
-      job = vimmPage(url) ? { state: "resolving", by: pass.name } : { state: "downloading", by: pass.name, name: "", received: 0, size: null };
+      // (only shown, and checked against the art set before anything is asked for: vault.art)
+      shown = { title: (show.title ?? "").slice(0, 120), box: (show.box ?? "").slice(0, 200), vault: Number(vimmPage(url)?.split("/").at(-1) ?? 0) };
+      set(vimmPage(url) ? { state: "resolving", by: pass.name } : { state: "downloading", by: pass.name, name: "", received: 0, size: null });
       const by = pass.name;
       void run(url, pass)
         .catch((err): VimmJob => {
@@ -218,7 +251,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
         // (cleared while still busy, so a next download can't start in the middle of it)
         .then(async (end) => {
           await rm(work, { recursive: true, force: true }).catch(() => undefined);
-          job = end;
+          set(end);
         });
       return { ok: true };
     },
@@ -376,6 +409,9 @@ export function createVault({ fetch: get = fetch }: { fetch?: typeof fetch } = {
         const more = await Promise.all([2, 3].map((n) => page(`https://vimm.net/vault/ajax/loadTopTen.php?system=PS2&page=${n}`).then(linked, () => [])));
         return { top: await withArt([...top, ...more.flat()]), rated: await withArt(rated) };
       }),
+
+    /** The set's box art file for a game's name, if it has one. */
+    boxFor: async (name: string) => pickArt(await index(), "box", name),
 
     /** An art file, when the set has it (the name is checked against its list: nothing else is asked for). */
     async art(kind: ArtKind, name: string): Promise<Response | null> {

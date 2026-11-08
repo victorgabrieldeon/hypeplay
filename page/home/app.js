@@ -3,7 +3,7 @@
 // controller screen and the intro live in their own modules.
 import { ask } from './ask.js';
 import { drawer } from './drawer.js';
-import { addCard, arrange, card, esc, hero, icon, initials, meter, needsDisc, sendBios, upload } from './library.js';
+import { addCard, arrange, card, esc, hero, icon, initials, installCard, installing, meter, needsDisc, paintInstall, sendBios, upload } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -25,6 +25,8 @@ export const state = {
   uploadError: { key: null, text: '' },
   /** someone else's upload, seen through the polls: its speed per game */
   watching: new Map(),
+  /** the vimm.net download (server/vimm.ts), pushed by vimm/ws: GET vimm's shape */
+  vimm: null,
   expired: false,
 };
 
@@ -97,7 +99,12 @@ export function render() {
     $('hero').removeAttribute('aria-busy');
   }
   // (a short window shows two rows: one big cover there, or the bigs would be all of it)
-  set($('grid'), arrange(state.games, top, state.sending, matchMedia('(max-height: 620px)').matches ? 1 : 3).map(({ g, big }, i) => card(g, state.sending, state.open, i, big)).join('') + addCard(n));
+  const wall = arrange(state.games, top, state.sending, matchMedia('(max-height: 620px)').matches ? 1 : 3);
+  const cards = wall.map(({ g, big }, i) => card(g, state.sending, state.open, i, big));
+  // (the game on its way from vimm.net: right after the big ones)
+  if (installing(state.vimm)) { const at = wall.filter((x) => x.big).length; cards.splice(at, 0, installCard(state.vimm, at)); }
+  set($('grid'), cards.join('') + addCard(n));
+  paintInstall(state.vimm);
   hooks.people();
   const g = state.open && gameOf(state.open);
   if (state.open && !g) closeDrawer(); // removed meanwhile
@@ -329,7 +336,26 @@ document.addEventListener('drop', (e) => {
   if (file && g && needsDisc(g, state.sending)) send(g.key, file);
 });
 
+/** The vimm.net download as it goes: redrawn when its step changes, else only its pie; the loja and the wizard get a 'vimm' event. */
+function watchVimm(wait = 1000) {
+  const ws = new WebSocket(new URL('vimm/ws', location.href).href.replace(/^http/, 'ws'));
+  ws.onmessage = (e) => {
+    const v = JSON.parse(e.data);
+    const was = state.vimm?.state;
+    state.vimm = v;
+    wait = 1000;
+    if (v.state !== was) render();
+    else paintInstall(v);
+    const tell = () => dispatchEvent(new CustomEvent('vimm', { detail: v }));
+    // (the game is in the library now: told once the library has it, for the wizard's "Jogar")
+    if (v.state === 'done' && was && was !== 'done') poll().then(tell);
+    else tell();
+  };
+  ws.onclose = () => { if (!state.expired) setTimeout(() => watchVimm(Math.min(wait * 2, 30_000)), wait); };
+}
+
 poll();
 setInterval(() => { if (!state.expired) poll(); }, 2000);
+watchVimm();
 // The add-a-game wizard, the controller screen and the intro set their hooks once loaded.
 for (const m of ['./wizard.js', './controller.js', './settings.js', './store.js', './intro.js', './gamepadnav.js', './friends.js']) import(m).catch((e) => console.warn('home:', m, e));

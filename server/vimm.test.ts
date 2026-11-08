@@ -86,10 +86,17 @@ test("a page instead of a game fails with a message, and leaves nothing behind",
   const library = createLibrary(dir, { min: 10 });
   const vimm = createVimm(dir, library, { min: 10, fetch: served("<html>nope</html>", { "content-type": "text/html" }) });
   expect(vimm.start(ana, "https://evil.com/vault/1")).toMatchObject({ ok: false, status: 400 });
-  expect(vimm.start(ana, "https://dl3.vimm.net/?mediaId=1")).toEqual({ ok: true });
+  const told: string[] = [];
+  const off = vimm.watch((j) => told.push(j.state));
+  expect(vimm.start(ana, "https://dl3.vimm.net/?mediaId=1", { title: "Naruto" })).toEqual({ ok: true });
   expect(vimm.start(ana, "https://dl3.vimm.net/?mediaId=2")).toMatchObject({ ok: false, status: 409 });
   await vimm.settled();
-  expect(vimm.status()).toMatchObject({ state: "failed", message: expect.stringContaining("não entregou") });
+  expect(vimm.status()).toMatchObject({ state: "failed", title: "Naruto", message: expect.stringContaining("não entregou") });
+  expect(told).toEqual(["downloading", "failed"]);
+  off();
+  vimm.start(ana, "https://dl3.vimm.net/?mediaId=1");
+  await vimm.settled();
+  expect(told).toHaveLength(2);
   expect(await readdir(dir)).toEqual([]);
 });
 
@@ -205,13 +212,25 @@ test.skipIf(!has7z)("a vimm archive becomes a library game, its disc in place", 
   const library = createLibrary(dir, { min: 10 });
   const seen: string[] = [];
   const headers = { "content-type": "application/x-7z-compressed", "content-length": String(bytes.length), "content-disposition": 'attachment; filename="Game (USA).7z"' };
-  const get = (async (url: string | URL | Request) => String(url).startsWith("https://raw.githubusercontent.com/")
-    ? catalogFetch()(url) : served(bytes, headers, seen)(url)) as unknown as typeof fetch;
+  const png = await (await import("sharp")).default({ create: { width: 60, height: 90, channels: 3, background: "#f60" } }).png().toBuffer();
+  const get = (async (url: string | URL | Request) => {
+    const u = String(url);
+    const folder = /trees\/(\w+)$/.exec(u)?.[1];
+    if (folder) return Response.json({ tree: folder === "master" ? [{ path: "Named_Boxarts", sha: "box" }] : [{ path: "Game (USA).png", sha: "f" }] });
+    if (u.startsWith("https://raw.githubusercontent.com/libretro-thumbnails/")) return new Response(png);
+    return u.startsWith("https://raw.githubusercontent.com/") ? catalogFetch()(url) : served(bytes, headers, seen)(url);
+  }) as unknown as typeof fetch;
   const vimm = createVimm(dir, library, { min: 10, fetch: get });
-  expect(vimm.start(ana, "https://vimm.net/vault/7843")).toEqual({ ok: true });
+  const told: string[] = [];
+  vimm.watch((j) => told.push(j.state));
+  expect(vimm.start(ana, "https://vimm.net/vault/7843", { title: "Game", box: "Game (USA)" })).toEqual({ ok: true });
   await vimm.settled();
   expect(seen).toEqual([catalogEntry.download_url]);
-  expect(vimm.status()).toEqual({ state: "done", by: "Ana", name: "Game (USA)", key: "ps2/slus-20062", existed: false });
+  expect([...new Set(told)]).toEqual(["resolving", "downloading", "extracting", "done"]);
+  expect(vimm.status()).toEqual({ state: "done", by: "Ana", name: "Game (USA)", key: "ps2/slus-20062", existed: false, title: "Game", cover: "vimm/art/box/Game%20(USA)" });
+  const cover = (await library.get("slus-20062"))!;
+  expect(cover.cover).toBe(true);
+  expect((await stat(library.paths("slus-20062").cover)).size).toBeGreaterThan(0);
   expect((await library.get("slus-20062"))?.name).toBe("Game (USA)");
   expect((await stat(library.paths("slus-20062").iso)).size).toBe(iso.length);
   expect(await readdir(dir)).toEqual(["ps2"]);
@@ -221,6 +240,7 @@ test.skipIf(!has7z)("a vimm archive becomes a library game, its disc in place", 
   again.start(ana, "https://dl3.vimm.net/?mediaId=99");
   await again.settled();
   expect(again.status()).toMatchObject({ state: "done", key: "ps2/slus-20062", existed: true });
+  expect((await library.get("slus-20062"))!.coverAt).toBe(cover.coverAt); // (the one there keeps its cover)
   expect((await library.list()).length).toBe(1);
 });
 

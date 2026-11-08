@@ -1,17 +1,16 @@
 // "Loja": a page of the home (#loja), with Vimm's top downloads, ratings and search, and libretro artwork.
 // Public snapshot metadata enables direct installation for mapped editions; other editions keep the manual link.
-import { gameOf, poll, state } from './app.js';
-import { esc, gb, icon, pct } from './library.js';
+import { gameOf, state } from './app.js';
+import { esc, gb, icon, installing, pct } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 const page = $('store');
 const MONTH = new Date().toLocaleString('pt-BR', { month: 'long' });
 
-const st = { lists: null, error: '', q: '', results: null, searching: false, searchId: 0, starting: false, featured: 0, link: '', job: null, step: 0 };
+const st = { lists: null, error: '', q: '', results: null, searching: false, searchId: 0, starting: false, featured: 0, link: '', job: state.vimm, step: 0 };
 /** Every game seen, by id: a game's page shows what its list said. */
 const known = new Map();
 const remember = (games) => { for (const g of games) known.set(g.id, { ...known.get(g.id), ...g }); return games; };
-const installing = (v) => ['resolving', 'downloading', 'extracting'].includes(v?.state);
 
 const box = (g) => (g.box ? `vimm/art/box/${encodeURIComponent(g.box)}` : `vimm/cover/${g.id}?name=${encodeURIComponent(g.name)}`);
 const snap = (g) => (g.snap ? `vimm/art/snap/${encodeURIComponent(g.snap)}` : box(g));
@@ -133,34 +132,26 @@ async function search(q) {
   $('store-q')?.focus();
 }
 
-let timer = 0;
-let statusId = 0;
-async function follow() {
-  clearTimeout(timer);
-  const request = ++statusId;
-  const v = await fetch('vimm', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  if (request !== statusId) return;
-  if (!v) { timer = setTimeout(follow, 1000); return; }
-  if (v.state === 'done' && st.job?.state !== 'done') poll();
+/** The download as app.js' vimm/ws pushes it: only the line and the buttons, the rest of the page stays. */
+function follow(v) {
   st.job = v;
   const line = $('store-job');
   if (line) line.innerHTML = jobLine();
   for (const button of page.querySelectorAll('[data-store-get], [data-store-install]')) button.disabled = st.starting || installing(v);
-  if (installing(v)) timer = setTimeout(follow, 1000);
 }
+addEventListener('vimm', (e) => follow(e.detail));
 
-async function install(link) {
+/** `g`: the game whose page this is: its name and box art go along, for the library's cover. */
+async function install(link, g) {
   if (st.starting || installing(st.job)) return;
   st.starting = true;
-  ++statusId;
-  clearTimeout(timer);
   render();
-  const r = await fetch('vimm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ link }) }).catch(() => null);
+  const r = await fetch('vimm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ link, title: g?.name, box: g?.box || undefined }) }).catch(() => null);
   const res = await r?.json().catch(() => ({})) ?? {};
   st.starting = false;
-  st.job = r?.ok ? res : { state: 'failed', by: state.me, message: res.error || 'Não deu para iniciar a instalação. Tente de novo.' };
+  // (the socket may have told a later step already)
+  st.job = r?.ok ? (installing(state.vimm) ? state.vimm : res) : { state: 'failed', by: state.me, message: res.error || 'Não deu para iniciar a instalação. Tente de novo.' };
   render();
-  if (r?.ok) follow();
 }
 
 page.addEventListener('submit', (e) => {
@@ -175,8 +166,9 @@ page.addEventListener('click', (e) => {
   if ('feature' in el.dataset) { st.featured = Number(el.dataset.feature); return render(); }
   if ('storeClear' in el.dataset) { ++st.searchId; Object.assign(st, { q: '', results: null, searching: false }); return render(); }
   if ('storeOpen' in el.dataset) { st.step = 1; return setTimeout(render); }
-  if ('storeInstall' in el.dataset) return install(`https://vimm.net/vault/${el.dataset.storeInstall}`);
-  if ('storeGet' in el.dataset) return install($('store-link').value.trim());
+  const g = known.get(Number(at()?.[1]));
+  if ('storeInstall' in el.dataset) return install(`https://vimm.net/vault/${el.dataset.storeInstall}`, g);
+  if ('storeGet' in el.dataset) return install($('store-link').value.trim(), g);
 });
 page.addEventListener('input', (e) => { if (e.target.id === 'store-link') st.link = e.target.value.trim(); });
 
@@ -197,4 +189,3 @@ for (const b of document.querySelectorAll('[data-nav]')) b.addEventListener('cli
 
 render();
 if (at()) load();
-follow();

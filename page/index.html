@@ -285,6 +285,15 @@
   /* how far an upload or a build is: a line on the seam between the art and the plate */
   .cap .seam { position: absolute; left: 0; right: 0; top: -2px; height: 2px; background: linear-gradient(90deg, currentColor var(--p), rgb(255 255 255 / 0.14) 0); }
   .cap .seam.busy { color: var(--busy); } .cap .seam.warn { color: var(--warn); } .cap .seam.bad { color: var(--danger); }
+  /* a game coming from vimm.net (library.js installCard): its cover dimmed and a pie filling, like a phone's app installing */
+  @property --p { syntax: "<percentage>"; inherits: true; initial-value: 0%; }
+  .installing { --p: 0%; transition: --p 0.3s linear; }
+  .installing .cover { cursor: default; }
+  .installing .cover img, .installing .cover:hover img { filter: grayscale(0.5) brightness(0.45); transform: none; }
+  .installing .pie { position: absolute; left: 50%; top: 36%; width: 34%; aspect-ratio: 1; translate: -50% -50%; border-radius: 50%;
+    border: 3px solid rgb(255 255 255 / 0.92); padding: 3px; background: conic-gradient(rgb(255 255 255 / 0.92) var(--p), rgb(0 0 0 / 0.45) 0) content-box; }
+  /* finding the link, or opening the archive: the ring turns */
+  .installing.resolving .pie, .installing.extracting .pie { border-top-color: transparent; animation: spin 1s linear infinite; }
   .add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s2); padding: var(--s4); border: 0; background: var(--side);
     text-align: center; color: var(--soft); font: var(--t-sm); font-size: 12px; cursor: pointer; transition: background var(--base) var(--ease), color var(--base) var(--ease); }
   .add:hover, .add:focus-visible { background: var(--surface-hi); color: var(--ink); }

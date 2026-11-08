@@ -257,3 +257,29 @@ test("the PC app's packages, behind the pass, as downloads; the home lists them 
   // without PUBLIC_URL the app has nowhere to sign in: no button
   expect(await listed(createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, clientId: "app", downloads }))).toEqual([]);
 });
+
+test("vimm/ws pushes the download's status: now on open, then each change, until it closes", async () => {
+  const listeners = new Set<(j: unknown) => void>();
+  const vimm = {
+    status: () => ({ state: "idle" }),
+    watch: (fn: (j: unknown) => void) => (listeners.add(fn), () => void listeners.delete(fn)),
+  } as unknown as NonNullable<Parameters<typeof createApp>[0]["vimm"]>;
+  const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, vimm });
+  const server = Bun.serve({ port: 0, fetch: (req, s) => web.handle(req, s), websocket: web.websocket });
+  try {
+    expect((await (web.handle(new Request(`http://x${home("vimm/ws")}`)) as Promise<Response>)).status).toBe(426);
+    const ws = new WebSocket(`ws://localhost:${server.port}${home("vimm/ws")}`);
+    const got: unknown[] = [];
+    const next = () => new Promise<void>((ok) => (ws.onmessage = (e) => (got.push(JSON.parse(e.data)), ok())));
+    await next();
+    const more = next();
+    for (const fn of listeners) fn({ state: "downloading", received: 5, size: 10 });
+    await more;
+    expect(got).toEqual([{ state: "idle" }, { state: "downloading", received: 5, size: 10 }]);
+    ws.close();
+    for (let i = 0; i < 50 && listeners.size; i++) await Bun.sleep(10);
+    expect(listeners.size).toBe(0);
+  } finally {
+    server.stop(true);
+  }
+});

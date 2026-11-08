@@ -135,6 +135,30 @@ export function card(g, sending, selected, i, big) {
   </article>`;
 }
 
+export const installing = (v) => ['resolving', 'downloading', 'extracting'].includes(v?.state);
+
+/** The game coming from vimm.net (server/vimm.ts), like an app installing on a phone: its cover dimmed, a pie filling. */
+export function installCard(v, i) {
+  const title = v.title || v.name || 'Jogo do vimm.net';
+  return `<article class="card installing ${v.state}" style="--i:${i}" data-installing>
+    <div class="cover" role="progressbar" aria-label="${esc(title)}" aria-valuemin="0" aria-valuemax="100">
+      ${v.cover ? `<img src="${esc(v.cover)}" alt="">` : ''}<span class="pie" aria-hidden="true"></span>
+      <span class="cap"><b>${esc(title)}</b><span class="state busy"><span></span></span></span>
+    </div>
+  </article>`;
+}
+
+/** The pie and its words, in place (the wall itself isn't redrawn four times a second). */
+export function paintInstall(v) {
+  const el = document.querySelector('[data-installing]');
+  if (!el || !installing(v)) return;
+  const p = v.state === 'extracting' ? 100 : v.state === 'downloading' ? pct(v.received, v.size) : 0;
+  el.style.setProperty('--p', `${p.toFixed(1)}%`);
+  el.firstElementChild.setAttribute('aria-valuenow', String(Math.floor(p)));
+  el.querySelector('.state span').textContent = v.state === 'resolving' ? 'Aguardando…' : v.state === 'extracting' ? 'Instalando…'
+    : v.size ? `Baixando ${Math.floor(p)}% · ${gb(v.size)}` : `Baixando ${gb(v.received)}`;
+}
+
 /** Two cases in outline that fan out on hover, and a plus. */
 export const addCard = (i) => `<button class="add" data-add style="--i:${i}">
     <svg viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke-width="2.5" stroke-linejoin="round">

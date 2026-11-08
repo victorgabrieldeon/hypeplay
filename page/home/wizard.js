@@ -5,7 +5,7 @@
 // own upload, in the game's drawer; once the image is in, the game plays. Or, on the ISO step, a vimm.net download
 // link: the server downloads the game itself (server/vimm.ts) and it shows up in the library.
 import { gameOf, hooks, poll, send, state } from './app.js';
-import { esc, gb, icon, pct, sendBios } from './library.js';
+import { esc, gb, icon, installing, pct, sendBios } from './library.js';
 
 const layer = document.getElementById('layer');
 const BT3_SERIAL = 'SLUS-21678';
@@ -26,7 +26,7 @@ function vimmBox() {
     : v.state === 'done' ? `<div class="callout ok">${icon('check')}<p><strong>${esc(gameOf(v.key)?.name ?? v.name)}</strong> ${v.existed ? 'já estava' : 'entrou'} na biblioteca.</p></div>
         ${there?.status.state === 'ready' ? `<div class="row-actions"><button class="btn" data-w="vimm-play">${icon('play')}Jogar</button></div>` : ''}`
     : `<p class="error">${esc(v.message)}</p>`;
-  const busy = v?.state === 'resolving' || v?.state === 'downloading' || v?.state === 'extracting';
+  const busy = installing(v);
   return `<div class="block">
       <h3>Ou baixe do vimm.net, direto no servidor</h3>
       <p>Cole a página do jogo: se a edição estiver no catálogo automático, o servidor encontra o download sozinho.
@@ -36,17 +36,14 @@ function vimmBox() {
       ${line}</div>`;
 }
 
-let vimmTimer = 0;
-async function vimmPoll() {
-  clearTimeout(vimmTimer);
-  const v = await fetch('vimm', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  if (!w || !v) return;
+// The download as app.js' vimm/ws pushes it: redrawn once a second at most (the link field is in the same box).
+let drawn = 0;
+addEventListener('vimm', (e) => {
+  if (!w) return;
   const was = w.vimm?.state;
-  w.vimm = v;
-  if (v.state === 'done' && was !== 'done') await poll();
-  if (w.step === 'iso') render();
-  if (v.state === 'resolving' || v.state === 'downloading' || v.state === 'extracting') vimmTimer = setTimeout(vimmPoll, 1000);
-}
+  w.vimm = e.detail;
+  if (w.step === 'iso' && (e.detail.state !== was || performance.now() - drawn > 1000)) { drawn = performance.now(); render(); }
+});
 
 async function vimmStart() {
   const current = w;
@@ -54,13 +51,11 @@ async function vimmStart() {
   const r = await fetch('vimm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ link: w.link }) }).catch(() => null);
   const res = await r?.json().catch(() => ({})) ?? {};
   if (w !== current) return;
-  w.vimm = r?.ok ? res : { state: 'failed', by: state.me, message: res.error || 'Não deu para iniciar a instalação. Tente de novo.' };
+  w.vimm = r?.ok ? (installing(state.vimm) ? state.vimm : res) : { state: 'failed', by: state.me, message: res.error || 'Não deu para iniciar a instalação. Tente de novo.' };
   render();
-  if (r?.ok) vimmPoll();
 }
 
 function close() {
-  clearTimeout(vimmTimer);
   if (w?.coverUrl) URL.revokeObjectURL(w.coverUrl);
   w = null;
   layer.innerHTML = '';
@@ -265,7 +260,6 @@ hooks.add = async () => {
   returnFocus = document.activeElement;
   const bios = await fetch('bios', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : { present: true })).catch(() => ({ present: true }));
   const flow = bios.present ? ['warn', 'iso', 'name'] : ['warn', 'bios', 'iso', 'name'];
-  w = { step: 'warn', steps: flow, ok: false, file: null, serial: '', name: '', cover: null, coverUrl: null, error: '', busy: false, exists: null, link: '', vimm: null };
+  w = { step: 'warn', steps: flow, ok: false, file: null, serial: '', name: '', cover: null, coverUrl: null, error: '', busy: false, exists: null, link: '', vimm: state.vimm };
   render();
-  vimmPoll();
 };

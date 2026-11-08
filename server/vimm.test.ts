@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createLibrary } from "./library";
 import type { Pass } from "./pass";
 import { makeIso } from "./testing/iso";
-import { createVault, createVimm, listing, parseVault, vaultUrl, vimmLink } from "./vimm";
+import { artIndex, createVault, createVimm, listing, parseHome, parseVault, pickArt, vaultUrl, vimmLink } from "./vimm";
 
 const ana: Pass = { id: "42", name: "Ana", exp: Infinity };
 const has7z = !!Bun.which("7z");
@@ -106,10 +106,50 @@ test("searches stay on vimm.net's PS2 vault, whatever is typed", () => {
   expect(vaultUrl("#")).toBe("https://vimm.net/vault/?p=list&system=PS2&q=%23");
 });
 
-test("the same search asks vimm.net once", async () => {
-  let asked = 0;
-  const search = createVault({ fetch: (async () => (asked++, new Response('<tr><td><a href="/vault/5">Okami</a></td></tr>'))) as unknown as typeof fetch });
-  expect(await search("okami")).toMatchObject([{ id: 5, name: "Okami" }]);
-  await search("okami");
-  expect(asked).toBe(1);
+test("the PS2 page's lists: the month's top and the best rated (vimm.net's own markup)", async () => {
+  const { top, rated } = parseHome(await Bun.file(join(import.meta.dir, "fixtures/vimm-ps2.html")).text());
+  expect(top).toEqual([
+    { id: 8433, name: "Grand Theft Auto: San Andreas" },
+    { id: 8199, name: "Dragon Ball Z: Budokai Tenkaichi 3" },
+    { id: 9262, name: "Simpsons, The: Hit & Run" },
+  ]);
+  expect(rated.map((g) => g.id)).toEqual([8653, 9015, 8735, 8433]);
+});
+
+const SET = [
+  "Named_Boxarts/Grand Theft Auto - San Andreas (Europe, Australia) (En,Fr,De,Es,It) (v1.03).png",
+  "Named_Boxarts/Grand Theft Auto - San Andreas (USA) (v1.03).png",
+  "Named_Boxarts/Simpsons, The - Hit _ Run (USA).png",
+  "Named_Snaps/Grand Theft Auto - San Andreas.png",
+  "Named_Logos/Okami (USA).png",
+];
+
+test("art matches Vimm's names to the set's, its region first", () => {
+  const ix = artIndex(SET);
+  expect(pickArt(ix, "box", "Grand Theft Auto: San Andreas", ["USA"])).toBe("Grand Theft Auto - San Andreas (USA) (v1.03)");
+  expect(pickArt(ix, "box", "Grand Theft Auto: San Andreas", ["Europe"])).toStartWith("Grand Theft Auto - San Andreas (Europe");
+  expect(pickArt(ix, "box", "Simpsons, The: Hit & Run")).toBe("Simpsons, The - Hit _ Run (USA)");
+  expect(pickArt(ix, "snap", "Grand Theft Auto: San Andreas", ["Japan"])).toBe("Grand Theft Auto - San Andreas");
+  expect(pickArt(ix, "box", "Okami")).toBeNull(); // (only logos of it)
+});
+
+test("the loja asks vimm.net once per search, and GitHub only for files in the set", async () => {
+  const asked: string[] = [];
+  const fake = (async (url: string) => {
+    asked.push(url);
+    const folder = /trees\/(\w+)$/.exec(url)?.[1];
+    if (folder === "master") return Response.json({ tree: ["Named_Boxarts", "Named_Snaps", "Named_Logos"].map((path) => ({ path, sha: path })) });
+    if (folder) return Response.json({ tree: SET.filter((p) => p.startsWith(`${folder}/`)).map((p) => ({ path: p.slice(folder.length + 1), sha: "f" })) });
+    if (url.includes("raw.githubusercontent.com")) return new Response("png");
+    return new Response('<tr><td><a href="/vault/8433">Grand Theft Auto: San Andreas</a></td><td><img class="flag" title="USA"></td></tr>');
+  }) as unknown as typeof fetch;
+  const vault = createVault({ fetch: fake });
+  expect(await vault.search("gta")).toMatchObject([{ id: 8433, box: "Grand Theft Auto - San Andreas (USA) (v1.03)", snap: "Grand Theft Auto - San Andreas" }]);
+  await vault.search("gta");
+  expect(asked.filter((u) => u.includes("vimm.net"))).toHaveLength(1);
+  expect(await vault.art("box", "../../etc/passwd")).toBeNull();
+  expect(await vault.art("snap", "Grand Theft Auto - San Andreas (USA) (v1.03)")).toBeNull(); // (a box, not a snap)
+  expect(await (await vault.art("box", "Simpsons, The - Hit _ Run (USA)"))!.text()).toBe("png");
+  expect(asked.at(-1)).toBe("https://raw.githubusercontent.com/libretro-thumbnails/Sony_-_PlayStation_2/master/Named_Boxarts/Simpsons%2C%20The%20-%20Hit%20_%20Run%20(USA).png");
+  expect(asked.filter((u) => u.includes("api.github.com"))).toHaveLength(3); // (the root, boxes and snaps: logos never)
 });

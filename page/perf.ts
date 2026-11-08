@@ -1,9 +1,12 @@
-// The PS2 games' "Desempenho" in the game's panel (overlay.js), added by ps2play.ts: TabStationToo's own settings,
-// whose menus our design hides, as our buttons. Pressing one presses the emulator's radio, so it applies and keeps the
-// choice itself (the underclock per game, the picture's resolution at once, the renderer at the next opening), and its
-// speed meter, read once a second. And whether the whole disc goes to the browser in the background (disccache.ts,
-// in the disc worker: they talk over a BroadcastChannel), with how far it is.
+// The PS2 games' parts of the game's panel (overlay.js), added by ps2play.ts to its Vídeo, CPU and Sistema tabs.
+// TabStationToo's own settings, whose menus our design hides, as our buttons: pressing one presses the emulator's
+// radio, so it applies and keeps the choice itself (the underclock per game, the picture's resolution at once, the
+// renderer at the next opening), and its speed meter, read once a second. Whether the whole disc goes to the browser
+// in the background (disccache.ts, in the disc worker: they talk over a BroadcastChannel), with how far it is. And
+// "Ao abrir o jogo" in each tab: PCSX2's own settings, which the emulator takes only when it starts (ps2play.ts puts bootParams() in the
+// page's address before it loads): kept in this browser, for every game.
 import type { FillProgress } from "./disccache";
+import type { Tab } from "./overlay";
 
 interface Choice {
   value: string;
@@ -17,18 +20,18 @@ interface Group {
   choices: Choice[];
 }
 
-const GROUPS: Group[] = [
-  {
-    name: "ee-rate",
-    title: "Underclock",
-    hint: "Deixa as cenas pesadas mais leves. Alguns jogos ficam lentos ou com falhas. Fica guardado para este jogo.",
-    choices: [
-      { value: "0", label: "Desligado" },
-      { value: "-1", label: "Leve" },
-      { value: "-2", label: "Médio" },
-      { value: "-3", label: "Forte" },
-    ],
-  },
+const UNDERCLOCK: Group = {
+  name: "ee-rate",
+  title: "Underclock",
+  hint: "Deixa as cenas pesadas mais leves. Alguns jogos ficam lentos ou com falhas. Fica guardado para este jogo.",
+  choices: [
+    { value: "0", label: "Desligado" },
+    { value: "-1", label: "Leve" },
+    { value: "-2", label: "Médio" },
+    { value: "-3", label: "Forte" },
+  ],
+};
+const GRAPHICS: Group[] = [
   {
     name: "gfx-scale",
     title: "Resolução",
@@ -42,7 +45,7 @@ const GROUPS: Group[] = [
   {
     name: "gfx-choice",
     title: "Quem desenha",
-    hint: "Placa de vídeo é bem mais rápido. Processador só serve se a placa não funcionar.",
+    hint: "Placa de vídeo é bem mais rápido. Processador só serve se a placa não funcionar. Vale quando o jogo abrir de novo.",
     choices: [
       { value: "auto", label: "Automático" },
       { value: "gpu", label: "Placa" },
@@ -50,6 +53,181 @@ const GROUPS: Group[] = [
     ],
   },
 ];
+
+/** A setting the emulator takes only when it starts: `def` is its own default, which needs nothing in the address. */
+export interface BootOption {
+  id: string;
+  /** The panel's tab it shows in. */
+  tab: Tab;
+  title: string;
+  hint: string;
+  def: string;
+  choices: Choice[];
+  /** What goes in the page's address for a value other than `def`. */
+  params: (value: string) => [string, string][];
+}
+/** PCSX2's `Section/Key` (as in its PCSX2.ini), through TabStationToo's ?set=. */
+const ini = (path: string) => (value: string): [string, string][] => [["set", `${path}=${value}`]];
+const OFF_ON = [
+  { value: "false", label: "Desligado" },
+  { value: "true", label: "Ligado" },
+];
+
+// To add one: its PCSX2.ini key (the emulator says "bad -set" in its log for a wrong one), or one of app.js' own
+// ?switches (then its name in BOOT_PARAMS too). Never one the buttons above already own (EECycleRate, the renderer,
+// the upscale): two places would fight over it.
+export const BOOT: BootOption[] = [
+  {
+    id: "cycleskip",
+    tab: "cpu",
+    title: "Pular ciclos do processador",
+    hint: "Outro jeito de aliviar o processador do PS2, mais forte que o underclock. Pode deixar o jogo instável.",
+    def: "0",
+    choices: [
+      { value: "0", label: "Desligado" },
+      { value: "1", label: "Leve" },
+      { value: "2", label: "Médio" },
+      { value: "3", label: "Forte" },
+    ],
+    params: ini("EmuCore/Speedhacks/EECycleSkip"),
+  },
+  {
+    id: "fastcdvd",
+    tab: "system",
+    title: "Carregamento rápido",
+    hint: "Lê o disco mais depressa: telas de carregamento mais curtas. Alguns jogos travam com ele.",
+    def: "false",
+    choices: OFF_ON,
+    params: ini("EmuCore/Speedhacks/fastCDVD"),
+  },
+  {
+    id: "blend",
+    tab: "video",
+    title: "Precisão das cores",
+    hint: "Mais alta acerta brilhos, sombras e transparências, mas pesa na placa de vídeo. Mínima alivia. Só com a placa.",
+    def: "1",
+    choices: [
+      { value: "0", label: "Mínima" },
+      { value: "1", label: "Básica" },
+      { value: "2", label: "Média" },
+      { value: "3", label: "Alta" },
+    ],
+    params: ini("EmuCore/GS/accurate_blending_unit"),
+  },
+  {
+    id: "aniso",
+    tab: "video",
+    title: "Filtro anisotrópico",
+    hint: "Texturas do chão mais nítidas de longe. Pesa pouco. Só com a placa.",
+    def: "0",
+    choices: [
+      { value: "0", label: "Desligado" },
+      { value: "4", label: "4×" },
+      { value: "8", label: "8×" },
+      { value: "16", label: "16×" },
+    ],
+    params: ini("EmuCore/GS/MaxAnisotropy"),
+  },
+  {
+    id: "fxaa",
+    tab: "video",
+    title: "Suavizar serrilhado (FXAA)",
+    hint: "Alisa as bordas em escada. Pesa pouco; pode borrar letras pequenas. Só com a placa.",
+    def: "false",
+    choices: OFF_ON,
+    params: ini("EmuCore/GS/fxaa"),
+  },
+  {
+    id: "deinterlace",
+    tab: "video",
+    title: "Desentrelaçamento",
+    hint: "Tira o tremido das linhas em jogos entrelaçados. Automático acerta na maioria.",
+    def: "0",
+    choices: [
+      { value: "0", label: "Automático" },
+      { value: "1", label: "Desligado" },
+      { value: "6", label: "Mistura" },
+      { value: "8", label: "Adaptativo" },
+    ],
+    params: ini("EmuCore/GS/deinterlace_mode"),
+  },
+  {
+    id: "vu1jit",
+    tab: "cpu",
+    title: "Contas 3D (VU1)",
+    hint: "Compatível é mais lento, mas corrige gráficos quebrados em alguns jogos.",
+    def: "1",
+    choices: [
+      { value: "1", label: "Rápido" },
+      { value: "0", label: "Compatível" },
+    ],
+    params: (v) => [["vu1jit", v]],
+  },
+  {
+    id: "fastboot",
+    tab: "system",
+    title: "Abertura do PS2",
+    hint: "Mostrar passa pela tela do PS2 antes do jogo, como no console. Alguns jogos só abrem assim.",
+    def: "1",
+    choices: [
+      { value: "1", label: "Pular" },
+      { value: "0", label: "Mostrar" },
+    ],
+    params: (v) => [["fastboot", v]],
+  },
+];
+/** Every address parameter the options above write: ps2play.ts clears them first, so one turned off goes away. */
+export const BOOT_PARAMS = ["set", "vu1jit", "fastboot"];
+
+/** The address parameters for what's saved; anything unknown (an older option, a hand-edited value) is left out. */
+export function bootParams(saved: Record<string, unknown>): [string, string][] {
+  return BOOT.flatMap((o) => {
+    const v = saved[o.id];
+    return typeof v === "string" && v !== o.def && o.choices.some((c) => c.value === v) ? o.params(v) : [];
+  });
+}
+
+const BOOT_PREF = "hypeplay.ps2.boot";
+export function readBoot(): Record<string, unknown> {
+  try {
+    const v = JSON.parse(localStorage.getItem(BOOT_PREF) ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+}
+function writeBoot(saved: Record<string, unknown>) {
+  try {
+    localStorage.setItem(BOOT_PREF, JSON.stringify(saved));
+  } catch {}
+}
+
+/** A titled row of buttons, one per choice (`mark` says what each one does), and its hint. */
+function group(title: string, hint: string, choices: Choice[], mark: (b: HTMLButtonElement, c: Choice) => void): HTMLElement {
+  const part = document.createElement("div");
+  part.className = "cp-group";
+  part.innerHTML = `<div class="cp-sub"></div><div class="cp-seg" role="group"></div><p class="cp-hint"></p>`;
+  part.querySelector(".cp-sub")!.textContent = title;
+  part.querySelector(".cp-seg")!.setAttribute("aria-label", title);
+  part.querySelector(".cp-hint")!.textContent = hint;
+  for (const c of choices) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = c.label;
+    mark(b, c);
+    part.querySelector(".cp-seg")!.append(b);
+  }
+  return part;
+}
+const radioGroup = (g: Group) => group(g.title, g.hint, g.choices, (b, c) => Object.assign(b.dataset, { radio: g.name, value: c.value }));
+
+function section(title: string): HTMLElement {
+  const s = document.createElement("section");
+  s.className = "cp-sec";
+  s.innerHTML = "<h3><span></span></h3>";
+  s.querySelector("h3 span")!.textContent = title;
+  return s;
+}
 
 /** The speed meter: the emulator's readout (its speed is "—" or hidden while no game runs); under 90% is slow. */
 export function speedLine(speed: string | null, fps: string | null): { text: string; slow: boolean } {
@@ -107,7 +285,7 @@ function discGroup(): HTMLElement {
   const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel("hypeplay-disc") : null;
   const part = document.createElement("div");
   part.className = "cp-group";
-  part.innerHTML = `<div class="cp-sub">Disco no navegador</div><div class="cp-seg" style="grid-template-columns: repeat(2, 1fr)" role="group" aria-label="Disco no navegador">
+  part.innerHTML = `<div class="cp-sub">Disco no navegador</div><div class="cp-seg" role="group" aria-label="Disco no navegador">
     <button type="button" data-fill="1">Baixar tudo</button><button type="button" data-fill="0">Só o que o jogo lê</button></div><p class="cp-hint" aria-live="polite"></p>`;
   const hint = part.querySelector<HTMLElement>(".cp-hint")!;
   let last: FillProgress | null = null;
@@ -149,7 +327,7 @@ function discGroup(): HTMLElement {
 function pictureGroup(): HTMLElement {
   const part = document.createElement("div");
   part.className = "cp-group";
-  part.innerHTML = `<div class="cp-sub">Nitidez</div><div class="cp-seg" style="grid-template-columns: repeat(2, 1fr)" role="group" aria-label="Nitidez">
+  part.innerHTML = `<div class="cp-sub">Nitidez</div><div class="cp-seg" role="group" aria-label="Nitidez">
     <button type="button" data-picture="Smooth">Suave</button><button type="button" data-picture="Crisp">Nítido</button></div>
     <p class="cp-hint">Nítido mostra os pixels como são; Suave alisa as bordas. Não pesa nada.</p>`;
   part.addEventListener("click", (e) => {
@@ -163,72 +341,99 @@ const picture = () => document.getElementById("btn-crisp")?.getAttribute("aria-l
 
 const radio = (name: string, value: string) => document.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`);
 
-export function perfSection(): HTMLElement {
-  const box = document.createElement("div");
-  box.className = "cp-perf";
-  box.innerHTML = `<div class="cp-label"><span>Desempenho</span><span class="cp-speed"></span></div><p class="cp-hint cp-advice" aria-live="polite"></p>`;
-  for (const g of GROUPS) {
-    const part = document.createElement("div");
-    part.className = "cp-group";
-    part.innerHTML = `<div class="cp-sub"></div><div class="cp-seg" style="grid-template-columns: repeat(${g.choices.length}, 1fr)" role="group"></div><p class="cp-hint"></p>`;
-    part.querySelector(".cp-sub")!.textContent = g.title;
-    part.querySelector(".cp-seg")!.setAttribute("aria-label", g.title);
-    part.querySelector(".cp-hint")!.textContent = g.hint;
-    for (const c of g.choices) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = c.label;
-      b.dataset.radio = g.name;
-      b.dataset.value = c.value;
-      part.querySelector(".cp-seg")!.append(b);
-    }
-    box.append(part);
-  }
-  box.append(pictureGroup());
-  box.append(discGroup());
-  const reopen = document.createElement("p");
-  reopen.className = "cp-hint cp-reopen";
-  reopen.hidden = true;
-  reopen.innerHTML = 'Vale quando o jogo abrir de novo (o que não foi salvo se perde). <button type="button">Reabrir agora</button>';
-  reopen.querySelector("button")!.addEventListener("click", () => location.reload());
-  box.append(reopen);
+/** The PS2 game's parts of the panel, each with its tab; `reopen` says a change waits for the game to open again. */
+export function perfSections(reopen: () => void): [HTMLElement, Tab][] {
+  const image = section("Imagem");
+  image.append(...GRAPHICS.map(radioGroup), pictureGroup());
 
+  const speed = section("Velocidade");
+  speed.querySelector("h3")!.insertAdjacentHTML("beforeend", '<span class="cp-speed"></span>');
+  speed.insertAdjacentHTML("beforeend", '<p class="cp-hint cp-advice" aria-live="polite"></p>');
+  speed.append(radioGroup(UNDERCLOCK));
+
+  const disc = section("Disco");
+  disc.append(discGroup());
+
+  /** A tab's "Ao abrir o jogo": its BOOT options, and the way back to their defaults. */
+  const atBoot = (t: Tab) => {
+    const opts = BOOT.filter((o) => o.tab === t);
+    const s = section("Ao abrir o jogo");
+    s.insertAdjacentHTML("beforeend", '<p class="cp-hint">Configurações do PCSX2 para todos os jogos neste navegador. Valem quando o jogo abrir de novo.</p>');
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "cp-quiet";
+    reset.textContent = "Voltar ao padrão";
+    reset.dataset.reset = opts.map((o) => o.id).join(" ");
+    s.append(...opts.map((o) => group(o.title, o.hint, o.choices, (b, c) => Object.assign(b.dataset, { boot: o.id, value: c.value }))), reset);
+    return s;
+  };
+
+  const parts: [HTMLElement, Tab][] = [
+    [image, "video"],
+    [atBoot("video"), "video"],
+    [speed, "cpu"],
+    [atBoot("cpu"), "cpu"],
+    [disc, "system"],
+    [atBoot("system"), "system"],
+  ];
+  const all = parts.map(([el]) => el);
+  const within = (sel: string) => all.flatMap((el) => [...el.querySelectorAll<HTMLElement>(sel)]);
   const sync = () => {
-    for (const b of box.querySelectorAll<HTMLButtonElement>("[data-radio]")) {
+    const saved = readBoot();
+    for (const b of within("[data-boot]")) {
+      const o = BOOT.find((x) => x.id === b.dataset.boot)!;
+      const v = saved[o.id];
+      const now = typeof v === "string" && o.choices.some((c) => c.value === v) ? v : o.def;
+      b.setAttribute("aria-pressed", String(b.dataset.value === now));
+    }
+    for (const r of within("[data-reset]")) r.hidden = !bootParams(Object.fromEntries(r.dataset.reset!.split(" ").map((id) => [id, saved[id]]))).length;
+    for (const b of within("[data-radio]") as HTMLButtonElement[]) {
       const r = radio(b.dataset.radio!, b.dataset.value!);
       b.setAttribute("aria-pressed", String(!!r?.checked));
       b.disabled = !r || r.disabled;
     }
-    for (const b of box.querySelectorAll<HTMLButtonElement>("[data-picture]")) {
+    for (const b of within("[data-picture]") as HTMLButtonElement[]) {
       b.setAttribute("aria-pressed", String(b.dataset.picture === picture()));
       b.disabled = picture() === null;
     }
     const wrap = document.getElementById("r-speed-wrap");
     const line = speedLine(wrap && !wrap.hidden ? document.getElementById("r-speed")?.textContent ?? null : null, document.getElementById("r-fps")?.textContent ?? null);
-    const speed = box.querySelector<HTMLElement>(".cp-speed")!;
-    speed.textContent = line.text;
-    speed.classList.toggle("slow", line.slow);
+    const meter = speed.querySelector<HTMLElement>(".cp-speed")!;
+    meter.textContent = line.text;
+    meter.classList.toggle("slow", line.slow);
     const M = (window as unknown as { Module?: { _pcsx2web_thread_usage?: (i: number) => number } }).Module;
     const threads = M?._pcsx2web_thread_usage ? [0, 1, 2].map((i) => M._pcsx2web_thread_usage!(i)) : null;
-    const advice = box.querySelector<HTMLElement>(".cp-advice")!;
+    const advice = speed.querySelector<HTMLElement>(".cp-advice")!;
     advice.textContent = perfAdvice(line.text ? parseInt(line.text, 10) : null, threads, !!radio("gfx-scale", "2")?.checked);
     advice.hidden = !advice.textContent;
     advice.classList.toggle("cp-slow", line.slow);
   };
-  box.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).closest("[data-picture]")) queueMicrotask(sync);
-    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-radio]");
-    const r = b && radio(b.dataset.radio!, b.dataset.value!);
-    if (!b || !r || r.disabled || r.checked) return;
-    r.checked = true;
-    r.dispatchEvent(new Event("change", { bubbles: true }));
-    if (b.dataset.radio === "gfx-choice") reopen.hidden = false;
-    sync();
-  });
+  for (const s of all)
+    s.addEventListener("click", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest("[data-picture]")) queueMicrotask(sync);
+      const boot = t.closest<HTMLButtonElement>("[data-boot]");
+      const reset = t.closest<HTMLElement>("[data-reset]");
+      if (boot || reset) {
+        const saved = readBoot();
+        if (boot) saved[boot.dataset.boot!] = boot.dataset.value!;
+        else for (const id of reset!.dataset.reset!.split(" ")) delete saved[id];
+        writeBoot(saved);
+        reopen();
+        return sync();
+      }
+      const b = t.closest<HTMLButtonElement>("[data-radio]");
+      const r = b && radio(b.dataset.radio!, b.dataset.value!);
+      if (!b || !r || r.disabled || r.checked) return;
+      r.checked = true;
+      r.dispatchEvent(new Event("change", { bubbles: true }));
+      if (b.dataset.radio === "gfx-choice") reopen();
+      sync();
+    });
   // (only while the panel shows it: nothing to read every second otherwise)
   setInterval(() => {
-    if (box.offsetParent) sync();
+    if (all.some((el) => el.offsetParent)) sync();
   }, 1000);
   sync();
-  return box;
+  return parts;
 }

@@ -32,7 +32,8 @@ Nada de brilho, degradê de fundo ou desfoque decorativo (`--glow` ficou transpa
 - **Host Grotesk** (variável, 300–800) em tudo: títulos em 650, corpo em 500. Latin e latin-ext (o Ō de Ōkami),
   servidas pelo app a partir de `@fontsource-variable/host-grotesk` (OFL), sem chamada externa.
 - **JetBrains Mono** (500): seriais, contadores, códigos de sala (`KRTZ`), o selo BETA.
-- Unbounded e Manrope continuam servidas para `watch.html` e o overlay do jogo, que ainda não mudaram.
+- Unbounded e Manrope continuam servidas só para `watch.html`, que ainda não mudou. O painel do jogo (`overlay.ts`) e a
+  barra do PS2 (`ps2play.ts`) já são Mosaico e carregam a Host Grotesk da pasta `fonts/` da biblioteca.
 
 | Uso | Tamanho |
 | --- | --- |
@@ -84,6 +85,13 @@ Nada de brilho, degradê de fundo ou desfoque decorativo (`--glow` ficou transpa
   35%, sem desfoque. A capa do jogo aberto ganha um contorno coral na parede.
 - **Foco (teclado e controle):** anel `--accent` de 3 px desenhado por cima da arte da capa, com 2 px de preto por
   dentro; nos outros elementos, `outline` de 2 px.
+- **Configurações no jogo** (`overlay.ts`): o botão no canto abre uma coluna à direita (380 px, `--side`), como a
+  gaveta e os Amigos (Shift+Tab), sem escurecer o jogo. Abas como a barra da biblioteca (a escolhida em `--ink` com o
+  traço coral embaixo; setas trocam): **Vídeo · Áudio · CPU · Sistema · Multiplayer**; aba sem nada não aparece (CPU e
+  Sistema só existem no PS2, `perf.ts`). Dentro, seções com rótulo `--t-xs` entre linhas finas; cada opção é um grupo
+  segmentado (a escolha em coral com texto preto) com uma dica `--soft`. As opções do PCSX2 ficam em "Ao abrir o jogo"
+  de cada aba, com "Voltar ao padrão"; o que só vale ao reabrir mostra no rodapé a nota de contorno coral com
+  **Reabrir agora**. Para acrescentar uma opção do PCSX2: uma entrada em `BOOT` (`perf.ts`), com a aba dela.
 - **Janelas (assistente, controle, servidor):** as mesmas superfícies e botões; fundo atrás escurecido a 75%.
 
 ## Imagens e ícones

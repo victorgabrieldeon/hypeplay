@@ -1,7 +1,8 @@
 // overlay.js (bundled at startup, server/index.ts; slipped into every game's page after pad.js): a small button in the
 // top right corner (shown while the pointer moves, gone after a few still seconds, like a video player's controls)
-// opens a panel with the way back to the library, the game's volume, a screen filter for old games, and how to play
-// it online. The volume and filter are kept on the server per person (prefs, next to this script).
+// opens the settings panel, in tabs (Vídeo, Áudio, CPU, Sistema, Multiplayer; the game's page adds its own parts):
+// a screen filter for old games, the game's volume, how to play it online and the friends, and the way back to the
+// library. The volume and filter are kept on the server per person (prefs, next to this script).
 import { rendererName, slowRenderer } from "./gpu";
 import { installVolume } from "./volume";
 
@@ -11,10 +12,16 @@ interface Prefs {
   filter: Filter;
 }
 
-/** What a game's page adds to the panel: its online (ps2play.ts: the room it opens), and a section of its own. */
+/** The panel's tabs; one with nothing in it isn't shown. */
+export type Tab = "video" | "audio" | "cpu" | "system" | "online";
+const TABS: [Tab, string][] = [["video", "Vídeo"], ["audio", "Áudio"], ["cpu", "CPU"], ["system", "Sistema"], ["online", "Multiplayer"]];
+
+/** What a game's page adds to the panel: its online (ps2play.ts: the room it opens), and parts of its own, by tab. */
 export interface OverlayApi {
   online(hint: string, control?: HTMLElement): void;
-  section(el: HTMLElement): void;
+  section(el: HTMLElement, tab: Tab): void;
+  /** Something changed that the game takes only when it opens again: the panel says so, with "Reabrir agora". */
+  reopen(): void;
 }
 
 const here = (document.currentScript as HTMLScriptElement | null)?.src ?? location.href;
@@ -33,66 +40,103 @@ const volume = installVolume(
 
 const FILTERS: [Filter, string][] = [["off", "Desligado"], ["crt", "TV de tubo"], ["scan", "Scanlines leves"]];
 
+// (Mosaico, DESIGN.md: the same black, coral and Host Grotesk as the library; served from the library's fonts/)
+const font = (file: string) => new URL(`fonts/${file}`, home).href;
 const CSS = `
-#cp-ov { position: fixed; top: 10px; right: 10px; z-index: 2147483646; font: 500 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; }
-#cp-ov button { font: inherit; color: inherit; }
-#cp-ov .cp-btn { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; cursor: pointer;
-  background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
-  opacity: 0; transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1), background 120ms; }
-html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible, #cp-ov.open .cp-btn { opacity: 1; }
-#cp-ov .cp-home { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 9px; background: #242040;
-  color: #f3f2fb; text-decoration: none; font-weight: 700; transition: background 120ms; }
-#cp-ov .cp-home:hover { background: #2c2750; }
-#cp-ov .cp-home:focus-visible, #cp-ov .cp-online button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
-#cp-ov .cp-online { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid rgb(255 255 255 / 0.08); }
-#cp-ov .cp-online[hidden] { display: none; }
-#cp-ov .cp-hint { margin: 0; color: #a3a1bd; font-size: 12px; line-height: 18px; }
-#cp-ov .cp-hint b { color: #f3f2fb; }
-#cp-ov .cp-online button { height: 36px; border: 0; border-radius: 9px; background: #7655ff; color: #fff; font-weight: 700; cursor: pointer;
-  box-shadow: 0 8px 20px -8px rgb(118 85 255 / 0.6); }
-#cp-ov .cp-online button:disabled { background: #242040; box-shadow: none; cursor: default; }
-.cp-code { font: 700 13px/18px ui-monospace, monospace; letter-spacing: 0.14em; color: #c9bdff; padding: 1px 6px; border-radius: 6px; background: #242040; }
-#cp-gpu { top: auto !important; bottom: 16px; align-items: center; }
-#cp-top .cp-copy { display: flex; gap: 6px; margin-top: 8px; }
-#cp-top .cp-copy input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 0.12); border-radius: 8px; background: #1b1830; color: #f3f2fb; font: 500 12px/32px ui-monospace, monospace; }
-#cp-top .cp-copy button { width: auto; height: 32px; padding: 0 12px; border-radius: 8px; background: #7655ff; color: #fff; font-weight: 700; }
-#cp-top .cp-link { display: inline-block; margin-top: 8px; color: #a48cff; font-weight: 700; }
-#cp-top .cp-mine { display: block; margin-top: 6px; color: #a3a1bd; font-size: 11px; }
-#cp-top .cp-warn { display: block; margin-top: 8px; color: #f5a524; font-size: 12px; line-height: 18px; }
-#cp-gpu .cp-browser { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 700 13px/32px Manrope, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
-#cp-top, #cp-gpu { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
-  width: max-content; max-width: min(520px, calc(100% - 120px)); padding: 12px 10px 12px 16px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
-  backdrop-filter: blur(10px); box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(160 140 255 / 0.3);
-  font: 500 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #d9d8ea; animation: cp-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
-#cp-top p, #cp-gpu p { margin: 0; }
-#cp-top b, #cp-gpu b { color: #f3f2fb; }
-#cp-top button, #cp-gpu .x { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: #a3a1bd; cursor: pointer; }
-#cp-top button:hover, #cp-gpu .x:hover { color: #f3f2fb; background: #242040; }
-#cp-top svg, #cp-gpu svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-#cp-ov .cp-btn:focus-visible, #cp-ov input:focus-visible, #cp-ov .cp-seg button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
+@font-face { font-family: "Host Grotesk"; font-weight: 300 800; font-display: swap; src: url("${font("host-grotesk-latin-wght-normal.woff2")}") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-display: swap; src: url("${font("jetbrains-mono-latin-wght-normal.woff2")}") format("woff2"); }
+#cp-ov, #cp-top, #cp-gpu { font: 500 13px/20px "Host Grotesk", ui-sans-serif, system-ui, sans-serif; color: #f4f2f3; -webkit-font-smoothing: antialiased; }
+#cp-ov { position: fixed; top: 10px; right: 10px; z-index: 2147483646; }
+#cp-ov button { font: inherit; color: inherit; cursor: pointer; }
 #cp-ov svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-#cp-ov .cp-panel { position: absolute; top: 44px; right: 0; width: 288px; padding: 14px; border-radius: 14px; background: rgb(15 13 26 / 0.94);
-  backdrop-filter: blur(10px); box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08);
-  display: none; flex-direction: column; gap: 12px; }
-#cp-ov .cp-panel { max-height: calc(100vh - 64px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #2c2750 transparent; }
-#cp-ov .cp-extra:empty { display: none; }
-#cp-ov .cp-perf { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid rgb(255 255 255 / 0.08); }
-#cp-ov .cp-group { display: flex; flex-direction: column; gap: 6px; }
-#cp-ov .cp-sub { color: #d9d8ea; font-weight: 700; font-size: 12px; }
-#cp-ov .cp-speed { text-transform: none; letter-spacing: 0; color: #3ddc84; font-variant-numeric: tabular-nums; }
-#cp-ov .cp-speed.slow { color: #f5a524; }
-#cp-ov .cp-slow { color: #f5a524; }
-#cp-ov .cp-seg button:disabled { opacity: 0.45; cursor: default; }
-#cp-ov .cp-reopen button { margin-left: 4px; padding: 2px 8px; border: 0; border-radius: 6px; background: #7655ff; color: #fff; font-weight: 700; cursor: pointer; }
-#cp-ov.open .cp-panel { display: flex; animation: cp-rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+#cp-ov :focus-visible, #cp-top :focus-visible, #cp-gpu :focus-visible { outline: 2px solid #ff8fb0; outline-offset: 2px; }
+#cp-ov .cp-btn { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 8px; background: rgb(0 0 0 / 0.72);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14); opacity: 0; transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1), background 120ms; }
+#cp-ov .cp-btn:hover { background: #18181a; }
+html.cp-awake #cp-ov .cp-btn, #cp-ov:hover .cp-btn, #cp-ov .cp-btn:focus-visible { opacity: 1; }
+#cp-ov.open .cp-btn { visibility: hidden; }
+/* the panel: a column on the right, like the library's drawer and the friends (Shift+Tab); the game stays in sight */
+#cp-ov .cp-panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 100%); display: none; flex-direction: column; background: #0a0a0a;
+  box-shadow: -1px 0 0 rgb(255 255 255 / 0.14), -24px 0 60px rgb(0 0 0 / 0.5); }
+#cp-ov.open .cp-panel { display: flex; animation: cp-slide 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes cp-slide { from { opacity: 0; transform: translateX(16px); } }
 @keyframes cp-rise { from { opacity: 0; transform: translateY(-6px); } }
-#cp-ov .cp-label { display: flex; justify-content: space-between; color: #a3a1bd; font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
-#cp-ov .cp-vol { display: flex; align-items: center; gap: 8px; }
-#cp-ov .cp-mute { width: 30px; height: 30px; border: 0; border-radius: 8px; background: #242040; display: grid; place-items: center; cursor: pointer; flex: none; }
-#cp-ov input[type=range] { flex: 1; accent-color: #7655ff; height: 4px; cursor: pointer; }
-#cp-ov .cp-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 3px; border-radius: 10px; background: #1b1830; }
-#cp-ov .cp-seg button { border: 0; border-radius: 7px; padding: 6px 4px; background: none; color: #a3a1bd; cursor: pointer; font-size: 12px; font-weight: 600; }
-#cp-ov .cp-seg button[aria-pressed=true] { background: #7655ff; color: #fff; }
+#cp-ov header { display: flex; align-items: center; gap: 10px; padding: 18px 18px 8px; }
+/* the tabs: like the library's bar, the chosen one in ink with a coral line under it */
+#cp-ov .cp-tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid rgb(255 255 255 / 0.08); overflow-x: auto; scrollbar-width: none; }
+#cp-ov .cp-tabs button { position: relative; flex: none; height: 40px; padding: 0 8px; border: 0; background: none; color: #a6a2a4; font-size: 13px; font-weight: 600;
+  transition: color 120ms; }
+#cp-ov .cp-tabs button:hover { color: #f4f2f3; }
+#cp-ov .cp-tabs button[aria-selected=true] { color: #f4f2f3; }
+#cp-ov .cp-tabs button[aria-selected=true]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: #ff5a8a; }
+#cp-ov .cp-tabs button:focus-visible { outline-offset: -2px; }
+#cp-ov .cp-tabs button[hidden] { display: none; }
+#cp-ov header div { flex: 1; min-width: 0; }
+#cp-ov h2 { margin: 0; font-size: 20px; line-height: 26px; font-weight: 650; letter-spacing: -0.01em; }
+#cp-ov header small { display: block; color: #a6a2a4; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cp-ov kbd { font: 600 11px/1 "JetBrains Mono", ui-monospace, monospace; padding: 2px 5px; border-radius: 4px; background: #232325; color: #f4f2f3; }
+#cp-ov .x { width: 32px; height: 32px; display: grid; place-items: center; flex: none; border: 0; border-radius: 6px; background: none; color: #a6a2a4; }
+#cp-ov .x:hover { background: #18181a; color: #f4f2f3; }
+#cp-ov .cp-body { flex: 1; overflow-y: auto; padding: 0 18px 8px; scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.2) transparent; }
+/* each part of a tab (ours, then the game's): a titled block between thin lines */
+#cp-ov .cp-pane[hidden], #cp-ov .cp-sec[hidden] { display: none; }
+#cp-ov .cp-sec { display: flex; flex-direction: column; gap: 14px; padding: 16px 0; border-top: 1px solid rgb(255 255 255 / 0.08); }
+#cp-ov .cp-pane > .cp-sec:first-child, #cp-ov .cp-pane > .cp-sec[hidden] + .cp-sec { border-top: 0; }
+#cp-ov h3 { margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; line-height: 16px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: #a6a2a4; }
+#cp-ov .cp-group { display: flex; flex-direction: column; gap: 6px; }
+#cp-ov .cp-sub { color: #f4f2f3; font-weight: 600; font-size: 13px; }
+#cp-ov .cp-hint { margin: 0; color: #a6a2a4; font-size: 12px; line-height: 18px; }
+#cp-ov .cp-hint b { color: #f4f2f3; }
+#cp-ov .cp-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 2px; border-radius: 8px; background: #111112;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); }
+#cp-ov .cp-seg button { min-width: 0; border: 0; border-radius: 6px; padding: 7px 4px; background: none; color: #a6a2a4; font-size: 12px; font-weight: 600; transition: background 120ms, color 120ms; }
+#cp-ov .cp-seg button:hover:not(:disabled, [aria-pressed=true]) { background: #18181a; color: #f4f2f3; }
+#cp-ov .cp-seg button[aria-pressed=true] { background: #ff5a8a; color: #000; }
+#cp-ov .cp-seg button:disabled { opacity: 0.45; cursor: default; }
+#cp-ov .cp-vol { display: flex; align-items: center; gap: 10px; }
+#cp-ov .cp-pct { font: 500 12px/16px "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0; text-transform: none; color: #f4f2f3; }
+#cp-ov .cp-mute { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border: 0; border-radius: 6px; background: #232325; }
+#cp-ov .cp-mute:hover { background: #2c2c2f; }
+#cp-ov input[type=range] { flex: 1; accent-color: #ff5a8a; height: 4px; cursor: pointer; }
+#cp-ov .cp-speed { font: 500 12px/16px "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0; text-transform: none; color: #3ddc84; font-variant-numeric: tabular-nums; }
+#cp-ov .cp-speed.slow, #cp-ov .cp-slow { color: #f5a524; }
+/* "applies when the game opens again": a note in coral's outline, with the way to do it now */
+#cp-ov .cp-reopen { margin: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; background: #111112; box-shadow: inset 0 0 0 1px #ff5a8a; color: #f4f2f3; }
+#cp-ov .cp-reopen[hidden] { display: none; }
+#cp-ov .cp-reopen button { flex: none; height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: #ff5a8a; color: #000; font-weight: 700; font-size: 12px; }
+#cp-ov .cp-reopen button:hover { background: #ff7aa1; }
+#cp-ov .cp-quiet { align-self: flex-start; margin-top: -4px; padding: 0; border: 0; background: none; color: #a6a2a4; font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+#cp-ov .cp-quiet:hover { color: #f4f2f3; }
+#cp-ov .cp-online button { height: 36px; border: 0; border-radius: 6px; background: #ff5a8a; color: #000; font-weight: 700; transition: background 120ms; }
+#cp-ov .cp-online button:hover:not(:disabled) { background: #ff7aa1; }
+#cp-ov .cp-online button:disabled { background: #232325; color: #a6a2a4; cursor: default; }
+#cp-ov footer { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; border-top: 1px solid rgb(255 255 255 / 0.08); }
+#cp-ov .cp-home, #cp-ov .cp-browser, #cp-ov .cp-friends { display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 14px; border: 0; border-radius: 6px;
+  background: none; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14); color: #f4f2f3; text-decoration: none; font-weight: 700; transition: background 120ms; }
+#cp-ov .cp-home:hover, #cp-ov .cp-browser:hover:not(:disabled), #cp-ov .cp-friends:hover { background: #18181a; }
+#cp-ov .cp-browser:disabled { color: #a6a2a4; cursor: default; }
+.cp-code { font: 600 13px/18px "JetBrains Mono", ui-monospace, monospace; letter-spacing: 0.14em; color: #ff8fb0; padding: 1px 6px; border-radius: 4px; background: #232325; }
+/* the notes over the game (the link to the browser, no graphics card, the online's way): floating, at the top */
+#cp-top, #cp-gpu { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: flex-start; gap: 10px;
+  width: max-content; max-width: min(520px, calc(100% - 120px)); padding: 12px 10px 12px 16px; border-radius: 12px; background: #0a0a0a;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.14); color: #a6a2a4; animation: cp-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+#cp-gpu { top: auto !important; bottom: 16px; align-items: center; }
+#cp-top p, #cp-gpu p { margin: 0; }
+#cp-top b, #cp-gpu b { color: #f4f2f3; }
+#cp-top button, #cp-gpu .x { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: #a6a2a4; cursor: pointer; }
+#cp-top button:hover, #cp-gpu .x:hover { color: #f4f2f3; background: #18181a; }
+#cp-top svg, #cp-gpu svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+#cp-top .cp-copy { display: flex; gap: 6px; margin-top: 8px; }
+#cp-top .cp-copy input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 0; border-radius: 6px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  background: #111112; color: #f4f2f3; font: 500 12px/32px "JetBrains Mono", ui-monospace, monospace; }
+#cp-top .cp-copy button { width: auto; height: 32px; padding: 0 12px; background: #ff5a8a; color: #000; font: 700 13px/32px "Host Grotesk", ui-sans-serif, system-ui, sans-serif; }
+#cp-top .cp-copy button:hover { background: #ff7aa1; color: #000; }
+#cp-top .cp-link { display: inline-block; margin-top: 8px; color: #ff8fb0; font-weight: 700; }
+#cp-top .cp-mine { display: block; margin-top: 6px; color: #a6a2a4; font-size: 11px; }
+#cp-top .cp-warn { display: block; margin-top: 8px; color: #f5a524; font-size: 12px; line-height: 18px; }
+#cp-gpu .cp-browser { flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: #ff5a8a; color: #000; font: 700 13px/32px "Host Grotesk", ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+#cp-gpu .cp-browser:hover { background: #ff7aa1; }
 /* (only still layers over the game, drawn once on their own layer: a CSS filter on the game's canvas, or an animation
    over it, costs every frame, and inside Discord that stutters) */
 #cp-crt { position: fixed; inset: 0; pointer-events: none; z-index: 2147483645; display: none; transform: translateZ(0); }
@@ -104,10 +148,7 @@ html[data-cp-filter=crt] #cp-crt {
     repeating-linear-gradient(90deg, rgb(255 40 40 / 0.07) 0 1px, rgb(40 255 80 / 0.06) 1px 2px, rgb(60 90 255 / 0.07) 2px 3px);
   box-shadow: inset 0 0 140px rgb(0 0 0 / 0.65); }
 html[data-cp-filter=scan] #cp-crt { background: repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.16) 0 1px, transparent 1px 3px); }
-#cp-ov .cp-browser { height: 36px; border: 0; border-radius: 9px; background: #242040; color: #f3f2fb; font-weight: 700; cursor: pointer; }
-#cp-ov .cp-browser:hover { background: #2c2750; }
-#cp-ov .cp-browser:disabled { color: #a3a1bd; cursor: default; }
-@media (prefers-reduced-motion: reduce) { #cp-ov .cp-panel { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { #cp-ov .cp-panel, #cp-top, #cp-gpu { animation: none !important; } }
 `;
 
 const ICON_ON = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
@@ -152,24 +193,55 @@ function build() {
   crt.id = "cp-crt";
   const ov = document.createElement("div");
   ov.id = "cp-ov";
-  ov.innerHTML = `<button class="cp-btn" type="button" aria-expanded="false" aria-controls="cp-panel" aria-label="Som e imagem">${ICON_TUNE}</button>
-    <div class="cp-panel" id="cp-panel" role="dialog" aria-label="Som e imagem">
-      <a class="cp-home" href="${home.href}">${ICON_BACK}Voltar para a biblioteca</a>
-      <div class="cp-label"><span>Volume</span><span class="cp-pct"></span></div>
-      <div class="cp-vol"><button class="cp-mute" type="button"></button><input type="range" min="0" max="100" step="1" aria-label="Volume do jogo"></div>
-      <div class="cp-label"><span>Filtro de imagem</span></div>
-      <div class="cp-seg" role="group" aria-label="Filtro de imagem">${FILTERS.map(([f, name]) => `<button type="button" data-filter="${f}">${name}</button>`).join("")}</div>
-      <div class="cp-extra"></div>
-      <div class="cp-online" hidden><div class="cp-label"><span>Jogar online</span></div><p class="cp-hint"></p></div>
-      ${framed ? '<button class="cp-browser" type="button">Jogar no navegador (mais liso)</button>' : ""}
+  ov.innerHTML = `<button class="cp-btn" type="button" aria-expanded="false" aria-controls="cp-panel" aria-label="Configurações do jogo">${ICON_TUNE}</button>
+    <div class="cp-panel" id="cp-panel" role="dialog" aria-labelledby="cp-title">
+      <header><div><h2 id="cp-title">Configurações</h2><small><kbd>Esc</kbd> volta ao jogo</small></div>
+        <button class="x" type="button" aria-label="Fechar">${ICON_CLOSE}</button></header>
+      <div class="cp-tabs" role="tablist" aria-label="Configurações">${TABS.map(([t, name]) => `<button type="button" role="tab" id="cp-tab-${t}" data-tab="${t}" aria-controls="cp-pane-${t}">${name}</button>`).join("")}</div>
+      <div class="cp-body">${TABS.map(([t]) => `<div class="cp-pane" role="tabpanel" id="cp-pane-${t}" data-pane="${t}" aria-labelledby="cp-tab-${t}"></div>`).join("")}</div>
+      <footer><p class="cp-hint cp-reopen" hidden><span>Vale quando o jogo abrir de novo (o que não foi salvo se perde).</span><button type="button">Reabrir agora</button></p>
+        ${framed ? '<button class="cp-browser" type="button">Jogar no navegador (mais liso)</button>' : ""}<a class="cp-home" href="${home.href}">${ICON_BACK}Voltar para a biblioteca</a></footer>
     </div>`;
   document.body.append(crt, ov);
+  pane("video").innerHTML = `<section class="cp-sec"><h3>Tela</h3><div class="cp-group"><div class="cp-sub">Filtro de tela</div>
+      <div class="cp-seg cp-filter" role="group" aria-label="Filtro de tela">${FILTERS.map(([f, name]) => `<button type="button" data-filter="${f}">${name}</button>`).join("")}</div>
+      <p class="cp-hint">Desenhado por cima do jogo: não pesa nada.</p></div></section>`;
+  pane("audio").innerHTML = `<section class="cp-sec"><h3><span>Volume</span><span class="cp-pct"></span></h3>
+      <div class="cp-vol"><button class="cp-mute" type="button"></button><input type="range" min="0" max="100" step="1" aria-label="Volume do jogo"></div>
+      <p class="cp-hint">Guardado na sua conta: vale em todos os jogos e aparelhos.</p></section>`;
+  pane("online").innerHTML = `<section class="cp-sec cp-online" hidden><h3>Jogar online</h3><p class="cp-hint"></p></section>
+    <section class="cp-sec"><h3>Amigos</h3><p class="cp-hint">Quem está jogando agora, e convidar alguém para este jogo. Durante o jogo, <kbd>Shift</kbd>+<kbd>Tab</kbd> também abre.</p>
+      <button class="cp-friends" type="button">Ver amigos</button></section>`;
   const btn = ov.querySelector<HTMLButtonElement>(".cp-btn")!;
   const toggle = (open: boolean) => {
+    if (open === ov.classList.contains("open")) return;
     ov.classList.toggle("open", open);
     btn.setAttribute("aria-expanded", String(open));
-    if (!open) backToGame();
+    if (open) ov.querySelector<HTMLElement>(".x")!.focus();
+    else backToGame();
   };
+  ov.querySelector(".x")!.addEventListener("click", () => toggle(false));
+  ov.querySelector(".cp-friends")!.addEventListener("click", () => {
+    toggle(false);
+    frToggle(true);
+  });
+  ov.querySelector(".cp-reopen button")!.addEventListener("click", () => location.reload());
+  const tabs = ov.querySelector<HTMLElement>(".cp-tabs")!;
+  tabs.addEventListener("click", (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>("[data-tab]")?.dataset.tab as Tab | undefined;
+    if (t) selectTab(t);
+  });
+  // (the tabs' keys, as in any tab list: the arrows go to the next shown one, Home and End to the ends)
+  tabs.addEventListener("keydown", (e) => {
+    const shown = [...tabs.querySelectorAll<HTMLElement>("[data-tab]:not([hidden])")];
+    const at = shown.findIndex((b) => b.dataset.tab === tab);
+    const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: shown.length - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    const b = shown[(to + shown.length) % shown.length];
+    selectTab(b.dataset.tab as Tab);
+    b.focus();
+  });
   btn.addEventListener("click", () => toggle(!ov.classList.contains("open")));
   ov.querySelector("input")!.addEventListener("input", (e) => {
     prefs.volume = Number((e.target as HTMLInputElement).value) / 100;
@@ -182,7 +254,7 @@ function build() {
     apply();
     save();
   });
-  ov.querySelector(".cp-seg")!.addEventListener("click", (e) => {
+  ov.querySelector(".cp-filter")!.addEventListener("click", (e) => {
     const f = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-filter]")?.dataset.filter as Filter | undefined;
     if (!f) return;
     prefs.filter = f;
@@ -198,10 +270,34 @@ function build() {
   document.addEventListener("pointerdown", (e) => { if (!ov.contains(e.target as Node)) toggle(false); }, true);
   ov.querySelector(".cp-browser")?.addEventListener("click", openInBrowser);
   apply();
-  ov.querySelector(".cp-extra")!.append(...sections);
+  for (const [el, t] of sections) pane(t).append(el);
   if (pending) showOnline(...pending);
   else if (document.querySelector('meta[name="hypeplay-online"]')?.getAttribute("content") === "menu") portOnline();
+  if (reopenWanted) showReopen();
+  selectTab(tab);
   gpuCheck();
+}
+
+const pane = (t: Tab) => document.getElementById(`cp-pane-${t}`)!;
+let tab: Tab = "video";
+/** Shows tab `t` (or the first one with something in it), and only the tabs with something in them. */
+function selectTab(t: Tab) {
+  const full = (x: Tab) => [...pane(x).children].some((c) => !(c as HTMLElement).hidden);
+  tab = full(t) ? t : TABS.find(([x]) => full(x))?.[0] ?? t;
+  for (const [x] of TABS) {
+    const b = document.getElementById(`cp-tab-${x}`)!;
+    b.hidden = !full(x);
+    b.setAttribute("aria-selected", String(x === tab));
+    b.tabIndex = x === tab ? 0 : -1;
+    pane(x).hidden = x !== tab;
+  }
+}
+
+let reopenWanted = false;
+function showReopen() {
+  reopenWanted = true;
+  const note = document.querySelector<HTMLElement>("#cp-ov .cp-reopen");
+  if (note) note.hidden = false;
 }
 
 /** Inside Discord (the entry page frames us): the same page in the browser, where games run smoother. */
@@ -357,19 +453,21 @@ function showOnline(hint: string, control?: HTMLElement) {
   box.querySelector(".cp-hint")!.innerHTML = hint;
   if (control) box.append(control);
   box.hidden = false;
+  selectTab(tab);
 }
 let pending: [string, HTMLElement?] | null = null;
-const sections: HTMLElement[] = [];
+const sections: [HTMLElement, Tab][] = [];
 (window as unknown as { hypeplayOverlay: OverlayApi }).hypeplayOverlay = {
   online(hint, control) {
     if (document.getElementById("cp-ov")) showOnline(hint, control);
     else pending = [hint, control];
   },
-  section(el) {
-    const extra = document.querySelector("#cp-ov .cp-extra");
-    if (extra) extra.append(el);
-    else sections.push(el);
+  section(el, t) {
+    if (!document.getElementById("cp-ov")) return void sections.push([el, t]);
+    pane(t).append(el);
+    selectTab(tab);
   },
+  reopen: showReopen,
 };
 
 fetch(prefsUrl, { cache: "no-store" })
@@ -538,7 +636,9 @@ function frToggle(open: boolean) {
 // Before the game's own listeners (this script is in the page's <head>): Shift+Tab is ours, and while the overlay is
 // open, the keys are too. Key releases still reach the game, or a key held when it opened would stay held there.
 window.addEventListener("keydown", (e: KeyboardEvent) => {
-  if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+  // (inside the open settings panel, Shift+Tab is the keyboard's way back through its controls)
+  const inPanel = !!document.querySelector("#cp-ov.open")?.contains(document.activeElement);
+  if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !inPanel) {
     e.preventDefault();
     e.stopImmediatePropagation();
     if (!e.repeat) frToggle(!fr || fr.hidden !== false);

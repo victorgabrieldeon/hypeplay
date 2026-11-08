@@ -1,6 +1,6 @@
 import { createCardSync, heldByOtherTab, type CardStore } from "./cardsync";
 import type { OverlayApi } from "./overlay";
-import { perfSection } from "./perf";
+import { BOOT_PARAMS, bootParams, perfSections, readBoot } from "./perf";
 import { syncPipelines } from "./pipesync";
 import { roomButton } from "./stream";
 
@@ -20,9 +20,10 @@ const CARD_BYTES = 8_650_752;
  */
 const DIRTY_KEY = `cordplay-unsent:${/\/ps2\/([^/]+)\/game\//.exec(location.pathname)?.[1] ?? ""}`;
 
+const FONT = `"Host Grotesk", ui-sans-serif, system-ui, sans-serif`;
+// (Mosaico, DESIGN.md: the library's black, coral and Host Grotesk)
 const STYLE = `
-@font-face { font-family: "Manrope"; font-weight: 200 800; font-display: swap; src: url("../../../fonts/manrope-latin-wght-normal.woff2") format("woff2"); }
-@font-face { font-family: "Unbounded"; font-weight: 200 900; font-display: swap; src: url("../../../fonts/unbounded-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Host Grotesk"; font-weight: 300 800; font-display: swap; src: url("../../../fonts/host-grotesk-latin-wght-normal.woff2") format("woff2"); }
 html, body { background: #000 !important; overflow: hidden !important; }
 body > * { visibility: hidden !important; }
 #screen, #screen *, #slate, #slate *, #cp-bar, #cp-bar *, #cp-license, #cp-license *, #cp-ov, #cp-ov *, #cp-crt, #cp-note, #cp-note * { visibility: visible !important; }
@@ -33,35 +34,42 @@ body > * { visibility: hidden !important; }
   max-width: none !important; max-height: none !important; translate: none !important; scale: none !important; rotate: none !important; }
 #screen canvas { width: 100% !important; height: 100% !important; object-fit: contain !important; max-width: none !important; max-height: none !important; }
 #slate { position: fixed !important; left: 50% !important; bottom: 32px !important; top: auto !important; transform: translateX(-50%) !important; z-index: 20 !important;
-  width: min(460px, calc(100% - 32px)) !important; background: rgb(15 13 26 / 0.94) !important; color: #f3f2fb !important; border-radius: 18px !important;
-  box-shadow: 0 18px 40px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.08) !important; padding: 16px 20px !important;
-  font: 500 15px/24px Manrope, ui-sans-serif, system-ui, sans-serif !important; text-align: center; }
+  width: min(460px, calc(100% - 32px)) !important; background: #0a0a0a !important; color: #f4f2f3 !important; border-radius: 12px !important;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.14) !important; padding: 16px 20px !important;
+  font: 500 15px/24px ${FONT} !important; text-align: center; }
 #slate[hidden] { display: none !important; }
-#slate h1, #slate h2 { font: 600 17px/26px Unbounded, ui-sans-serif, system-ui, sans-serif !important; color: #f3f2fb !important; margin: 0 0 4px !important; }
-#slate p, #slate .fine { color: #a3a1bd !important; }
-#slate button { font: 600 14px/1 Manrope, ui-sans-serif, system-ui, sans-serif !important; border: 0 !important; border-radius: 8px !important; height: 36px; padding: 0 14px;
-  background: #242040 !important; color: #f3f2fb !important; cursor: pointer; }
-#slate .btn-primary { background: #7655ff !important; color: #fff !important; }
+#slate h1, #slate h2 { font: 650 17px/26px ${FONT} !important; letter-spacing: -0.01em; color: #f4f2f3 !important; margin: 0 0 4px !important; }
+#slate p, #slate .fine { color: #a6a2a4 !important; }
+#slate button { font: 700 14px/1 ${FONT} !important; border: 0 !important; border-radius: 6px !important; height: 36px; padding: 0 14px;
+  background: none !important; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14) !important; color: #f4f2f3 !important; cursor: pointer; }
+#slate button:hover { background: #18181a !important; }
+#slate .btn-primary { background: #ff5a8a !important; box-shadow: none !important; color: #000 !important; }
+#slate .btn-primary:hover { background: #ff7aa1 !important; }
 #slate .cmd, #slate #dev-copy, #slate #slate-library, #slate #slate-disc, #slate #slate-remove { display: none !important; }
-#cp-bar { position: fixed; top: 10px; left: 10px; z-index: 2147483646; display: flex; align-items: center; gap: 8px; padding: 4px;
-  border-radius: 12px; background: rgb(15 13 26 / 0.72); backdrop-filter: blur(8px); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
-  font: 600 13px/20px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; opacity: 0; transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+#cp-bar { position: fixed; top: 10px; left: 10px; z-index: 2147483646; display: flex; align-items: center; gap: 6px; padding: 4px;
+  border-radius: 8px; background: rgb(0 0 0 / 0.72); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14);
+  font: 600 13px/20px ${FONT}; color: #f4f2f3; opacity: 0; transition: opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 /* (overlay.js marks the page awake while the pointer moves; a room waiting for its friend keeps the bar up) */
 html.cp-awake #cp-bar, #cp-bar:hover, #cp-bar:focus-within, #cp-bar.waiting { opacity: 1; }
-#cp-bar a, #cp-bar button { display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: #242040;
-  color: inherit; text-decoration: none; font: inherit; cursor: pointer; }
-#cp-bar a:hover, #cp-bar button:hover { background: #2c2750; }
-#cp-bar a:focus-visible, #cp-bar button:focus-visible { outline: 2px solid #a08cff; outline-offset: 2px; }
-#cp-bar b { font: 600 14px/20px Unbounded, ui-sans-serif, system-ui, sans-serif; padding: 0 6px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#cp-license { position: fixed; right: 12px; bottom: 6px; z-index: 30; margin: 0; font: 500 11px/16px Manrope, ui-sans-serif, system-ui, sans-serif; color: #a3a1bd; }
-#cp-license a { color: #a3a1bd; }
-#cp-note { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; padding: 16px; background: #0b0a14;
-  font: 500 15px/24px Manrope, ui-sans-serif, system-ui, sans-serif; color: #f3f2fb; text-align: center; }
+#cp-bar a, #cp-bar button { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: none;
+  color: inherit; text-decoration: none; font: inherit; cursor: pointer; transition: background 120ms; }
+#cp-bar a:hover, #cp-bar button:hover { background: #18181a; }
+#cp-bar button { background: #ff5a8a; color: #000; font-weight: 700; }
+#cp-bar button:hover { background: #ff7aa1; }
+#cp-bar button:disabled { background: #232325; color: #a6a2a4; cursor: default; }
+#cp-bar a:focus-visible, #cp-bar button:focus-visible, #cp-note :focus-visible { outline: 2px solid #ff8fb0; outline-offset: 2px; }
+#cp-bar b { font: 650 14px/20px ${FONT}; padding: 0 6px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cp-license { position: fixed; right: 12px; bottom: 6px; z-index: 30; margin: 0; font: 500 11px/16px ${FONT}; color: #a6a2a4; }
+#cp-license a { color: #a6a2a4; }
+#cp-note { position: fixed; inset: 0; z-index: 2147483647; display: grid; place-items: center; padding: 16px; background: #000;
+  font: 500 15px/24px ${FONT}; color: #f4f2f3; text-align: center; }
 #cp-note > div { max-width: 460px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
-#cp-note h1 { font: 600 22px/28px Unbounded, ui-sans-serif, system-ui, sans-serif; margin: 0; }
-#cp-note p { color: #a3a1bd; margin: 0; }
-#cp-note button, #cp-note a { height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: #7655ff; color: #fff; font: 600 15px/40px Manrope, sans-serif;
-  cursor: pointer; text-decoration: none; }
+#cp-note h1 { font: 650 22px/28px ${FONT}; letter-spacing: -0.02em; margin: 0; }
+#cp-note p { color: #a6a2a4; margin: 0; }
+#cp-note button { height: 42px; padding: 0 18px; border: 0; border-radius: 6px; background: #ff5a8a; color: #000; font: 700 15px/42px ${FONT}; cursor: pointer; }
+#cp-note button:hover { background: #ff7aa1; }
+#cp-note a { color: #a6a2a4; font: 600 14px/20px ${FONT}; text-decoration: none; }
+#cp-note a:hover { color: #f4f2f3; }
 `;
 
 function style() {
@@ -95,7 +103,7 @@ function warn(text: string) {
   n.id = "cp-warn";
   n.textContent = text;
   n.style.cssText =
-    "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483646;margin:0;max-width:min(560px,calc(100% - 32px));padding:10px 14px;border-radius:12px;background:rgb(15 13 26 / .94);color:#f5a524;font:500 13px/20px Manrope,ui-sans-serif,system-ui,sans-serif;box-shadow:0 0 0 1px rgb(255 255 255 / .08);visibility:visible";
+    "position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:2147483646;margin:0;max-width:min(560px,calc(100% - 32px));padding:10px 14px;border-radius:12px;background:#0a0a0a;color:#f5a524;font:500 13px/20px 'Host Grotesk',ui-sans-serif,system-ui,sans-serif;box-shadow:0 18px 40px rgb(0 0 0 / .6),0 0 0 1px rgb(255 255 255 / .14);visibility:visible";
   document.body.append(n);
   setTimeout(() => n.remove(), 12_000);
 }
@@ -125,8 +133,9 @@ function bar(open: boolean) {
     mirror,
   );
   if (open) room.click();
-  // TabStationToo's speed settings, whose menus are hidden here, in the panel
-  (window as unknown as { hypeplayOverlay?: OverlayApi }).hypeplayOverlay?.section(perfSection());
+  // TabStationToo's settings, whose menus are hidden here, in the panel
+  const overlay = (window as unknown as { hypeplayOverlay?: OverlayApi }).hypeplayOverlay;
+  if (overlay) for (const [el, tab] of perfSections(overlay.reopen)) overlay.section(el, tab);
 }
 
 function idb(): Promise<IDBDatabase> {
@@ -232,6 +241,10 @@ async function start() {
   q.delete("online");
   q.set("bios", "../../../bios.bin");
   q.set("disc", "disc.iso");
+  // The panel's "Avançado" (perf.ts), which the emulator reads only as it starts: what's saved now, never what an
+  // earlier opening left in the address (a ?set= typed by hand goes too).
+  for (const k of BOOT_PARAMS) q.delete(k);
+  for (const [k, v] of bootParams(readBoot())) q.append(k, v);
   history.replaceState(null, "", `${location.pathname}?${q}`);
   let card: Awaited<ReturnType<typeof cards>> | "error" = "error";
   try {

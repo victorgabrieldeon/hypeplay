@@ -104,10 +104,11 @@ export const BOOT: BootOption[] = [
     id: "blend",
     tab: "video",
     title: "Precisão das cores",
-    hint: "Mais alta acerta brilhos, sombras e transparências, mas pesa na placa de vídeo. Mínima alivia. Só com a placa.",
+    hint: "Mais alta acerta brilhos, sombras e transparências, mas pesa na placa de vídeo. Só com a placa.",
     def: "1",
+    // (no "0", Mínima: TabStationToo's WebGPU renderer samples an RGBA16Unorm texture as float there and every frame
+    // is dropped, a black screen once a game draws its 3D; a saved "0" is left out by bootParams)
     choices: [
-      { value: "0", label: "Mínima" },
       { value: "1", label: "Básica" },
       { value: "2", label: "Média" },
       { value: "3", label: "Alta" },

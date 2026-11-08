@@ -45,3 +45,7 @@ test("the advanced options in the address: only what differs from the emulator's
     for (const c of o.choices) for (const [k] of o.params(c.value)) expect(BOOT_PARAMS).toContain(k);
   }
 });
+
+test("Mínima color accuracy is never sent: it blacks out the WebGPU renderer", () => {
+  expect(bootParams({ blend: "0" })).toEqual([]);
+});

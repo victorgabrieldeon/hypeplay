@@ -26,7 +26,7 @@ const STYLE = `
 @font-face { font-family: "Host Grotesk"; font-weight: 300 800; font-display: swap; src: url("../../../fonts/host-grotesk-latin-wght-normal.woff2") format("woff2"); }
 html, body { background: #000 !important; overflow: hidden !important; }
 body > * { visibility: hidden !important; }
-#screen, #screen *, #slate, #slate *, #cp-bar, #cp-bar *, #cp-license, #cp-license *, #cp-ov, #cp-ov *, #cp-crt, #cp-note, #cp-note * { visibility: visible !important; }
+#screen, #screen *, #slate, #slate *, #cp-bar, #cp-bar *, #cp-license, #cp-license *, #cp-ov, #cp-ov *, #cp-crt, #cp-pad, #cp-pad *, #cp-fps, #cp-note, #cp-note * { visibility: visible !important; }
 /* the whole 4:3 picture, as big as the window takes, centered (TabStationToo's own 4:3 box would overflow a wide window) */
 #screen { position: fixed !important; inset: 0 !important; z-index: 10 !important; margin: auto !important; border: 0 !important; border-radius: 0 !important;
   background: #000 !important; display: grid !important; place-items: center !important; transform: none !important;

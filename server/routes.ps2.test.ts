@@ -525,8 +525,8 @@ test("the page's scripts and fonts", async () => {
   expect(await iso.text()).toBe("/* iso */");
   expect(iso.headers.get("content-type")).toStartWith("text/javascript");
   expect((await get("nope.js")).status).toBe(404);
-  for (const name of ["unbounded", "manrope", "jetbrains-mono"]) {
-    const font = await get(`fonts/${name}-latin-wght-normal.woff2`);
+  for (const name of ["unbounded-latin", "manrope-latin", "jetbrains-mono-latin", "host-grotesk-latin", "host-grotesk-latin-ext"]) {
+    const font = await get(`fonts/${name}-wght-normal.woff2`);
     expect(font.status).toBe(200);
     expect(font.headers.get("content-type")).toBe("font/woff2");
   }

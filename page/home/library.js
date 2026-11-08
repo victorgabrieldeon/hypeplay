@@ -82,37 +82,56 @@ function online(g, room) {
   return g.status.state === 'ready' ? `<button class="btn second" data-play="${esc(g.key)}" data-online>${icon('users')}Jogar online</button>` : '';
 }
 
-/** `label`: why this game is in the spotlight ("Continuar jogando", "Em destaque"). */
+/** `label`: why this game is in the spotlight ("Continuar jogando", "Em destaque"), said under its name. */
 export function hero(g, sending, label) {
   const room = free(g)[0];
   const sub = g.kind === 'port' ? g.blurb : g.by ? `Adicionado por ${g.by}. A ISO fica no servidor: é só jogar.` : '';
   const play = g.status.state === 'ready'
     ? `<button class="btn" data-play="${esc(g.key)}">${icon('play')}Jogar agora</button>`
     : needsDisc(g, sending) ? `<button class="btn" data-pick="${esc(g.key)}">${icon('upload')}Enviar a ISO</button>` : '';
-  return `<div class="backdrop" style="background-image:url('${esc(g.cover)}')"></div>
-    <div class="text">
-      <p class="eyebrow">${esc(label)}</p>
-      <div class="chips"><span class="chip">${esc(g.platform)}</span>${seal(g)}${g.tags.filter((t) => t !== 'Experimental').map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div>
-      <h2>${esc(g.name)}</h2>
-      ${sub ? `<p>${esc(sub)}</p>` : ''}
-      <div class="actions">${play}${online(g, room)}<button class="btn second" data-open="${esc(g.key)}">Detalhes</button>${stateBadge(g, sending)}
-        ${room ? `<span class="live">${esc(room.host)} ${g.kind === 'port' ? `abriu a sala ${esc(room.code)}` : 'está jogando'}</span>` : ''}</div>
-    </div>
-    <img class="case" src="${esc(g.cover)}" alt="">`;
+  return `<h2>${esc(g.name)}</h2>
+    <div class="why"><span>${esc(label)}</span>·${seal(g)}${g.status.state === 'ready' ? '' : stateBadge(g, sending)}</div>
+    ${sub ? `<p>${esc(sub)}</p>` : ''}
+    <div class="actions">${play}${online(g, room)}</div>
+    ${room ? `<span class="live">${esc(room.host)} ${g.kind === 'port' ? `abriu a sala <b class="code">${esc(room.code)}</b>` : 'está jogando'}</span>` : ''}`;
 }
 
-/** `i`: its place in the grid (the first look staggers the cards in by it). A ready game shows no state on its cover. */
-export function card(g, sending, selected, i) {
-  const quiet = g.status.state === 'ready' && sending?.key !== g.key;
-  const rooms = g.open.length ? `<span class="state ok live">${g.open.length} ${g.open.length === 1 ? 'sala aberta' : 'salas abertas'}</span>` : '';
-  const serial = g.kind !== 'port' && g.serial ? `<span class="serial">${esc(g.serial)}</span>` : '';
-  return `<article class="card${g.key === selected ? ' on' : ''}" style="--i:${i}">
-    <button class="cover" data-open="${esc(g.key)}" aria-label="${esc(g.name)}: ${esc(stateOf(g, sending)[1])}">
+/**
+ * The wall's order and sizes: the spotlight and the games with an open room are big (3 at most, so the first rows
+ * show what can be played with someone now; `most`: fewer in a short window); then what needs someone (a missing BIOS, a stopped upload, a failure),
+ * what's on its way, and the ready ones by name.
+ */
+export function arrange(games, top, sending, most = 3) {
+  const bigs = [top, ...games.filter((g) => g !== top && g.open.length)].filter(Boolean).slice(0, most);
+  const rank = (g) => ({ warn: 0, bad: 0, busy: 1 })[stateOf(g, sending)[0]] ?? 2;
+  const rest = games.filter((g) => !bigs.includes(g))
+    .sort((a, b) => rank(a) - rank(b) || (rank(a) === 2 ? a.name.localeCompare(b.name, 'pt-BR') : 0));
+  return [...bigs.map((g) => ({ g, big: true })), ...rest.map((g) => ({ g, big: false }))];
+}
+
+/** How far it got, for the line on the cover's seam: an upload's bytes, a build's steps. */
+function progressOf(g, sending) {
+  const s = g.status;
+  if (sending?.key === g.key) return pct(sending.received + sending.inflight, sending.size);
+  if (s.state === 'uploading') return pct(s.received, s.size);
+  if (s.state === 'building') return pct(s.step - 1, s.total);
+  return null;
+}
+
+/** One cover on the wall, its name and state at its foot. `i`: its place (the first look lights the wall up by it). */
+export function card(g, sending, selected, i, big) {
+  const [tone, text] = stateOf(g, sending);
+  const ready = g.status.state === 'ready' && sending?.key !== g.key;
+  const rooms = g.open.length ? `${g.open.length} ${g.open.length === 1 ? 'sala aberta' : 'salas abertas'}` : '';
+  const state = ready ? (rooms ? `Pronto · ${rooms}` : 'Pronto') : text;
+  const p = progressOf(g, sending);
+  return `<article class="card${big ? ' big' : ''}${g.key === selected ? ' on' : ''}" style="--i:${i}">
+    <button class="cover" data-open="${esc(g.key)}" aria-label="${esc(g.name)}: ${esc(state)}">
       <img src="${esc(g.cover)}" alt="" loading="lazy">
-      ${quiet ? '' : `<span class="pill">${stateBadge(g, sending)}</span>`}
+      <span class="cap"><b>${esc(g.name)}</b>
+        <span class="state ${tone}${rooms ? ' live' : ''}"><span>${esc(state)}</span></span>
+        ${p === null ? '' : `<i class="seam ${tone}" style="--p:${p.toFixed(1)}%"></i>`}</span>
     </button>
-    <h3>${esc(g.name)}</h3>
-    <div class="meta">${g.kind === 'port' ? seal(g) : ''}${rooms || serial}</div>
   </article>`;
 }
 
@@ -122,7 +141,7 @@ export const addCard = (i) => `<button class="add" data-add style="--i:${i}">
       <rect class="back" x="14" y="12" width="26" height="38" rx="3" stroke="currentColor"/>
       <rect class="front" x="24" y="14" width="26" height="38" rx="3" stroke="var(--accent)" fill="var(--side)"/>
       <path class="plus" d="M37 27v12M31 33h12" stroke="var(--accent)" stroke-linecap="round"/></g></svg>
-    <b>Adicionar jogo</b><span>Envie a ISO uma vez: fica no servidor para todo mundo</span>
+    <b>Adicionar jogo</b>
   </button>`;
 
 /** The BIOS of a PS2 (its 4 MB main ROM): the same check the server makes (server/bios.ts), before sending it. */

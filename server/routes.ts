@@ -20,6 +20,7 @@
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
  *             ps2/<id>/fast/<file>         the "versão rápida" (ps2-builder/), its disc, and the code it met untranslated
  *             vimm                         POST { link }: download a PS2 game from vimm.net into the library; GET: how it goes (vimm.ts)
+ *             vimm/search?q=, vimm/cover/<id>?name=   the "loja": Vimm's PS2 vault searched (a letter lists it), its drawn covers
  *
  * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
  *
@@ -81,7 +82,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** The home's own scripts (page/home/), plain ES modules. */
-const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js"]);
+const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js", "store.js"]);
 /** TabStationToo's files (emulator/ps2/, pinned by emulator/ps2-files.json): nothing else of that folder is served. */
 const ENGINE_FILES = new Set(
   (JSON.parse(readFileSync(join(import.meta.dir, "..", "emulator", "ps2-files.json"), "utf8")) as { files: { path: string }[] }).files
@@ -844,6 +845,20 @@ export function createApp({
       const link = (await body<{ link?: unknown }>(req))?.link;
       const r = vimm.start(pass, typeof link === "string" ? link : "");
       return r.ok ? json(vimm.status(), 202) : json({ error: r.error }, r.status);
+    }
+    if (vimm && path === "/vimm/search") {
+      const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
+      if (!q) return json({ error: "Digite o nome de um jogo" }, 400);
+      return vimm.search(q).then(
+        (games) => json({ games }),
+        (err) => (console.warn("vimm search failed", err), json({ error: "O vimm.net não respondeu. Tente de novo." }, 502)),
+      );
+    }
+    // the "loja"'s covers: drawn here (cover.ts), never vimm's art; the id seeds the colors, the name is the title
+    const art = vimm && /^\/vimm\/cover\/(\d{1,9})$/.exec(path);
+    if (art) {
+      const name = (new URL(req.url).searchParams.get("name") ?? "").slice(0, 120);
+      return respond(generatedCover(`VIMM ${art[1]}`, name), 200, { "Content-Type": TYPES.svg!, "Cache-Control": "private, max-age=31536000, immutable" });
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
     if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "", server) : text("Não encontrado", 404);

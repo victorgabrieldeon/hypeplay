@@ -283,6 +283,9 @@
     box-shadow: 0 40px 80px -20px rgb(0 0 0 / 0.8), 0 0 0 1px var(--line-hi); padding: 28px; display: flex; flex-direction: column; gap: var(--s4);
     animation: pop 260ms var(--ease); }
   .dialog.wide { width: min(760px, 100%); }
+  /* the loja's covers (store.js) */
+  .store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 2px; }
+  .store-tile { aspect-ratio: 2 / 3; height: auto; }
   @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
   .dialog header { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
   .dialog header h2 { font: var(--t-xl); letter-spacing: -0.02em; }
@@ -424,6 +427,7 @@
     <nav aria-label="Seções">
       <button type="button" class="on" data-nav="library" title="Biblioteca"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>
       <button type="button" data-nav="people" title="Pessoas" hidden><svg class="i"><use href="#i-users"/></svg><span class="t">Pessoas</span><span class="count num" id="n-people"></span></button>
+      <button type="button" data-store title="Loja"><svg class="i"><use href="#i-download"/></svg><span class="t">Loja</span></button>
       <button type="button" data-add title="Adicionar jogo"><svg class="i"><use href="#i-plus"/></svg><span class="t">Adicionar jogo</span></button>
       <button type="button" data-controller title="Controle"><svg class="i"><use href="#i-pad"/></svg><span class="t">Controle</span></button>
       <button type="button" data-settings title="Servidor"><svg class="i"><use href="#i-server"/></svg><span class="t">Servidor</span></button>

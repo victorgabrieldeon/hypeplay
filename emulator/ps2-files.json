@@ -106,6 +106,14 @@
       "sha256": "53211325425eb420c744523774f6632227ce959f5de01566a4d6d922f265299f"
     },
     {
+      "path": "vendor/matter.min.js",
+      "sha256": "72d30be0f579eb02ce1e0b6f9d359a4f392e6837e5a26ba8be5dbee7f88e24ae"
+    },
+    {
+      "path": "vendor/matter-js-LICENSE.txt",
+      "sha256": "ed182087be5b26734aa6d4789743de3a97417950e8c1e3ff2e3d19c6462720d3"
+    },
+    {
       "path": "COPYING.GPLv3",
       "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
       "url": "https://raw.githubusercontent.com/TabStationToo/TabStationToo/5a9a7b489e428f3cea87d52621429f749c969f41/COPYING.GPLv3"

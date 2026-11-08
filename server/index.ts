@@ -9,6 +9,7 @@ import { Ps2Rooms } from "./ps2rooms";
 import { cloudflareTurn } from "./ice";
 import { createApp, type NetData } from "./routes";
 import { createSaves } from "./saves";
+import { createSocial } from "./social";
 import { createVimm } from "./vimm";
 
 const env = (name: string) => {
@@ -60,6 +61,7 @@ const app = createApp({
   discs: createDiscs(dir, r2),
   saves: createSaves(dir, r2),
   people: createPeople(dir),
+  social: createSocial(dir),
   ps2Rooms: new Ps2Rooms(),
   bios: createBios(dir),
   publicUrl: PUBLIC_URL,

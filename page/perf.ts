@@ -144,9 +144,10 @@ export const BOOT: BootOption[] = [
     title: "Desentrelaçamento",
     hint: "Tira o tremido das linhas em jogos entrelaçados. Automático acerta na maioria.",
     def: "0",
+    // (no "1", Desligado: like Mínima above, TabStationToo's WebGPU renderer then samples an RGBA16Unorm texture as
+    // float and drops every frame, a black screen in 3D; a saved "1" is left out by bootParams)
     choices: [
       { value: "0", label: "Automático" },
-      { value: "1", label: "Desligado" },
       { value: "6", label: "Mistura" },
       { value: "8", label: "Adaptativo" },
     ],

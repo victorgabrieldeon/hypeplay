@@ -46,6 +46,6 @@ test("the advanced options in the address: only what differs from the emulator's
   }
 });
 
-test("Mínima color accuracy is never sent: it blacks out the WebGPU renderer", () => {
-  expect(bootParams({ blend: "0" })).toEqual([]);
+test("Mínima color accuracy and no deinterlacing are never sent: they black out the WebGPU renderer", () => {
+  expect(bootParams({ blend: "0", deinterlace: "1" })).toEqual([]);
 });

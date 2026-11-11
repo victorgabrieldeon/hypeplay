@@ -198,8 +198,9 @@ barra dele mostra o caminho em uso (`direto`, `TURN`, `rede local`), o ping e os
 A versão rápida pesa (2 CPUs por 20 a 40 minutos por jogo) e roda na mesma VPS do app. Ela vai para outras máquinas
 com a mesma imagem do `ps2-builder`: cada uma é mais um worker da fila de compilações, e cada jogo vai para um worker
 só (nunca dois compilam o mesmo). Elas não montam o volume: falam com o app por HTTPS (`/worker/`, com um token),
-trazem o disco do R2 e publicam a versão rápida no R2, e o app serve de lá. Precisa do R2 ligado (`S3_BUCKET` e
-companhia).
+trazem o disco do R2 e publicam a versão rápida no R2, e o app serve de lá (cada carregamento passa pela VPS, sem
+cache). Precisa do R2 ligado no app (`S3_BUCKET` e companhia; com `WORKER_TOKEN` e sem R2 o app não sobe) e, nos
+workers, as mesmas credenciais do **mesmo bucket**.
 
 1. No Dokploy, em **Environment** do app, acrescente um token longo e aleatório (`openssl rand -hex 32`):
    ```
@@ -209,7 +210,7 @@ companhia).
 2. Na outra máquina (Linux com Docker, 2 CPUs e uns 4 GB de memória por worker, ~10 GB de disco), com uma cópia do
    repositório:
    ```sh
-   DOCKER_BUILDKIT=0 docker build -t hypeplay-ps2-builder -f ps2-builder/Dockerfile .
+   docker build -t hypeplay-ps2-builder -f ps2-builder/Dockerfile .
    docker run -d --restart unless-stopped --cpus 2 --name ps2-worker      -e QUEUE_URL=https://bt3.exemplo.com      -e WORKER_TOKEN=<token>      -e S3_BUCKET=… -e S3_ENDPOINT=… -e S3_ACCESS_KEY_ID=… -e S3_SECRET_ACCESS_KEY=…      -e WORKER_ID=casa-1      -v ps2-worker-data:/app/data      hypeplay-ps2-builder
    ```
    `QUEUE_URL` é o endereço do app (o mesmo do `PUBLIC_URL`). `WORKER_ID` é opcional: o nome que aparece nos logs e
@@ -269,7 +270,7 @@ http://localhost:3003`) e ponha o domínio do túnel no URL mapping `/` de um ap
 suba o builder apontando para a mesma pasta:
 
 ```sh
-DOCKER_BUILDKIT=0 docker build -t bt3-builder -f builder/Dockerfile .
+docker build -t bt3-builder -f builder/Dockerfile .
 docker run --rm -v "$PWD/data:/app/data" bt3-builder
 ```
 

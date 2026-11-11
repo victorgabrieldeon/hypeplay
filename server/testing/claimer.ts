@@ -7,7 +7,8 @@ import { createQueue } from "../queue";
 const [path, worker] = process.argv.slice(2) as [string, string];
 const queue = createQueue(path);
 const got: string[] = [];
-// (all of them start together: each waits for the go file)
+// (all of them start together: each says it's ready, then waits for the go file)
+await Bun.write(`${path}.ready.${worker}`, "");
 while (!(await Bun.file(`${path}.go`).exists())) await Bun.sleep(2);
 for (;;) {
   const c = queue.claim(worker, { kinds: ["ps2"] });

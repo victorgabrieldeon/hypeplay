@@ -16,6 +16,8 @@ import type { Claimed, Image, Queue, R2Build } from "./queue";
 
 /** A library game's id (library.ts' ID). */
 const ID = /^[a-z]{4}-\d{5}(?:-\d{1,2})?$/;
+/** The log a worker elsewhere sends with each beat: its last part, kept as build.log. */
+export const LOG_MAX = 256 * 1024;
 /** The page's files a build publishes (the server serves these and their .gz). */
 export const PUBLISHED = ["ps2web.html", "ps2web.js", "ps2web.wasm", "ps2web.data"];
 
@@ -112,7 +114,6 @@ export async function claimFast(dir: string, queue: Queue, worker: string, image
       queue.fail(c.key, c.token, { status: { state: "failed", message: "O jogo não tem a ISO no servidor" } });
       continue;
     }
-    const status = c.status as { state?: string } | null;
     const built = (await exists(join(p.build, "ps2web.html"))) || !!c.build;
     return {
       job: { key: c.key, token: c.token, attempts: c.attempts },
@@ -121,9 +122,9 @@ export async function claimFast(dir: string, queue: Queue, worker: string, image
         retry: c.retry,
         misses: await readFile(p.misses, "utf8").catch(() => ""),
         built,
-        // (what the build there was made with: only a ready one counts)
-        ...(built && status?.state === "ready" && c.shell !== null ? { shell: c.shell } : {}),
-        ...(built && status?.state === "ready" && c.recomp !== null ? { recomp: c.recomp } : {}),
+        // (what the build there was made with: only a build done sets these, a failure since keeps them)
+        ...(built && c.shell !== null ? { shell: c.shell } : {}),
+        ...(built && c.recomp !== null ? { recomp: c.recomp } : {}),
         disc,
       },
     };

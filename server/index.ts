@@ -50,7 +50,9 @@ const library = createLibrary(dir, { r2, port: false, queue });
 // (the "versão rápida" asked before the queue: in it, once)
 const adopted = await library.importFast();
 if (adopted) console.log(`queue: ${adopted} fast builds from the volume`);
-// Optional: workers on other machines (ps2-builder with QUEUE_URL) take jobs through /worker/ (workers.ts).
+// Optional: workers on other machines (ps2-builder with QUEUE_URL) take jobs through /worker/ (workers.ts). Their builds
+// go to R2 and are served from there: without R2 here, they'd be ready and never found.
+if (process.env.WORKER_TOKEN && !r2) throw new Error("WORKER_TOKEN without S3_BUCKET: workers elsewhere publish their builds in R2");
 const workers = process.env.WORKER_TOKEN ? createWorkerApi({ dir, queue, r2, token: process.env.WORKER_TOKEN }) : null;
 const app = createApp({
   games: [],

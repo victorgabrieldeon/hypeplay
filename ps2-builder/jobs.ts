@@ -11,7 +11,7 @@ import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { S3Client } from "bun";
 import { fetchFromR2, r2FromEnv } from "../server/discs";
-import { claimFast, fastPaths, finishLocal, PUBLISHED, writeFastLog, type FastClaim } from "../server/fastjobs";
+import { claimFast, fastPaths, finishLocal, LOG_MAX, PUBLISHED, writeFastLog, type FastClaim } from "../server/fastjobs";
 import { createQueue, type Queue, type R2Build } from "../server/queue";
 import type { Jobs } from "./builder";
 
@@ -75,7 +75,8 @@ export function remoteJobs({ url, token, r2, worker, data, fetch: get = fetch }:
     },
     // (the app unreachable for a moment: still ours, the lease says for how long)
     beat: (c, status) => ok("beat", { ...of(c), status, log: logs.get(c.job.key) }).catch((err) => (console.error("ps2-builder: beat:", err), true)),
-    log: (c, text) => void logs.set(c.job.key, text),
+    // (its end only: port.sh says megabytes over a build, and the app keeps no more)
+    log: (c, text) => void logs.set(c.job.key, text.slice(-LOG_MAX)),
     async disc(c) {
       const iso = fastPaths(data, c.game.id).iso;
       await mkdir(join(iso, ".."), { recursive: true });

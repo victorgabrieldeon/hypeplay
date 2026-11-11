@@ -14,11 +14,9 @@
 import { timingSafeEqual } from "node:crypto";
 import type { S3Client } from "bun";
 import { rangeResponse } from "./http";
-import { claimFast, fastPaths, finishR2, idOf, validR2Build, writeFastLog } from "./fastjobs";
+import { claimFast, fastPaths, finishR2, idOf, LOG_MAX, validR2Build, writeFastLog } from "./fastjobs";
 import type { Queue } from "./queue";
 
-/** The log a worker sends with each beat: its last part. */
-const LOG_MAX = 256 * 1024;
 const WORKER = /^[\w.:@-]{1,80}$/;
 
 export interface WorkerApiOptions {

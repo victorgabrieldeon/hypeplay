@@ -26,7 +26,8 @@ test("concurrent claims, in several processes on one file: every job once, never
   const workers = Array.from({ length: 6 }, (_, i) =>
     Bun.spawn(["bun", join(import.meta.dir, "testing", "claimer.ts"), path, `w${i}`], { stdout: "pipe", stderr: "pipe" }),
   );
-  await Bun.sleep(300);
+  // (once every one of them is up, so none is late to the race)
+  while (!(await Promise.all(workers.map((_, i) => Bun.file(`${path}.ready.w${i}`).exists()))).every(Boolean)) await Bun.sleep(5);
   await writeFile(`${path}.go`, "");
   const outs = await Promise.all(
     workers.map(async (w) => {

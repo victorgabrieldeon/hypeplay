@@ -6,7 +6,9 @@ import type { Runner } from "../builder/builder";
 import { createPs2Builder } from "../ps2-builder/builder";
 import { localJobs, remoteJobs } from "../ps2-builder/jobs";
 import { createLibrary } from "./library";
+import type { Passes } from "./pass";
 import { createQueue } from "./queue";
+import { createApp } from "./routes";
 import { fakeR2 } from "./testing/r2";
 import { createWorkerApi } from "./workers";
 
@@ -55,7 +57,8 @@ function fakeTools(during?: (id: string) => Promise<void>) {
     await during?.(id);
     const web = join(cwd, "build", `web-${id}`);
     await mkdir(web, { recursive: true });
-    for (const f of ["ps2web.html", "ps2web.js", "ps2web.wasm", "ps2web.data", "ps2web.wasm.gz"]) await writeFile(join(web, f), `${f} from ${disc}`);
+    for (const f of ["ps2web.js", "ps2web.wasm", "ps2web.data", "ps2web.wasm.gz"]) await writeFile(join(web, f), `${f} from ${disc}`);
+    await writeFile(join(web, "ps2web.html"), `<html><head><title>ps2-web-recomp</title></head><body>ps2web.html from ${disc}</body></html>`);
     return { code: 0, output: "Done." };
   };
   return { seen, run };
@@ -92,7 +95,7 @@ test("a worker elsewhere: the job through /worker/, the disc from R2, the build 
   expect(await library.fast("slus-20001")).toEqual({ state: "ready" });
   const page = await library.fastFile("slus-20001", "ps2web.html");
   expect(page!.from).toBe("r2");
-  expect(await page!.file.text()).toBe("ps2web.html from disc of slus-20001");
+  expect(await page!.file.text()).toContain("ps2web.html from disc of slus-20001");
   expect(await library.fastFile("slus-20001", "ps2web.data.gz")).toBeNull();
   // nothing of it on the app's disk but its log; the worker's copy of the disc gone
   expect(await exists(join(dir, "ps2", "slus-20001", "fast", "build"))).toBe(false);
@@ -110,6 +113,29 @@ test("a worker elsewhere: the job through /worker/, the disc from R2, the build 
   expect(queue().get("ps2/slus-20001")!.build).toBeNull();
   expect(keysUnder(job.build!.prefix)).toEqual([]);
   expect((await library.fastFile("slus-20001", "ps2web.html"))!.from).toBe("local");
+});
+
+test("a build in R2 through the app's own routes: its page rewritten, its files streamed (gzip too), never a redirect", async () => {
+  await game("slus-20005");
+  expect(await remote(fakeTools()).next()).toBe(true);
+  const passes: Passes = { issue: () => "p", verify: async (p) => (p === "p" ? { id: "42", name: "Ana", exp: Infinity, call: "7" } : null) };
+  const app = createApp({ dir, pageDir: join(import.meta.dir, "..", "page"), entryJs: "", passes, discord: { signIn: async () => null as never }, library });
+  const get = (rest: string, init?: RequestInit) => app.handle(new Request(`http://localhost/p/p/ps2/slus-20005/fast/${rest}`, init)) as Promise<Response>;
+  const page = await get("");
+  expect(page.status).toBe(200);
+  const html = await page.text();
+  expect(html).toContain("ps2web.html from disc of slus-20005");
+  expect(html).toContain("<title>slus-20005 · HypePlay</title>");
+  expect(html).toContain('<script src="../../../fastplay.js"></script><script src="../../../pad.js"></script>');
+  const gz = await get("ps2web.wasm", { headers: { "accept-encoding": "gzip" } });
+  expect(gz.status).toBe(200);
+  expect(gz.headers.get("location")).toBeNull();
+  expect(gz.headers.get("content-encoding")).toBe("gzip");
+  expect(gz.headers.get("content-type")).toBe("application/wasm");
+  expect(await gz.text()).toBe("ps2web.wasm.gz from disc of slus-20005");
+  const plain = await get("ps2web.data", { headers: { "accept-encoding": "gzip" } });
+  expect(plain.headers.get("content-encoding")).toBeNull();
+  expect(await plain.text()).toBe("ps2web.data from disc of slus-20005");
 });
 
 test("a disc only on the app's disk goes to the worker through /worker/disc", async () => {

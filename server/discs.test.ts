@@ -69,6 +69,13 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("moved while a build reads the copy here: marked, and the copy stays for the sweep", async () => {
+  await disc("k");
+  expect(await moveToR2(client, dir, iso("k"), async () => true, () => true)).toBe(true);
+  expect(await readFile(markOf(iso("k")), "utf8")).toBe("1000");
+  expect(await Bun.file(iso("k")).exists()).toBe(true);
+});
+
 test("moved: R2 has it, its mark holds the size, the local file is gone; read from R2 by range, streamed", async () => {
   await disc("a");
   expect(await moveToR2(client, dir, iso("a"), async () => true)).toBe(true);
@@ -264,6 +271,15 @@ describe("the sweep, with R2 on: it clears this disk only", () => {
     expect(await Bun.file(at(id, "disc.iso.part")).exists()).toBe(false);
     expect(fake.objects.has(`ps2/${id}/disc.iso`)).toBe(true);
     expect(await library.hasDisc(id)).toBe(true);
+  });
+
+  test("a copy here whose mark has no object in R2 stays: it's the disc there is", async () => {
+    const library = createLibrary(base, { min: 10, r2: fake.client });
+    const id = await inR2(library, "SLUS-20014");
+    fake.objects.delete(`ps2/${id}/disc.iso`);
+    await writeFile(at(id), data);
+    await library.sweep();
+    expect(await Bun.file(at(id)).exists()).toBe(true);
   });
 
   test("a disc whose move was cut short goes to R2 at a later sweep, once; one just in waits for its check", async () => {

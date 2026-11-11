@@ -21,9 +21,9 @@
  * changed them from outside. The sweep only ever clears this disk: R2 loses a disc when someone removes its game.
  */
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { S3Client } from "bun";
-import { dropFromR2, markOf, moveToR2 } from "./discs";
+import { dropFromR2, markedSize, markOf, moveToR2 } from "./discs";
 import { dropR2Build, fastKey } from "./fastjobs";
 import { fileRead, readDiscId } from "./iso9660";
 import type { Pass } from "./pass";
@@ -196,7 +196,7 @@ export function createLibrary(
   function settle(id: string): Promise<void> {
     if (!r2 || moving.has(id)) return Promise.resolve();
     moving.add(id);
-    return moveToR2(r2, dir, paths(id).iso, () => exists(paths(id).game))
+    return moveToR2(r2, dir, paths(id).iso, () => exists(paths(id).game), () => building(id))
       .then((moved) => log.info(moved ? "R2: disc moved" : "R2: game removed meanwhile", { game: id }))
       .catch((err) => log.error("R2: disc stays here", { game: id, err }))
       .finally(() => moving.delete(id));
@@ -252,6 +252,13 @@ export function createLibrary(
     // (without R2 a disc here is the one there is, mark or not)
     if (!r2 || !(await found(p.iso))) return;
     if (await found(markOf(p.iso))) {
+      // (only once R2 holds it whole: a mark without its object leaves the copy here, the one there is)
+      const size = await markedSize(p.iso);
+      const there = await r2.file(relative(dir, p.iso)).stat().then((s) => s.size, () => null);
+      if (!size || there !== size) {
+        log.warn("disc: marked as in R2 but not there whole, the copy here stays", { game: id, size, there });
+        return;
+      }
       await rm(p.iso, { force: true });
       log.info("disc: the copy here of one in R2 removed", { game: id });
       return;

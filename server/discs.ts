@@ -90,7 +90,14 @@ export async function sendToR2(client: S3Client, key: string, from: AsyncIterabl
  * The local disc to R2, then its mark, then the local file goes: never a moment without one or the other. `alive`:
  * whether its game is still there once sent (it may have been removed meanwhile; then R2's copy goes too).
  */
-export async function moveToR2(client: S3Client, dir: string, iso: string, alive: () => Promise<boolean>): Promise<boolean> {
+export async function moveToR2(
+  client: S3Client,
+  dir: string,
+  iso: string,
+  alive: () => Promise<boolean>,
+  /** (a build reading the copy here: it stays until the sweep's next look) */
+  keep: () => boolean = () => false,
+): Promise<boolean> {
   const key = relative(dir, iso);
   const size = Bun.file(iso).size;
   await sendToR2(client, key, Bun.file(iso).stream());
@@ -102,7 +109,7 @@ export async function moveToR2(client: S3Client, dir: string, iso: string, alive
   }
   await writeFile(`${markOf(iso)}.tmp`, String(size));
   await rename(`${markOf(iso)}.tmp`, markOf(iso));
-  await rm(iso, { force: true });
+  if (!keep()) await rm(iso, { force: true });
   return true;
 }
 

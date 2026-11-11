@@ -45,7 +45,8 @@ export function localJobs({ data, queue, r2, worker, room }: { data: string; que
     log: (c, text) => void writeFastLog(data, c.game.id, text),
     async disc(c) {
       const iso = fastPaths(data, c.game.id).iso;
-      if (c.game.disc === "local") return { path: iso, release: async () => {} };
+      // (a disc claimed as here that went to R2 since: fetched like any other)
+      if (c.game.disc === "local" && (await stat(iso).then(() => true, () => false))) return { path: iso, release: async () => {} };
       // (a disc in R2: here for port.sh while it builds, gone again after)
       if (!r2) throw new Error("A ISO está no R2 e este worker não tem o R2 (S3_BUCKET)");
       return workDisc(data, c, room, (to) => fetchFromR2(r2, data, iso, to));

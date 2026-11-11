@@ -95,8 +95,10 @@ export function hostNoP2p(): { title: string; text: string } {
 }
 
 /** What player 2 hears when the server's way stops. */
-export function relayStuck(why: "closed" | "no-decoder" | "host-cant"): { title: string; text: string } {
+export function relayStuck(why: "closed" | "no-decoder" | "host-cant" | "restart"): { title: string; text: string } {
   switch (why) {
+    case "restart":
+      return { title: "O HypePlay está atualizando", text: "O servidor reinicia em instantes. Assim que ele voltar, esta página abre de novo sozinha." };
     case "closed":
       return { title: "A conexão com o servidor caiu", text: "O jogo do host parou de chegar. Tente de novo." };
     case "no-decoder":

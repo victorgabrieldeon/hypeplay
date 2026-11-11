@@ -23,6 +23,7 @@ import { createHash } from "node:crypto";
 import { appendFile, cp, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { S3Client } from "bun";
+import { BUILD_SECONDS, telemetryFromEnv, type Histogram } from "../server/otlp";
 import { fetchFromR2, markOf, r2FromEnv } from "../server/discs";
 import { FAST_STEPS } from "../server/games";
 import { MARK, patchShell } from "./patch";
@@ -117,12 +118,14 @@ export interface Ps2BuilderOptions {
   now?: () => number;
   /** R2, where the games sent with it on keep their disc (server/discs.ts) */
   r2?: S3Client | null;
+  /** Each build's seconds, by its kind and result (server/otlp.ts) */
+  builds?: Histogram;
 }
 
 /** How much a build takes: all of it, code the players met, a new recompiler (or a retry), or the page alone. */
 type Mode = "full" | "learn" | "recomp" | "page";
 
-export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, frames = 3600, now = () => Date.now(), r2 = null }: Ps2BuilderOptions) {
+export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, frames = 3600, now = () => Date.now(), r2 = null, builds }: Ps2BuilderOptions) {
   const statuses = new Map<string, FastStatus>();
   /** The patched shell's hash, once patched. */
   let shell = "";
@@ -334,6 +337,8 @@ export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, fra
       else continue;
       if (retry) await rm(p.retry, { force: true });
       let fetched = false;
+      const started = now();
+      const took = (result: string) => builds?.record((now() - started) / 1000, { mode, result });
       try {
         // (a disc in R2: here for port.sh while it builds, gone again after; the page alone doesn't read it)
         if (mode !== "page" && r2 && !(await exists(p.iso))) {
@@ -341,7 +346,9 @@ export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, fra
           fetched = true;
         }
         await build(g.id, mode, learn);
+        took("ready");
       } catch (err) {
+        took(err instanceof Gone ? "gone" : "failed");
         if (err instanceof Gone) {
           statuses.delete(g.id);
           await rm(p.work, { recursive: true, force: true });
@@ -365,6 +372,23 @@ export function createPs2Builder({ data, repo, run, commit = "", rounds = 4, fra
 
 const LOOK_MS = 5000;
 
+/**
+ * The container's own heartbeat (docker-compose.yml's healthcheck: healthy while it's recent), touched with each
+ * status.json heartbeat that went through: idle for days, with no game asked for, it still beats (status.json doesn't).
+ */
+export const HEARTBEAT = process.env.HEARTBEAT_FILE ?? "/tmp/hypeplay-heartbeat";
+export const beatHeartbeat = () => writeFile(HEARTBEAT, String(Date.now()));
+
+/** The builds' seconds, out by OTLP only with OTEL_EXPORTER_OTLP_ENDPOINT (server/otlp.ts). */
+function buildMetrics(service: string) {
+  const telemetry = telemetryFromEnv(service);
+  const builds = telemetry.histogram("hypeplay.build.duration", { description: "Duração das compilações, por resultado", unit: "s", bounds: BUILD_SECONDS });
+  // (docker stop: the build going on is lost either way, and starts over at the next start; out now, not in 10 s)
+  for (const signal of ["SIGTERM", "SIGINT"] as const)
+    process.on(signal, () => void telemetry.shutdown().finally(() => process.exit(0)));
+  return builds;
+}
+
 if (import.meta.main) {
   const builder = createPs2Builder({
     data: process.env.DATA ?? "/app/data",
@@ -374,9 +398,11 @@ if (import.meta.main) {
     rounds: Number(process.env.PS2_ROUNDS ?? 4),
     frames: Number(process.env.PS2_FRAMES ?? 3600),
     r2: r2FromEnv(),
+    builds: buildMetrics("hypeplay-ps2-builder"),
   });
-  // The heartbeat goes on during a build, which takes many minutes.
-  setInterval(() => void builder.beat().catch((err) => console.error("status.json:", err)), LOOK_MS);
+  // The heartbeat goes on during a build, which takes many minutes (and the container's, idle or not: builder.ts).
+  await beatHeartbeat();
+  setInterval(() => void builder.beat().then(beatHeartbeat).catch((err) => console.error("status.json:", err)), LOOK_MS);
   console.log("ps2-builder: watching /app/data/ps2/*/fast/request");
   for (;;) {
     await builder.tick().catch((err) => console.error("ps2-builder:", err));

@@ -3,7 +3,7 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FAST_STEPS } from "../server/games";
-import { createPs2Builder, parseMisses, type Runner } from "./builder";
+import { createPs2Builder, parseMisses, type Ps2BuilderOptions, type Runner } from "./builder";
 import { MARK } from "./patch";
 
 // Real folders, links and copies: slower than a unit test.
@@ -48,7 +48,7 @@ function fakeTools(fake: Fake = {}) {
   return { seen, run };
 }
 
-async function setup(tools: ReturnType<typeof fakeTools>) {
+async function setup(tools: ReturnType<typeof fakeTools>, builds?: Ps2BuilderOptions["builds"]) {
   const root = await mkdtemp(join(tmpdir(), "hypeplay-ps2b-"));
   dirs.push(root);
   const data = join(root, "data");
@@ -57,7 +57,7 @@ async function setup(tools: ReturnType<typeof fakeTools>) {
   await writeFile(join(repo, "web", "shell.html"), await readFile(fixture));
   let clock = 1_000_000;
   // (another builder over the same folders: the next image, with its own page and recompiler)
-  const make = (commit = "") => createPs2Builder({ data, repo, run: tools.run, commit, now: () => (clock += 1000) });
+  const make = (commit = "") => createPs2Builder({ data, repo, run: tools.run, commit, now: () => (clock += 1000), builds });
   const builder = make();
   const fast = (id: string) => join(data, "ps2", id, "fast");
   const status = async (id: string) => JSON.parse(await readFile(join(fast(id), "status.json"), "utf8"));
@@ -238,4 +238,20 @@ test("a game whose disc is in R2: brought here for port.sh, gone again after", a
   expect(during).toBe("iso from r2");
   expect(await exists(iso)).toBe(false);
   expect(await exists(`${iso}.r2`)).toBe(true);
+});
+
+test("each build's seconds go to the metrics, with its kind and result", async () => {
+  const took: [number, Record<string, unknown>][] = [];
+  const builds = { record: (v: number, a?: Record<string, string | number | boolean>) => void took.push([v, a ?? {}]) };
+  const ok = await setup(fakeTools(), builds);
+  await ok.game("scus-97399");
+  await ok.builder.tick();
+  const bad = await setup(fakeTools({ fail: { "scus-97399": { code: 1, output: "boom" } } }), builds);
+  await bad.game("scus-97399");
+  await bad.builder.tick();
+  expect(took.map(([, a]) => a)).toEqual([
+    { mode: "full", result: "ready" },
+    { mode: "full", result: "failed" },
+  ]);
+  expect(took.every(([s]) => s > 0)).toBe(true);
 });

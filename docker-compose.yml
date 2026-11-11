@@ -3,12 +3,20 @@
 # on the system disk: the second one (/mnt/disk) is a network disk of ~250 reads/s, games stutter on it. Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
 # (never created when missing: without it the services don't start, rather than start empty)
 x-data: &data { type: bind, source: /srv/bt3-data, target: /app/data, bind: { create_host_path: false } }
+# Optional: metrics and logs by OpenTelemetry (OTLP over HTTP) to SigNoz or any collector (README "Observabilidade").
+# Empty: nothing goes out. Each service has its own name (hypeplay, hypeplay-ps2-builder).
+x-otel: &otel
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+  OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
+  OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-}
 
 services:
   app:
     build: .
     restart: unless-stopped
     environment:
+      <<: *otel
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
       # The app's own https address, for "Abrir no navegador" when Discord can't run a PS2 game in its window.
@@ -31,7 +39,20 @@ services:
       # (with R2) optional, off: the discs served by edge/worker.ts near the players (README "Edge para os discos")
       DISC_EDGE_URL: ${DISC_EDGE_URL:-}
       DISC_EDGE_SECRET: ${DISC_EDGE_SECRET:-}
+      # The JSON log's level: debug, info (default), warn, error.
+      LOG_LEVEL: ${LOG_LEVEL:-}
     volumes: [*data]
+    # GET /health (server/ops.ts): 503 once shutting down. Traefik only sends to a healthy container, so it's quick to
+    # ask; the start covers the page bundles made at startup.
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3003/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
+    # SIGTERM: the WebSockets are told to connect again and the requests going on finish (up to 10 s, ops.ts DRAIN_MS);
+    # then what's pending is written. SIGKILL only past this.
+    stop_grace_period: 20s
 
   # The PS2 games' "versão rápida" (ps2-builder/): compiles, one at a time, only the games someone asked for in the
   # library ("Compilar versão rápida"), with ps2-web-recomp. Held to 2 CPUs so calls don't suffer.
@@ -42,6 +63,7 @@ services:
     restart: unless-stopped
     cpus: "2"
     environment:
+      <<: *otel
       # test runs of each game while building (more find more code, take longer) and frames per run
       PS2_ROUNDS: ${PS2_ROUNDS:-4}
       PS2_FRAMES: ${PS2_FRAMES:-3600}
@@ -51,6 +73,13 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
     volumes: [*data]
+    # Healthy while its heartbeat (ps2-builder/builder.ts' HEARTBEAT, every 5 s, idle or building) is under a minute old.
+    healthcheck:
+      test: ["CMD", "bun", "-e", "process.exit(Date.now() - require('fs').statSync('/tmp/hypeplay-heartbeat').mtimeMs < 60000 ? 0 : 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly
   # (README "Online: o TURN"). Off unless COMPOSE_PROFILES=turn; then also set TURN_SECRET and

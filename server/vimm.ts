@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { normalizeCover } from "./cover";
 import { fileRead, readDiscId } from "./iso9660";
 import { PS2_MAX, PS2_MIN, type Library } from "./library";
+import { log } from "./log";
 import type { Pass } from "./pass";
 
 export type VimmJob =
@@ -209,7 +210,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
       await writeFile(library.paths(id).cover, made.image);
       await library.setCover(id, true);
     } catch (err) {
-      console.warn("vimm: no cover", err); // (the game is in all the same, with a drawn one)
+      log.warn("vimm: no cover", { err }); // (the game is in all the same, with a drawn one)
     }
   }
 
@@ -245,7 +246,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
       const by = pass.name;
       void run(url, pass)
         .catch((err): VimmJob => {
-          if (!(err instanceof Refused)) console.error("vimm download failed", err);
+          if (!(err instanceof Refused)) log.error("vimm download failed", { err });
           return { state: "failed", by, message: err instanceof Refused ? err.message : "Não deu para baixar do vimm.net. Tente de novo." };
         })
         // (cleared while still busy, so a next download can't start in the middle of it)
@@ -391,7 +392,7 @@ export function createVault({ fetch: get = fetch }: { fetch?: typeof fetch } = {
     });
   /** The games with their art's file names (null: the set doesn't have it; the page draws one). */
   async function withArt<T extends ListedGame & { regions?: string[] }>(games: T[]) {
-    const ix = await index().catch((err) => (console.warn("loja: no art index", err), null));
+    const ix = await index().catch((err) => (log.warn("loja: no art index", { err }), null));
     return games.map((g) => ({
       ...g,
       box: ix && pickArt(ix, "box", g.name, g.regions),

@@ -24,7 +24,7 @@ RUN git init -q /opt/recomp \
 RUN EMSDK=/opt/recomp/tools/emsdk /opt/recomp/scripts/setup.sh
 
 WORKDIR /opt/hypeplay
-COPY server/games.ts server/discs.ts server/
+COPY server/games.ts server/discs.ts server/otlp.ts server/
 COPY ps2-builder/builder.ts ps2-builder/patch.ts ps2-builder/
 # (RECOMP_COMMIT: a ready build made with another one is brought up to date)
 ENV RECOMP=/opt/recomp DATA=/app/data EMSDK=/opt/recomp/tools/emsdk RECOMP_COMMIT=$RECOMP_COMMIT

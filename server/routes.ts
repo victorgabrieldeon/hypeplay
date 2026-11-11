@@ -47,6 +47,7 @@ import type { People } from "./people";
 import type { Social } from "./social";
 import { gameFrom, Presence } from "./presence";
 import { createHomeFeed, etagOf, unchanged, type HomeData, type HomeSocket, type HomeView } from "./homefeed";
+import { log } from "./log";
 import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
 import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
@@ -98,7 +99,8 @@ const FONTS: Record<string, string> = {
   "host-grotesk-latin-ext-wght-normal.woff2": "@fontsource-variable/host-grotesk",
 };
 
-const HEADERS = {
+/** (also ops.ts': its 429s and /health go to the same sandboxed pages, CORS and all) */
+export const HEADERS = {
   "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups allow-downloads; ${FRAME_ANCESTORS}`,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, POST, PATCH, DELETE, OPTIONS",
@@ -264,7 +266,7 @@ export function createApp({
     try {
       html = adjust(await f.text());
     } catch (err) {
-      console.error(err);
+      log.error("game page patch failed", { path, err });
       return new Response(`O emulador mudou e a página dele precisa de revisão (server/ps2page.ts).`, { status: 500, headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" } });
     }
     // (the app's public address: overlay.js' "Abrir no navegador" shows the link itself, Discord may never answer)
@@ -275,7 +277,7 @@ export function createApp({
     const both = withPad && injectPad(withPad, pad.replace(/pad\.js$/, "overlay.js"));
     if (both === null && !warned) {
       warned = true;
-      console.warn(`${path}: no </head>, served without pad.js and overlay.js`);
+      log.warn("game page without </head>: served without pad.js and overlay.js", { path });
     }
     return new Response(withVersions(both ?? html, versions), { headers: { ...headers, "Content-Type": TYPES.html! } });
   }
@@ -713,7 +715,7 @@ export function createApp({
           const r = await saves.put(id, pass.id, new Uint8Array(await req.arrayBuffer()));
           return r.ok ? respond(null, 204) : json({ error: r.error }, 400);
         } catch (err) {
-          console.error(`save ${id}/${pass.id}:`, err);
+          log.error("save unavailable", { game: id, user: pass.id, err });
           return text("O save não está disponível agora", 503);
         }
       }
@@ -734,7 +736,7 @@ export function createApp({
       // outside Discord, for one, needs that), and the app's public address, what that link opens (publicFor)
       return json({ pass: passes.issue(user), access_token: user.accessToken, public_url: publicFor(req) });
     } catch (err) {
-      console.error("discord sign-in failed:", err);
+      log.error("discord sign-in failed", { err });
       return json({ error: "Não deu para entrar pelo Discord. Feche e abra a atividade de novo." }, 502);
     }
   }
@@ -762,7 +764,7 @@ export function createApp({
     try {
       return respond(null, 302, { Location: `/p/${passes.issue(await discord.signIn(code, redirectUri))}/` });
     } catch (err) {
-      console.error("discord sign-in (browser) failed:", err);
+      log.error("discord sign-in failed", { from: "browser", err });
       return text("Não deu para entrar pelo Discord. Volte e tente de novo.", 502);
     }
   }
@@ -885,7 +887,7 @@ export function createApp({
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
       return server.upgrade(req, { data: { game: "", kind: "vimm" } }) ? undefined : text("Não deu para abrir a conexão", 400);
     }
-    const failed = (err: unknown) => (console.warn("loja: vimm.net failed", err), json({ error: "O vimm.net não respondeu. Tente de novo." }, 502));
+    const failed = (err: unknown) => (log.warn("loja: vimm.net failed", { err }), json({ error: "O vimm.net não respondeu. Tente de novo." }, 502));
     if (vimm && path === "/vimm/store") return vimm.vault.home().then(json, failed);
     if (vimm && path === "/vimm/search") {
       const q = new URL(req.url).searchParams.get("q")?.trim() ?? "";
@@ -934,7 +936,7 @@ export function createApp({
     },
   };
 
-  return { handle, websocket, feed };
+  return { handle, websocket, feed, presence };
 }
 
 export type App = ReturnType<typeof createApp>;

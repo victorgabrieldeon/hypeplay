@@ -279,7 +279,12 @@ document.addEventListener('click', async (e) => {
   if (d.cover) return pickFile(d.cover, 'cover');
   if ('bios' in d) return pickFile(state.open, 'bios');
   el.disabled = true;
-  if (d.fastBuild) await api(`${d.fastBuild}/fast-build`, { method: 'POST' });
+  if (d.fastBuild) {
+    // (refused with a reason, say the limit per person: shown in the drawer like an upload's)
+    const r = await api(`${d.fastBuild}/fast-build`, { method: 'POST' }).catch(() => null);
+    const error = r && !r.ok ? (await r.json().catch(() => null))?.error : '';
+    state.uploadError = { key: d.fastBuild, text: error || '' };
+  }
   if (d.fastRemove && await ask({ title: 'Apagar a versão rápida?', text: 'Some para todo mundo. O jogo continua no emulador, e os saves ficam.', ok: 'Apagar', danger: true }))
     await api(`${d.fastRemove}/fast-build`, { method: 'DELETE' });
   if (d.coverRemove) await api(`${d.coverRemove}/cover`, { method: 'DELETE' });

@@ -2,5 +2,6 @@
 *
 !server/games.ts
 !server/discs.ts
+!server/otlp.ts
 !ps2-builder/builder.ts
 !ps2-builder/patch.ts

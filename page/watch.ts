@@ -79,13 +79,22 @@ function goRelay(tell: boolean, pc: RTCPeerConnection | null) {
   const canvas = $("relay") as HTMLCanvasElement;
   const url = new URL(`../room/${room}/relay?role=guest&me=${me}`, location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  const stop = (why: "closed" | "no-decoder") => {
+  const stop = (why: "closed" | "no-decoder" | "restart") => {
     $("dot").classList.remove("on");
     clearInterval(beat);
     const say = () => {
       const s = relayStuck(why);
       status(s.title, s.text, "error", [retry]);
     };
+    if (why === "restart") {
+      const s = relayStuck(why);
+      status(s.title, s.text);
+      return void backAfterRestart().then((back) => {
+        if (back) return location.reload();
+        why = "closed";
+        say();
+      });
+    }
     if (why !== "closed") return say();
     // (the host leaving the game ends the relay too: once its room is gone, that's the room ending, as without the
     // relay; a moment first, as the room goes just after the relay)
@@ -112,6 +121,23 @@ function goRelay(tell: boolean, pc: RTCPeerConnection | null) {
     relaying.stop();
     stop("closed");
   }, RELAY_MS);
+}
+
+/**
+ * A deploy closed the relay (RESTART): true once the server answers again (its /health, at the address's root, five
+ * levels above this page's /p/<pass>/ps2/<id>/watch/), false after two minutes. The rooms lived in its memory, so
+ * the page opens anew: the host's room again if it opened one, "A sala acabou" if not.
+ */
+async function backAfterRestart(): Promise<boolean> {
+  const health = new URL("../../../../../health", location.href);
+  const until = Date.now() + 120_000;
+  // (a moment first: the old server still answers while it drains)
+  await new Promise((ok) => setTimeout(ok, 3000));
+  while (Date.now() < until) {
+    if ((await fetch(health, { cache: "no-store" }).catch(() => null))?.ok) return true;
+    await new Promise((ok) => setTimeout(ok, 2000));
+  }
+  return false;
 }
 
 async function send(to: string, msg: object) {

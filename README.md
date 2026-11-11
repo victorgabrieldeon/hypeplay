@@ -114,6 +114,48 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
+### Saúde, deploy e limites
+
+- **Saúde:** `GET /health` é público e só responde `ok` (200), ou `draining` (503) enquanto o servidor desliga. É o
+  `healthcheck` do `app` no compose; o Traefik só manda tráfego para um container saudável. O `ps2-builder` fica
+  saudável enquanto o heartbeat dele (`/tmp/hypeplay-heartbeat` dentro do container, a cada 5 s, mesmo parados)
+  tem menos de um minuto.
+- **Deploy sem susto:** no SIGTERM o `app` para de aceitar conexões, fecha os WebSockets com o código 1012 (a página
+  entende como "o servidor está reiniciando": o jogador 2 vê o aviso e a página abre de novo sozinha quando ele
+  volta; a loja reconecta sozinha), espera até 10 s os pedidos em andamento, grava o que falta (`social.json`) e sai.
+  As salas do online vivem na memória: uma partida em andamento pelo servidor termina no deploy, e o host abre a
+  sala de novo.
+- **Limites por pessoa** (pelo id do Discord do passe, em memória): 20 jogos adicionados e 20 envios de ISO por hora,
+  10 downloads do vimm.net e 10 pedidos de versão rápida por hora, 30 convites a cada 10 min e 40 pedidos de amizade
+  por hora (`server/limits.ts`). Passou disso, `429` com a mensagem que a home mostra ("Muitos … em pouco tempo.
+  Tente de novo em N minutos."). Pedido recusado ou com erro não conta.
+
+### Observabilidade
+
+Os logs saem em JSON, uma linha por evento (`{"time","level","msg",…}`, `server/log.ts`). Com
+`OTEL_EXPORTER_OTLP_ENDPOINT` definido, os dois serviços mandam métricas e o `app` manda também os logs por
+OpenTelemetry (OTLP por HTTP, JSON: `server/otlp.ts`, sem dependências) para o SigNoz ou qualquer coletor. Sem ela,
+nada sai e nada muda.
+
+| Variável | Para quê |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Opcional. O endereço base do coletor OTLP/HTTP, ex. `http://signoz-otel-collector:4318` (o servidor junta `/v1/metrics` e `/v1/logs`). Vazia: nada sai |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Opcional. Cabeçalhos de cada envio, `chave=valor,chave2=valor2`. No SigNoz Cloud: `signoz-ingestion-key=<chave>` |
+| `OTEL_RESOURCE_ATTRIBUTES` | Opcional. Mais sobre o serviço, ex. `deployment.environment=producao`. Os nomes dos serviços já vêm: `hypeplay` e `hypeplay-ps2-builder` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Opcional. De quanto em quanto tempo vão as métricas, em ms (60000) |
+| `LOG_LEVEL` | Opcional. `debug`, `info` (padrão), `warn` ou `error` |
+
+| Métrica | O que mede |
+| --- | --- |
+| `hypeplay.rooms.active` | Salas do online abertas |
+| `hypeplay.people.online` | Pessoas com a home ou um jogo aberto |
+| `hypeplay.websockets.open` | WebSockets abertos, por tipo (`relay`, `vimm`) |
+| `hypeplay.disc.bytes` | Bytes de disco servidos, por jogo (`game`) e origem (`source`: `local` ou `r2`) |
+| `hypeplay.games.duration` | Tempo da lista de jogos (`games`, a cada 2 s em cada home aberta), em ms |
+| `hypeplay.http.requests` | Pedidos por classe de status (`2xx`, `4xx`, `5xx`, `101` para WebSocket) |
+| `hypeplay.ratelimit.rejected` | Pedidos recusados pelo limite por pessoa (`action`) |
+| `hypeplay.build.duration` | Duração das compilações em segundos, por `mode` (`full`, `learn`, `recomp`, `page`) e `result` (`ready`, `failed`, `gone`) |
+
 ### Ligar o TURN
 
 O vídeo do jogador 2 vai direto do navegador do host para o do convidado. Quando uma das redes não aceita conexão
@@ -207,6 +249,11 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).
+- `server/ops.ts`, `limits.ts`, `log.ts`, `otlp.ts`: em volta das rotas, o `/health`, os limites por pessoa, as
+  métricas e o desligamento limpo; o log em JSON; o envio por OpenTelemetry (sem dependências, o `ps2-builder` usa
+  também).
+- `.github/workflows/ci.yml`: em cada PR e push, `bun test`, `bun run typecheck` e o build das duas imagens (sem
+  segredos, sem deploy: o Dokploy faz o deploy do `main` sozinho).
 - `ps2-builder/`: a imagem e o laço da versão rápida (ps2-web-recomp). O `patch.ts` ajusta a página dele e falha
   alto se o recompilador mudar.
 - `emulator/ps2-fetch.ts` e `ps2-files.json`: baixam o TabStationToo (GPL-3.0) e conferem cada arquivo por SHA-256;

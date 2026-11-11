@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Mapping } from "../page/padmap";
@@ -48,13 +48,6 @@ test("played and last", async () => {
   await people.played("42", "bt3");
   expect(await people.last("42")).toBe("bt3");
   expect(await people.last("43")).toBeNull();
-});
-
-test("a corrupted pads file reads as none", async () => {
-  const { dir, people } = await setup();
-  await mkdir(join(dir, "pads"), { recursive: true });
-  await writeFile(join(dir, "pads", "42.json"), "{");
-  expect(await people.pads("42")).toEqual({});
 });
 
 test("keys round-trip, a bad map is refused, null forgets them", async () => {

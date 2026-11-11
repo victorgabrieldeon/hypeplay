@@ -121,6 +121,9 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
 | `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Opcionais. Os discos novos e os saves no R2 (`server/discs.ts`, `server/saves.ts`); sem eles, tudo fica no disco do servidor |
+| `DISC_CACHE_MB` | Opcional (com R2). Quantos MB de pedaços dos discos do R2 o app guarda na memória: veja [Cache](#cache-dos-discos-e-dos-arquivos). Padrão 256; `0` desliga |
+| `DISC_EDGE_URL`, `DISC_EDGE_SECRET` | Opcionais (com R2), desligados. Os discos do emulador servidos por um Worker da Cloudflare perto dos jogadores: veja [Edge para os discos](#edge-para-os-discos-opcional) |
 | `WORKER_TOKEN` | Opcional. Deixa workers da versão rápida em outras máquinas pegarem jogos da fila: veja [Workers em outra máquina](#workers-em-outra-máquina) |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
@@ -215,6 +218,65 @@ uso (`turn.cloudflare.com` ou o seu). Se mesmo assim o jogador 2 não conectar, 
 ("O TURN não respondeu": a rede dele bloqueia tudo que não é web, ou o coturn está parado ou com portas fechadas) e a
 barra dele mostra o caminho em uso (`direto`, `TURN`, `rede local`), o ping e os fps.
 
+### Cache dos discos e dos arquivos
+
+O servidor fica no Canadá e os jogadores, no Brasil, entrando pelo proxy do Discord: o que custa é a ida e volta por
+pedaço que falta (medido em nov/2026: um GET no R2 de dentro da VPS leva 85–140 ms; 1 MB pelo proxy, 280–530 ms).
+Três caches, do servidor ao navegador:
+
+- **Pedaços dos discos na memória do app** (`server/chunkcache.ts`): dos discos que estão no R2, em pedaços de 1 MiB
+  alinhados no disco, os menos usados saindo primeiro passado `DISC_CACHE_MB`. Duas pessoas no mesmo jogo, ou um menu
+  lido de novo, não repetem o GET no R2; dois pedidos do mesmo pedaço ao mesmo tempo viram um GET só. Um pedido de
+  vários pedaços busca cada um em paralelo e já manda o primeiro enquanto os outros chegam. A chave leva o tamanho e a
+  hora da marca (`disc.iso.r2`): um disco enviado de novo com o mesmo nome é outro. Os discos no disco do servidor não
+  passam por ele (o sistema já guarda o arquivo).
+- **No navegador, por endereço com versão:** os scripts do app (`pad.js?v=…`, `entry.js?v=…`), os arquivos do
+  TabStationToo que ele mesmo pede com `?v=<build>`, o `ps2web.js/.wasm/.data` da versão rápida (`?v=` das datas e
+  tamanhos do build, posto pelo servidor na página) e as capas vão com
+  `Cache-Control: public, max-age=31536000, immutable`, mas só quando o `?v=` pedido é o atual; um endereço velho ou
+  sem versão volta com `no-cache`. O `disc-worker.js` do motor nunca (leva o nosso `disccache.js` no fim, que muda sem o
+  build mudar). Como todo endereço leva o passe (`/p/<passe>/`, novo a cada entrada), esse cache vale por um passe.
+- **No disco do navegador, entre uma entrada e outra:** os blocos do disco (`page/disccache.ts`, Cache Storage) e,
+  na versão rápida, o `ps2web.wasm` e o `ps2web.data` (~15 MB; `page/fastcache.ts`, Cache Storage `hypeplay-fast`), pela
+  versão e sem o passe: abrir o jogo de novo não baixa o motor de novo. Sem Cache Storage (origem opaca, armazenamento
+  bloqueado ou cheio), tudo vem da rede como antes. Uma versão nova apaga a anterior do mesmo jogo.
+
+### Edge para os discos (opcional)
+
+Desligado. Um Cloudflare Worker (`edge/worker.ts`) que serve os discos do R2 por Range e guarda os pedaços de 1 MiB no
+Cache API do data center que atendeu (São Paulo, Rio…): o segundo jogador da região, ou um menu lido de novo, não vai
+nem ao R2. O app só dá o endereço; o Worker confere um token assinado pelo app (HMAC com `DISC_EDGE_SECRET`, 12 h,
+`server/edgetoken.ts`, o mesmo código dos dois lados) e só serve discos (`…/ps2/<id>/game/disc.iso`). O tamanho e a
+versão do disco vêm assinados no endereço, então um pedaço que o data center já tem sai sem nenhuma pergunta ao R2. Só
+vale dentro do Discord: lá o Worker é um caminho do próprio `<client id>.discordsays.com` (URL Mapping), então é a mesma
+origem e o isolamento que o emulador pede continua valendo. Fora do Discord (aba do navegador) e para os discos que
+estão no disco do servidor, nada muda.
+
+Para ligar (nada disso está feito):
+
+1. **Domínio do Worker:** um subdomínio de um domínio seu na Cloudflare (ex. `disc-edge.exemplo.com`). Não serve
+   `*.workers.dev`: lá o Cache API não guarda nada.
+2. **`edge/wrangler.toml`:** troque `bucket_name` pelo bucket do `S3_BUCKET` e o `pattern` pelo domínio do passo 1.
+3. **Segredo:** gere um (`openssl rand -base64 48`) e guarde no Worker:
+   `bunx wrangler secret put DISC_EDGE_SECRET --config edge/wrangler.toml`.
+4. **Publicar o Worker:** `bunx wrangler deploy --config edge/wrangler.toml`. Conferir: sem token,
+   `https://disc-edge.exemplo.com/p/edge/ps2/<id>/game/disc.iso` responde 403.
+5. **Discord → Activities → URL Mappings:** acrescente `/p/edge` → `disc-edge.exemplo.com`, ao lado do `/` do app.
+   Confira que `https://<client id>.discordsays.com/p/edge/ps2/<id>/game/disc.iso` chega no Worker (403 "Acesso
+   vencido" sem token) e não no app (que responderia 403 "Acesso vencido: feche e abra a atividade de novo."). Se o
+   Discord só encaminhar pelo `/.proxy/`, use `/.proxy/p/edge` no passo 6.
+6. **No Dokploy**, em **Environment** do app: `DISC_EDGE_URL=/p/edge` (o caminho do passo 5) e
+   `DISC_EDGE_SECRET=<o mesmo do passo 3>`. Faça o deploy de novo.
+
+Ligado, a página do emulador de um jogo cujo disco está no R2 ganha
+`<meta name="hypeplay-disc" content="/p/edge/ps2/<id>/game/disc.iso?s=…&v=…&t=…">` e, dentro do Discord, o emulador
+lê o disco de lá (`page/ps2play.ts`, `page/edgedisc.ts`). O caminho termina igual ao do emulador e começa com
+`/p/<nome>/`, como um passe: o cache em disco do navegador (`page/disccache.ts`) dá ao disco o mesmo nome
+(`/ps2/<id>/game/disc.iso`), então os blocos já guardados, o "Baixar tudo" do painel e a versão rápida
+(`page/fastdisc.ts`, que guarda sob esse mesmo nome) continuam os mesmos. A versão rápida segue lendo o que falta pelo
+servidor; ligar o edge nela é ensinar o `fastdisc.ts` a buscar a rede no endereço do edge. Para desligar, tire as duas
+variáveis.
+
 ### Workers em outra máquina
 
 A versão rápida pesa (2 CPUs por 20 a 40 minutos por jogo) e roda na mesma VPS do app. Ela vai para outras máquinas
@@ -273,11 +335,20 @@ emoldurar as páginas.
 Tudo fica no volume, `/app/data/`, e nada disso vai para o git nem para imagem nenhuma (`data/` está no
 `.gitignore`). Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, e `fast/` com a versão
 rápida: o pedido, `build.log`, `misses.txt` e `build/`; feita em outra máquina, ela fica no R2, em
-`ps2/<serial>/fast/<versão>/`) e a BIOS em `/app/data/bios/`. A fila de compilações é `/app/data/queue.db` (SQLite):
-cada jogo pedido, quem está compilando, e como foi. Na primeira subida com ela, os pedidos que já estavam no volume
-entram sozinhos (uma versão pronta continua pronta, sem compilar de novo). O que a
-compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
-controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4` (enviada pela tela Servidor).
+`ps2/<serial>/fast/<versão>/`) e a BIOS em `/app/data/bios/`. A fila de compilações é `/app/data/queue.db` (SQLite,
+um arquivo dela, fora do `hypeplay.db`): cada jogo pedido, quem está compilando, e como foi. Na primeira subida com
+ela, os pedidos que já estavam no volume entram sozinhos (uma versão pronta continua pronta, sem compilar de novo). O que a
+compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). A lista da biblioteca
+sai de um índice em memória, montado dos `game.json` na subida; reservas abandonadas e pastas sem `game.json` são
+limpas de 10 em 10 minutos. Os memory cards são `saves/<serial>/<id do Discord>.ps2`. A intro opcional é
+`/app/data/intro.mp4` (enviada pela tela Servidor).
+
+O resto do que é de cada pessoa fica no banco `/app/data/hypeplay.db` (SQLite em WAL, com `hypeplay.db-wal` e
+`hypeplay.db-shm` ao lado; copie os três juntos): mapas de controle, teclas, volume e filtro, último jogo, e o
+social (perfis, amigos e pedidos, horas por jogo, sessões recentes, com quem jogou, status). Convites ficam só em
+memória. Antes eram arquivos (`social.json`, `pads/`, `keys/`, `users/`, `prefs/`): na primeira subida com o banco
+eles são importados uma vez (a tabela `imported` marca) e ficam onde estavam, parados. Dá para apagá-los depois;
+voltar para uma versão sem o banco leria esses arquivos como estavam na importação.
 
 **Refazer do zero:** um jogo: "Remover" na biblioteca; só a versão rápida: "Apagar a versão rápida" na gaveta do jogo.
 
@@ -302,10 +373,14 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 
 - `server/`: entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), a biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
-  mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
-  Range e isolamento (`http.ts`). A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`). A fila de
-  compilações (`queue.ts`, SQLite: cada job vai para um worker só, com prioridade, prazo e novas tentativas), o lado
-  do volume dos jobs da versão rápida (`fastjobs.ts`) e a fila para os workers de fora (`workers.ts`, `/worker/`).
+  mapas de controle e último jogo (`people.ts`), amigos e horas (`social.ts`), o banco SQLite dos dois (`db.ts`),
+  salas e ICE do online (`ps2rooms.ts`, `ice.ts`), as respostas com
+  Range, isolamento e versão (`http.ts`), os discos no R2 (`discs.ts`) e os pedaços deles na memória (`chunkcache.ts`).
+  A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`). A fila de compilações (`queue.ts`, SQLite:
+  cada job vai para um worker só, com prioridade, prazo e novas tentativas), o lado do volume dos jobs da versão rápida
+  (`fastjobs.ts`) e a fila para os workers de fora (`workers.ts`, `/worker/`).
+- `edge/`: o Worker opcional que serve os discos do R2 perto dos jogadores (`worker.ts`, `wrangler.toml`), com o
+  token de `server/edgetoken.ts`. Nada aqui o publica.
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).

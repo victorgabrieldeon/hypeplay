@@ -4,12 +4,14 @@
  *
  * Everyone who ever opened the home has a profile here (their name, kept for when they're offline). Hours come from a
  * game's page beat (presence.ts HERE_MS, every 15 s): the time since the last beat counts while it's the same game and
- * the beat came on time. Kept in one file (<dir>/social.json), in memory while the server runs and written a moment
- * after a change: one process, so no two writes race. Invites live in memory only (they're for right now).
+ * the beat came on time. Kept in the database (db.ts: profiles, links, played, recent, played_with), in memory while
+ * the server runs, and the profiles that changed written a moment after, together: one process, so no two writes
+ * race. The old <dir>/social.json is imported once and left there. Invites live in memory only (they're for right now).
  */
-import { mkdirSync, readFileSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
+import type { Database } from "bun:sqlite";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { importOnce, openDb } from "./db";
 import { HERE_MS, QUIET_MS } from "./presence";
 import { USER } from "./saves";
 
@@ -88,23 +90,108 @@ export function badges(p: { games: Record<string, Played>; recent: Session[]; fr
   return out;
 }
 
-export function createSocial(dir: string, now: () => number = () => Date.now()) {
-  const file = join(dir, "social.json");
-  let users: Record<string, Profile> = {};
-  try {
-    users = JSON.parse(readFileSync(file, "utf8")).users ?? {};
-  } catch {
-    // (no file yet: nobody's been here)
+/** Writes these profiles whole (each one's rows in every table: delete, insert). */
+function store(db: Database, users: Record<string, Profile>, ids: Iterable<string>, { keep = false } = {}) {
+  // (`keep`: the import, where a row already there wins)
+  const or = keep ? "OR IGNORE" : "OR REPLACE";
+  // (an upsert, not a replace: the row keeps its place, the order of search's results)
+  const profile = db.query(
+    `INSERT INTO profiles (id, name, since, seen, status, note) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO ${keep ? "NOTHING" : "UPDATE SET name = excluded.name, seen = excluded.seen, status = excluded.status, note = excluded.note"}`,
+  );
+  const link = db.query(`INSERT ${or} INTO links (user, other, kind, pos) VALUES (?, ?, ?, ?)`);
+  const played = db.query(`INSERT ${or} INTO played (user, key, title, ms, sessions, last) VALUES (?, ?, ?, ?, ?, ?)`);
+  const recent = db.query(`INSERT ${or} INTO recent (user, pos, key, title, start, "end") VALUES (?, ?, ?, ?, ?, ?)`);
+  const along = db.query(`INSERT ${or} INTO played_with (user, other, at) VALUES (?, ?, ?)`);
+  const clear = ["links", "played", "recent", "played_with"].map((t) => db.query(`DELETE FROM ${t} WHERE user = ?`));
+  for (const id of ids) {
+    const p = users[id];
+    if (!p) continue;
+    if (!keep) for (const q of clear) q.run(id);
+    profile.run(id, p.name, p.since, p.seen, p.status, p.note);
+    for (const kind of ["friends", "incoming", "outgoing"] as const) p[kind].forEach((o, i) => link.run(id, o, kind, i));
+    for (const [key, g] of Object.entries(p.games)) played.run(id, key, g.title, g.ms, g.sessions, g.last);
+    p.recent.forEach((r, i) => recent.run(id, i, r.key, r.title, r.start, r.end));
+    for (const [o, at] of Object.entries(p.with)) along.run(id, o, at);
   }
+}
+
+/** Everyone, from the database. */
+function load(db: Database): Record<string, Profile> {
+  const users: Record<string, Profile> = {};
+  type Row = Record<string, string | number>;
+  for (const r of db.query("SELECT * FROM profiles ORDER BY rowid").all() as Row[]) {
+    users[r.id as string] = { ...blank(r.name as string, r.since as number), seen: r.seen as number, status: r.status as Status, note: r.note as string };
+  }
+  for (const r of db.query("SELECT * FROM links ORDER BY user, kind, pos").all() as Row[]) users[r.user as string]?.[r.kind as "friends"].push(r.other as string);
+  for (const r of db.query("SELECT * FROM played ORDER BY rowid").all() as Row[]) {
+    const p = users[r.user as string];
+    if (p) p.games[r.key as string] = { title: r.title as string, ms: r.ms as number, sessions: r.sessions as number, last: r.last as number };
+  }
+  for (const r of db.query("SELECT * FROM recent ORDER BY user, pos").all() as Row[]) {
+    users[r.user as string]?.recent.push({ key: r.key as string, title: r.title as string, start: r.start as number, end: r.end as number });
+  }
+  for (const r of db.query("SELECT * FROM played_with").all() as Row[]) {
+    const p = users[r.user as string];
+    if (p) p.with[r.other as string] = r.at as number;
+  }
+  return users;
+}
+
+const num = (n: unknown) => typeof n === "number" && Number.isFinite(n);
+const played = (g: Partial<Played> | null) => !!g && typeof g.title === "string" && num(g.ms) && num(g.sessions) && num(g.last);
+const sitting = (r: Partial<Session> | null) => !!r && typeof r.key === "string" && typeof r.title === "string" && num(r.start) && num(r.end);
+const ids = (list: unknown) => (Array.isArray(list) ? [...new Set(list.filter((id) => typeof id === "string" && USER.test(id)))] : []);
+
+/** The old social.json, once (when it can't be read, it isn't marked: tried again at the next start). */
+function importJson(db: Database, dir: string) {
+  const file = join(dir, "social.json");
+  let old: Record<string, Partial<Profile>> = {};
+  if (existsSync(file)) {
+    try {
+      old = JSON.parse(readFileSync(file, "utf8")).users ?? {};
+    } catch (err) {
+      console.error(`${file} can't be read; not imported (it's tried again at the next start):`, err);
+      return;
+    }
+  }
+  importOnce(db, "social.json", () => {
+    const users: Record<string, Profile> = {};
+    for (const [id, p] of Object.entries(old)) {
+      if (!USER.test(id) || !p || typeof p.name !== "string") continue;
+      const t = typeof p.since === "number" ? p.since : Date.now();
+      const b = blank(p.name, t);
+      users[id] = {
+        ...b,
+        seen: typeof p.seen === "number" ? p.seen : t,
+        status: STATUSES.has(p.status as Status) ? (p.status as Status) : "online",
+        note: typeof p.note === "string" ? p.note : "",
+        games: Object.fromEntries(Object.entries(p.games ?? {}).filter(([, g]) => played(g))),
+        recent: (Array.isArray(p.recent) ? p.recent : []).filter(sitting).slice(0, MOST_RECENT),
+        friends: ids(p.friends),
+        incoming: ids(p.incoming),
+        outgoing: ids(p.outgoing),
+        with: Object.fromEntries(Object.entries(p.with ?? {}).filter(([o, at]) => USER.test(o) && Number.isFinite(at))),
+      };
+    }
+    store(db, users, Object.keys(users), { keep: true });
+  });
+}
+
+export function createSocial(dir: string, now: () => number = () => Date.now()) {
+  const db = openDb(dir);
+  importJson(db, dir);
+  const users = load(db);
   /** each one's last beat, for the time since it */
   const beats = new Map<string, { key: string; at: number }>();
   const invites = new Map<string, Invite[]>();
   /** when each one's "seen" was last written (the home looks every 2 s, pushed or polled: once a minute is enough) */
   const kept = new Map<string, number>();
+  /** the profiles changed since the last write */
+  const dirty = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let writing: Promise<void> = Promise.resolve();
 
-  function save() {
+  function save(...ids: string[]) {
+    for (const id of ids) dirty.add(id);
     if (timer) return;
     timer = setTimeout(flush, SAVE_MS);
   }
@@ -112,13 +199,16 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
   function flush(): Promise<void> {
     if (timer) clearTimeout(timer);
     timer = null;
-    const body = JSON.stringify({ users });
-    writing = writing.then(async () => {
-      mkdirSync(dir, { recursive: true });
-      await writeFile(`${file}.tmp`, body);
-      await rename(`${file}.tmp`, file);
-    });
-    return writing;
+    const ids = [...dirty];
+    dirty.clear();
+    try {
+      db.transaction(() => store(db, users, ids))();
+    } catch (err) {
+      // (tried again with the next change)
+      for (const id of ids) dirty.add(id);
+      console.error("social: not written:", err);
+    }
+    return Promise.resolve();
   }
 
   const known = (id: string) => USER.test(id) && Object.hasOwn(users, id);
@@ -135,9 +225,9 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
 
   return {
     flush,
-    /** Shutting down (index.ts): a change still waiting for its timer written now, and the write going on finished. */
+    /** Shutting down (index.ts): a change still waiting for its timer written now (the database writes at once). */
     settle(): Promise<void> {
-      return timer ? flush() : writing;
+      return timer ? flush() : Promise.resolve();
     },
 
     /** The home open (each of its looks, homefeed.ts or the poll): their profile, with the name the pass has now. */
@@ -148,7 +238,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
       const p = (users[pass.id] ??= blank(pass.name, t));
       if (fresh || p.name !== pass.name || t - (kept.get(pass.id) ?? 0) > 60_000) {
         kept.set(pass.id, t);
-        save();
+        save(pass.id);
       }
       p.name = pass.name;
       p.seen = t;
@@ -166,7 +256,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
       const last = beats.get(pass.id);
       if (!game || game.watch) {
         beats.delete(pass.id);
-        return save();
+        return save(pass.id);
       }
       const g = (p.games[game.key] ??= { title: game.title, ms: 0, sessions: 0, last: t });
       g.title = game.title;
@@ -184,7 +274,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
       for (const o of alongside) if (o !== pass.id && USER.test(o)) p.with[o] = t;
       const w = Object.entries(p.with);
       if (w.length > MOST_WITH) p.with = Object.fromEntries(w.sort((a, b) => b[1] - a[1]).slice(0, MOST_WITH));
-      save();
+      save(pass.id);
     },
 
     /** Status and the note under the name ("procurando alguém pra jogar"). */
@@ -193,7 +283,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
       if (!p || (s.status !== undefined && !STATUSES.has(s.status as Status)) || (s.note !== undefined && typeof s.note !== "string")) return false;
       if (s.status !== undefined) p.status = s.status as Status;
       if (typeof s.note === "string") p.note = s.note.trim().slice(0, NOTE_MAX);
-      save();
+      save(id);
       return true;
     },
 
@@ -210,14 +300,14 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
         drop(b.outgoing, me);
         a.friends.push(them);
         b.friends.push(me);
-        save();
+        save(me, them);
         return "friends";
       }
       if (a.outgoing.includes(them)) return "already";
       if (b.incoming.length >= MOST_FRIENDS) return "bad";
       a.outgoing.push(them);
       b.incoming.push(me);
-      save();
+      save(me, them);
       return "sent";
     },
 
@@ -226,7 +316,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
       const a = get(me), b = get(them);
       if (!a || !b) return false;
       for (const [x, id] of [[a, them], [b, me]] as const) for (const list of [x.friends, x.incoming, x.outgoing]) drop(list, id);
-      save();
+      save(me, them);
       return true;
     },
 

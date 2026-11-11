@@ -72,6 +72,8 @@ async function game(id: string, { inR2 = true } = {}) {
     await r2.client.write(`ps2/${id}/disc.iso`, `disc of ${id}`);
     await writeFile(join(p, "disc.iso.r2"), String(`disc of ${id}`.length));
   } else await writeFile(join(p, "disc.iso"), `local disc of ${id}`);
+  // (put there from outside: the library's index catches up)
+  await library.sweep();
   expect(await library.askFast(id)).toBe(true);
 }
 

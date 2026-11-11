@@ -126,7 +126,7 @@ test("rename, cover (webp, generated, too big) and remove", async () => {
   expect((await ana("ps2/sles-44444/cover", { method: "PUT", body: png })).status).toBe(204);
   const webp = await ana("cover/ps2/sles-44444");
   expect(webp.headers.get("content-type")).toBe("image/webp");
-  expect(webp.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+  expect(webp.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
   expect((await ana("ps2/sles-44444/cover", { method: "PUT", body: "not an image" })).status).toBe(400);
   expect((await ana("ps2/sles-44444/cover", { method: "PUT", body: new Uint8Array(5 * 1024 ** 2 + 1) })).status).toBe(413);
   expect((await ana("ps2/sles-44444/cover", { method: "DELETE" })).status).toBe(204);

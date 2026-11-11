@@ -1,8 +1,10 @@
 import { join } from "node:path";
 import { telemetryFromEnv } from "./otlp";
 import { createBios } from "./bios";
+import { createChunkCache, discCacheBytes } from "./chunkcache";
 import { createDiscs, r2FromEnv } from "./discs";
 import { createDiscord } from "./discord";
+import { edgeFromEnv } from "./edgetoken";
 import { createLibrary } from "./library";
 import { log, useTelemetry } from "./log";
 import { createOps } from "./ops";
@@ -50,6 +52,9 @@ useTelemetry(telemetry);
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 // R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
 const r2 = r2FromEnv();
+// The R2 discs' pieces kept in memory (chunkcache.ts), DISC_CACHE_MB megabytes (256; 0: none): two people in the same
+// game, or a menu read again, don't wait on R2 again.
+const discCache = r2 && discCacheBytes() > 0 ? createChunkCache({ maxBytes: discCacheBytes() }) : null;
 // The builds' queue (queue.ts): its own file next to the data, shared with the builders on this machine.
 const queue = createQueue(join(dir, "queue.db"));
 const library = createLibrary(dir, { r2, queue });
@@ -64,6 +69,10 @@ const social = createSocial(dir);
 const ps2Rooms = new Ps2Rooms();
 // The client secret signs the passes too: resetting it in the portal also ends every open session.
 const passes = createPasses(DISCORD_CLIENT_SECRET);
+// Reservations never sent and folders left without their game.json go now and then (library.ts), not on the list's way.
+const sweep = () => void library.sweep().catch((err) => console.error("library sweep:", err));
+sweep();
+setInterval(sweep, 10 * 60_000);
 const app = createApp({
   // (the PS2 games live in /app/data/ps2/)
   dir,
@@ -77,7 +86,9 @@ const app = createApp({
   clientId: DISCORD_CLIENT_ID,
   library,
   vimm: createVimm(dir, library),
-  discs: createDiscs(dir, r2),
+  discs: createDiscs(dir, r2, discCache),
+  // Optional: the R2 discs served near the players by edge/worker.ts (DISC_EDGE_URL, DISC_EDGE_SECRET; README)
+  edge: r2 ? edgeFromEnv() : null,
   saves: createSaves(dir, r2),
   people: createPeople(dir),
   social,

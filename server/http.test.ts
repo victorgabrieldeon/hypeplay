@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { injectPad, rangeResponse } from "./http";
+import { cacheFor, IMMUTABLE, injectPad, rangeResponse, versionOf, withVersions } from "./http";
 
 let dir = "";
 let path = "";
@@ -61,4 +61,52 @@ test("injectPad before </head>, null without it", () => {
     '<html><HEAD><title>x</title><script src="../../pad.js"></script></Head><body></body></html>',
   );
   expect(injectPad("<html><body>no head</body></html>", "pad.js")).toBeNull();
+});
+
+test("range: a disc that reads itself (discs.ts) gets the range it asked, end excluded", async () => {
+  const asked: [number, number][] = [];
+  const disc = { size: data.length, read: (start: number, end: number) => (asked.push([start, end]), new Blob([data.slice(start, end)])) };
+  const r = rangeResponse(new Request("http://x/disc.iso", { headers: { range: "bytes=10-19" } }), disc, {});
+  expect(r.status).toBe(206);
+  expect(await bytes(r)).toEqual(data.slice(10, 20));
+  expect(rangeResponse(new Request("http://x/disc.iso"), disc, {}).headers.get("content-length")).toBe("1000");
+  rangeResponse(new Request("http://x/disc.iso", { method: "HEAD" }), disc, {});
+  expect(asked).toEqual([[10, 20], [0, 1000]]);
+});
+
+test("versions: short, and the same for the same content", () => {
+  expect(versionOf("a")).toMatch(/^[0-9a-f]{12}$/);
+  expect(versionOf("a")).toBe(versionOf(new TextEncoder().encode("a")));
+  expect(versionOf("a")).not.toBe(versionOf("b"));
+});
+
+test("immutable only for the very version asked; anything else is asked again", () => {
+  expect(IMMUTABLE["Cache-Control"]).toBe("public, max-age=31536000, immutable");
+  expect(cacheFor(new Request("http://x/pad.js?v=abc"), "abc")).toEqual(IMMUTABLE);
+  expect(cacheFor(new Request("http://x/pad.js?v=old"), "abc")).toEqual({ "Cache-Control": "no-cache" });
+  expect(cacheFor(new Request("http://x/pad.js"), "abc")).toEqual({ "Cache-Control": "no-cache" });
+  expect(cacheFor(new Request("http://x/pad.js?v="), "")).toEqual({ "Cache-Control": "no-cache" });
+  expect(cacheFor(new Request("http://x/pad.js"), undefined)).toEqual({ "Cache-Control": "no-cache" });
+});
+
+test("withVersions: the known scripts get their ?v=, wherever they are; the rest stay", () => {
+  const v = { "pad.js": "111", "ps2play.js": "222", "watch.js": "333" };
+  const html = [
+    '<script src="pad.js"></script>',
+    "<script src='../../../ps2play.js'></script>",
+    '<script src="./watch.js" defer></script>',
+    '<script src="home/app.js" type="module"></script>',
+    '<script src="app.js?v=385757d8e81d"></script>',
+    '<script src="https://cdn.example/pad.js"></script>',
+    "<p>pad.js</p>",
+  ].join("\n");
+  expect(withVersions(html, v).split("\n")).toEqual([
+    '<script src="pad.js?v=111"></script>',
+    "<script src='../../../ps2play.js?v=222'></script>",
+    '<script src="./watch.js?v=333" defer></script>',
+    '<script src="home/app.js" type="module"></script>',
+    '<script src="app.js?v=385757d8e81d"></script>',
+    '<script src="https://cdn.example/pad.js"></script>',
+    "<p>pad.js</p>",
+  ]);
 });

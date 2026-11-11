@@ -120,3 +120,32 @@ test("the profile: games in common, mutual friends, played with; and it's all st
   await s.flush();
   expect(createSocial(dir).profile("2", "1")!.total).toBe(10_000);
 });
+
+test("every change is written: after a restart, everyone's view and profiles are the same", async () => {
+  const { s, clock, dir } = fresh();
+  const outro = { key: "ps2/sles-12345", title: "Outro", watch: false };
+  // (written after each step: a change that doesn't mark someone isn't hidden by a later one that does)
+  const steps = [
+    () => [ana, bia, caio].forEach((p) => s.seen(p)),
+    () => s.add("1", "2"),
+    () => s.add("2", "1"),
+    () => s.add("1", "3"),
+    () => s.add("3", "2"),
+    () => s.setStatus("2", { status: "away", note: "já volto" }),
+    () => s.beat(ana, bt3, ["2"]),
+    () => ((clock.t += 15_000), s.beat(ana, bt3, ["2"])),
+    () => s.beat(bia, outro),
+    () => ((clock.t += 15_000), s.beat(bia, outro)),
+    () => s.beat(ana, null),
+    () => s.add("2", "3"),
+    () => s.seen({ id: "3", name: "Caio Novo" }),
+    () => s.remove("1", "3"),
+  ];
+  const ids = ["1", "2", "3"];
+  const all = (x: typeof s) => ids.map((me) => [x.view(me, () => true), ids.map((id) => x.profile(me, id))]);
+  for (const step of steps) {
+    step();
+    await s.flush();
+    expect(all(createSocial(dir, () => clock.t))).toEqual(all(s));
+  }
+});

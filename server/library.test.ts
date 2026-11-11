@@ -104,6 +104,7 @@ test("an abandoned reservation goes after 24 h; one with an upload under way sta
   await library.reserve(ana, "SCUS-97481", "enviando");
   expect((await library.disc("scus-97481").put(ana, 0, 20, new Uint8Array(8))).ok).toBe(true);
   advance(ABANDONED_MS + 1);
+  await library.sweep();
   expect((await library.list()).map((g) => g.id)).toEqual(["scus-97481"]);
   expect(await library.get("sles-12345")).toBeNull();
 });
@@ -126,7 +127,7 @@ test("a piece that lands after the game was removed doesn't bring its folder bac
   expect(await exists(library.paths("sles-12345").root)).toBe(false);
 });
 
-test("a folder left without game.json doesn't block its serial, and goes from the list", async () => {
+test("a folder left without game.json doesn't block its serial, and the sweep clears it", async () => {
   const { dir, library, advance } = await setup();
   await mkdir(join(dir, "ps2", "sles-12345", "upload"), { recursive: true });
   await writeFile(join(dir, "ps2", "sles-12345", "upload", "state.json"), "{}");
@@ -134,7 +135,46 @@ test("a folder left without game.json doesn't block its serial, and goes from th
   await mkdir(join(dir, "ps2", "scus-97481"), { recursive: true });
   advance(2 * 60_000);
   expect((await library.list()).map((g) => g.id)).toEqual(["sles-12345"]);
+  await library.sweep();
   expect(await exists(join(dir, "ps2", "scus-97481"))).toBe(false);
+});
+
+test("the list comes from the index, not the disk: kept up to date by every change, and the sweep catches up with the folders", async () => {
+  const { dir, library, advance } = await setup();
+  await library.reserve(ana, "SLES-12345", "A");
+  advance(1000);
+  await library.reserve(bia, "SCUS-97481", "B");
+  await library.rename("sles-12345", "Novo");
+  await library.setCover("scus-97481", true);
+  const listed = await library.list();
+  expect(listed.map((g) => [g.id, g.name, g.cover])).toEqual([["scus-97481", "B", true], ["sles-12345", "Novo", false]]);
+  // what the builders read is the same
+  expect(JSON.parse(await Bun.file(join(dir, "ps2", "sles-12345", "game.json")).text()).name).toBe("Novo");
+
+  // a library made from the same folder (a restart) finds them
+  expect((await createLibrary(dir).list()).map((g) => g.name)).toEqual(["B", "Novo"]);
+
+  // a folder gone from outside, and one put there: the sweep sees both
+  await rm(join(dir, "ps2", "scus-97481"), { recursive: true });
+  await mkdir(join(dir, "ps2", "slpm-66666"));
+  await writeFile(join(dir, "ps2", "slpm-66666", "game.json"), JSON.stringify({ ...listed[1], id: "slpm-66666", serial: "SLPM-66666", name: "C" }));
+  expect((await library.list()).length).toBe(2);
+  await library.sweep();
+  expect((await library.list()).map((g) => g.id).sort()).toEqual(["sles-12345", "slpm-66666"]);
+  await library.remove("sles-12345");
+  expect((await library.list()).map((g) => g.id)).toEqual(["slpm-66666"]);
+});
+
+test("a game reserved or removed while the sweep runs stays as it was left", async () => {
+  const { library } = await setup();
+  for (let n = 10_000; n < 10_030; n++) await library.reserve(ana, `SLES-${n}`, "x");
+  const sweep = library.sweep();
+  await library.reserve(bia, "SLPM-66666", "C");
+  await library.remove("sles-10029");
+  await sweep;
+  expect(await library.get("slpm-66666")).not.toBeNull();
+  expect(await library.get("sles-10029")).toBeNull();
+  expect((await library.list()).length).toBe(30);
 });
 
 test("the requests left in the volume before the queue go in it once, and a ready build isn't built again", async () => {

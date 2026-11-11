@@ -1,24 +1,31 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BEAT_GAP_MS, createSocial, INVITE_TTL_MS } from "./social";
+import { needsPg as test, testDb } from "./testing/pg";
 
 const root = mkdtempSync(join(tmpdir(), "cordplay-social-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
+const closing: (() => Promise<void>)[] = [];
+afterAll(async () => {
+  await Promise.all(closing.map((c) => c()));
+  rmSync(root, { recursive: true, force: true });
+});
 let n = 0;
-const fresh = () => {
+const fresh = async () => {
   const clock = { t: 1_000_000 };
   const dir = join(root, String(n++));
-  return { s: createSocial(dir, () => clock.t), clock, dir };
+  const { sql, close } = await testDb();
+  closing.push(close);
+  return { s: await createSocial(sql, dir, () => clock.t), clock, dir, sql };
 };
 const ana = { id: "1", name: "Ana" };
 const bia = { id: "2", name: "Bia" };
 const caio = { id: "3", name: "Caio" };
 const bt3 = { key: "bt3", title: "BT3", watch: false };
 
-test("a request, then the other side adding back: friends on both sides; removing clears both", () => {
-  const { s } = fresh();
+test("a request, then the other side adding back: friends on both sides; removing clears both", async () => {
+  const { s } = await fresh();
   for (const p of [ana, bia]) s.seen(p);
   expect(s.add("1", "1")).toBe("bad");
   expect(s.add("1", "9")).toBe("bad"); // (nobody by that id)
@@ -35,8 +42,8 @@ test("a request, then the other side adding back: friends on both sides; removin
   expect(s.profile("1", "2")!.relation).toBe("none");
 });
 
-test("hours: the time between beats of the same game, not across a gap, a new game, or while watching", () => {
-  const { s, clock } = fresh();
+test("hours: the time between beats of the same game, not across a gap, a new game, or while watching", async () => {
+  const { s, clock } = await fresh();
   s.beat(ana, bt3);
   clock.t += 15_000;
   s.beat(ana, bt3);
@@ -55,8 +62,8 @@ test("hours: the time between beats of the same game, not across a gap, a new ga
   expect(p.recent.at(-1)!.end - p.recent.at(-1)!.start).toBe(30_000);
 });
 
-test("invites: friends only, not to someone busy, one per sender; accepting tells the sender; they expire", () => {
-  const { s, clock } = fresh();
+test("invites: friends only, not to someone busy, one per sender; accepting tells the sender; they expire", async () => {
+  const { s, clock } = await fresh();
   for (const p of [ana, bia, caio]) s.seen(p);
   expect(s.invite("1", "2", { key: "bt3", title: "BT3" })).toMatchObject({ ok: false, status: 403 });
   s.add("1", "2");
@@ -75,8 +82,8 @@ test("invites: friends only, not to someone busy, one per sender; accepting tell
   expect(s.invite("1", "2", { key: "bt3", title: "BT3" })).toMatchObject({ ok: false, status: 409 });
 });
 
-test("invisible: offline to friends, with no last seen and no feed; the note is cut", () => {
-  const { s } = fresh();
+test("invisible: offline to friends, with no last seen and no feed; the note is cut", async () => {
+  const { s } = await fresh();
   for (const p of [ana, bia]) s.seen(p);
   s.add("1", "2");
   s.add("2", "1");
@@ -97,14 +104,14 @@ test("invisible: offline to friends, with no last seen and no feed; the note is 
 });
 
 test("someone who only opened the library is kept, without anyone calling flush", async () => {
-  const { s, dir } = fresh();
+  const { s, dir, sql } = await fresh();
   s.seen(ana);
-  await Bun.sleep(2100);
-  expect(createSocial(dir).search("2", "an")).toEqual([{ id: "1", name: "Ana", relation: "none" }]);
+  await Bun.sleep(2500);
+  expect((await createSocial(sql, dir)).search("2", "an")).toEqual([{ id: "1", name: "Ana", relation: "none" }]);
 });
 
 test("the profile: games in common, mutual friends, played with; and it's all still there after a restart", async () => {
-  const { s, clock, dir } = fresh();
+  const { s, clock, dir, sql } = await fresh();
   for (const p of [ana, bia, caio]) s.seen(p);
   for (const [a, b] of [["1", "2"], ["1", "3"], ["2", "3"]] as const) s.add(a, b), s.add(b, a);
   s.beat(ana, bt3, ["2"]);
@@ -118,11 +125,11 @@ test("the profile: games in common, mutual friends, played with; and it's all st
   expect(p.with.map((w) => w.name)).toEqual(["Bia"]);
   expect(s.search("1", "bi")).toEqual([{ id: "2", name: "Bia", relation: "friend" }]);
   await s.flush();
-  expect(createSocial(dir).profile("2", "1")!.total).toBe(10_000);
+  expect((await createSocial(sql, dir)).profile("2", "1")!.total).toBe(10_000);
 });
 
 test("every change is written: after a restart, everyone's view and profiles are the same", async () => {
-  const { s, clock, dir } = fresh();
+  const { s, clock, dir, sql } = await fresh();
   const outro = { key: "ps2/sles-12345", title: "Outro", watch: false };
   // (written after each step: a change that doesn't mark someone isn't hidden by a later one that does)
   const steps = [
@@ -146,6 +153,6 @@ test("every change is written: after a restart, everyone's view and profiles are
   for (const step of steps) {
     step();
     await s.flush();
-    expect(all(createSocial(dir, () => clock.t))).toEqual(all(s));
+    expect(all(await createSocial(sql, dir, () => clock.t))).toEqual(all(s));
   }
 });

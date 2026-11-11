@@ -8,6 +8,7 @@ import type { Passes } from "./pass";
 import { QUIET_MS } from "./presence";
 import { createApp } from "./routes";
 import { createSocial } from "./social";
+import { PG_URL, testDb } from "./testing/pg";
 
 const PAGE_DIR = join(import.meta.dir, "..", "page");
 const ANA = "ana-pass";
@@ -24,17 +25,21 @@ let app: ReturnType<typeof createApp>;
 let library: ReturnType<typeof createLibrary>;
 let game = "";
 let server: ReturnType<typeof Bun.serve>;
+let pg: Awaited<ReturnType<typeof testDb>> | null = null;
 beforeAll(async () => {
+  // (the friends are in Postgres: without one, the home runs without them)
+  if (PG_URL) pg = await testDb();
   root = await mkdtemp(join(tmpdir(), "cordplay-home-"));
   // (a PS2 game with no disc yet: someone can send it)
   library = createLibrary(root, { now: () => t, min: 1024 });
   const r = await library.reserve({ id: "42", name: "Ana", exp: Infinity }, "SLUS-21678", "Jogo");
   game = r.ok ? r.game.id : "";
-  app = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, now: () => t, social: createSocial(join(root, "social"), () => t) });
+  app = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, now: () => t, social: pg ? await createSocial(pg.sql, join(root, "social"), () => t) : undefined });
   server = Bun.serve({ port: 0, fetch: (req, s) => app.handle(req, s), websocket: app.websocket });
 });
 afterAll(async () => {
   server.stop(true);
+  await pg?.close();
   await rm(root, { recursive: true, force: true });
 });
 

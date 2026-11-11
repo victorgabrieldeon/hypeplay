@@ -5,7 +5,7 @@
  *
  *   ps2/<id>/game.json          { id, serial, name, by, at, cover }   written here
  *   ps2/<id>/cover.webp         its cover, when someone sent one
- *   ps2/<id>/upload/, disc.iso  as BT3's (upload.ts); a game sent with R2 on: disc.iso.r2 instead, its disc in R2 (discs.ts)
+ *   ps2/<id>/upload/, disc.iso  the upload (upload.ts); a game sent with R2 on: disc.iso.r2 instead, its disc in R2 (discs.ts)
  *   ps2/<id>/fast/              its "versão rápida", when someone asked for one: request, retry and misses.txt written
  *                               here, status.json and build/ by ps2-builder/ (see there)
  *   ps2-work/<id>/              port.sh's intermediate files (ps2-builder's)
@@ -17,7 +17,7 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { join } from "node:path";
 import type { S3Client } from "bun";
 import { dropFromR2, markOf, moveToR2 } from "./discs";
-import { BT3_SERIAL, fileRead, readDiscId } from "./iso9660";
+import { fileRead, readDiscId } from "./iso9660";
 import type { Pass } from "./pass";
 import { createDiscStore, QUIET_MS, type DiscStore } from "./upload";
 
@@ -32,7 +32,7 @@ export interface Ps2Game {
   coverAt?: number;
 }
 
-/** Some PS2 games came on CD: smaller than BT3's floor. */
+/** Some PS2 games came on CD: a floor well under a DVD. */
 export const PS2_MIN = 100 * 1024 ** 2;
 export const PS2_MAX = 9 * 1024 ** 3;
 /** A game reserved and never sent goes after this long. */
@@ -73,8 +73,7 @@ const MISSES_MAX = 256;
 
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
-/** `port`: BT3's port is in the catalog (routes.ts' games); without it BT3's disc is a PS2 game like any other. */
-export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null, port = true } = {}) {
+export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null } = {}) {
   const stores = new Map<string, DiscStore>();
   /** Reservations between making their folder and writing their game.json: not orphans. */
   const reserving = new Set<string>();
@@ -122,7 +121,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
 
   function disc(id: string): DiscStore {
     let s = stores.get(id);
-    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max, page: "ps2web.html", alive: () => exists(paths(id).game) })));
+    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max, alive: () => exists(paths(id).game) })));
     return s;
   }
 
@@ -182,12 +181,11 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     },
 
     /**
-     * A new game for this serial. Without `copy`, the game already there wins (BT3's port, or the library's); with it,
-     * another copy (BT3's disc beside its port, a mod that keeps its game's serial): the first free id of serial, -2, -3…
+     * A new game for this serial. Without `copy`, the game already there wins; with it, another copy (a mod that keeps
+     * its game's serial): the first free id of serial, -2, -3…
      */
     async reserve(pass: Pass, serial: string, name: string, { copy = false } = {}): Promise<Reserve> {
       if (!SERIAL.test(serial)) throw new Error(`not a serial: ${serial}`);
-      if (port && serial === BT3_SERIAL && !copy) return { ok: false, exists: "bt3" };
       const base = serial.toLowerCase();
       await mkdir(join(dir, "ps2"), { recursive: true });
       for (let n = 1; n <= COPIES; n++) {

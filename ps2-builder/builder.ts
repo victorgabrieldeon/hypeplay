@@ -23,10 +23,27 @@ import { createHash } from "node:crypto";
 import { appendFile, cp, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { S3Client } from "bun";
-import { spawnRunner, type Runner } from "../builder/builder";
 import { fetchFromR2, markOf, r2FromEnv } from "../server/discs";
 import { FAST_STEPS } from "../server/games";
 import { MARK, patchShell } from "./patch";
+
+export type Runner = (cmd: string[], opts: { cwd: string; log: (text: string) => void }) => Promise<{ code: number; output: string }>;
+
+/** Spawns a tool; its output goes to the log as it comes and the last of it is kept. */
+export const spawnRunner: Runner = async (cmd, { cwd, log }) => {
+  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe", env: process.env });
+  let output = "";
+  const read = async (stream: ReadableStream<Uint8Array>) => {
+    const decoder = new TextDecoder();
+    for await (const chunk of stream) {
+      const text = decoder.decode(chunk, { stream: true });
+      log(text);
+      output = (output + text).slice(-64 * 1024);
+    }
+  };
+  await Promise.all([read(proc.stdout), read(proc.stderr)]);
+  return { code: await proc.exited, output };
+};
 
 /** A library game's id (server/library.ts' ID). */
 const ID = /^[a-z]{4}-\d{5}(?:-\d{1,2})?$/;

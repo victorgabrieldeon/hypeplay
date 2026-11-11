@@ -1,14 +1,12 @@
 // "Adicionar jogo": a PS2 game into the library, once, for everyone. The warning first (only with "Entendi"); the
 // PS2 BIOS when the server has none yet (once for the whole server); then the disc image, whose serial is read here
-// (iso.js) so a game already in the library is never sent again (BT3, which has its tested port, can still go to
-// the PS2 library too); then its name and cover. Sending is the library's
+// (iso.js) so a game already in the library is never sent again; then its name and cover. Sending is the library's
 // own upload, in the game's drawer; once the image is in, the game plays. Or, on the ISO step, a vimm.net download
 // link: the server downloads the game itself (server/vimm.ts) and it shows up in the library.
 import { gameOf, hooks, poll, send, state } from './app.js';
 import { esc, gb, icon, installing, pct, sendBios } from './library.js';
 
 const layer = document.getElementById('layer');
-const BT3_SERIAL = 'SLUS-21678';
 const NAMES = { warn: 'Aviso', bios: 'BIOS', iso: 'ISO', name: 'Nome e capa' };
 
 let w = null; // { step, steps, ok, file, serial, name, cover, coverUrl, error, busy, exists, copy, link, vimm }
@@ -100,19 +98,14 @@ function body() {
       ${w.busy ? '<div class="busy"><div class="spin"></div><p>Lendo o disco…</p></div>' : ''}
       ${w.error ? `<p class="error">${esc(w.error)}</p>` : ''}
       ${vimmBox()}
-      ${existing && existing.kind === 'port' ? `<div class="callout ok">${icon('check')}<p><strong>${esc(existing.name)}</strong> já está na biblioteca
-          na versão <strong>Testado</strong>: roda liso e tem online pelo menu do jogo. Você também pode guardar esta ISO no servidor e
-          jogar no emulador de PS2, com save no servidor e sala da HypePlay.</p></div>
-        <div class="row-actions"><button class="btn" data-w="upload-anyway">${icon('upload')}Enviar para o servidor</button>
-          <button class="btn second" data-w="play">${icon('play')}Jogar a versão Testado</button></div>`
-        : existing ? `<p><strong>${esc(existing.name)}</strong> já está na biblioteca. Se esta ISO for outra versão (um mod, outra
+      ${existing ? `<p><strong>${esc(existing.name)}</strong> já está na biblioteca. Se esta ISO for outra versão (um mod, outra
           tradução), envie como outra cópia: ela fica ao lado, com o nome que você der.</p>
         <div class="row-actions"><button class="btn" data-w="play">${icon('play')}Jogar</button>
           <button class="btn second" data-w="upload-anyway">${icon('upload')}Enviar outra cópia</button></div>` : ''}
       <footer><button class="btn quiet" data-w="back">Voltar</button></footer>`;
   }
   return `${steps()}
-    <div class="game-head"><img src="${esc(w.coverUrl || 'cover/bt3')}" alt=""${w.coverUrl ? '' : ' class="ghost"'}>
+    <div class="game-head">${w.coverUrl ? `<img src="${esc(w.coverUrl)}" alt="">` : ''}
       <div class="block">
         <label for="w-name">Nome do jogo</label>
         <input class="field" id="w-name" maxlength="80" value="${esc(w.name)}">
@@ -156,9 +149,8 @@ async function chooseDisc(file) {
     w.error = 'Isso não parece um disco de PS2 (não achei o SYSTEM.CNF com o jogo).';
     return render();
   }
-  // the PS2 library's copy first; BT3's port only when the library hasn't got it (it can still be sent: anyway())
-  const port = id.serial === BT3_SERIAL && state.games?.some((g) => g.key === 'bt3');
-  const exists = state.games?.find((g) => g.kind === 'recomp' && g.serial === id.serial)?.key ?? (port ? 'bt3' : null);
+  // (it can still be sent as another copy: anyway())
+  const exists = state.games?.find((g) => g.serial === id.serial)?.key ?? null;
   if (exists) {
     Object.assign(w, { exists, found: { file, serial: id.serial } });
     return render();
@@ -167,11 +159,11 @@ async function chooseDisc(file) {
   render();
 }
 
-/** The game's already there (BT3's tested port, or the library's copy): send this disc as another copy all the same. */
+/** The game's already in the library: send this disc as another copy all the same. */
 function anyway() {
   const { file, serial } = w.found;
   const there = gameOf(w.exists);
-  const name = there?.kind === 'port' ? `${there.name} (PS2)` : `${there?.name ?? serial} (cópia)`;
+  const name = `${there?.name ?? serial} (cópia)`;
   Object.assign(w, { file, serial, copy: true, name: w.name || name, step: 'name', exists: null, error: '' });
   render();
 }

@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Passes } from "./pass";
-import { GAMES } from "./games";
-import { createApp, PIECE } from "./routes";
+import { createApp } from "./routes";
 
 const PAGE_DIR = join(import.meta.dir, "..", "page");
 // The one valid pass, issued to whoever signs in with code "ana" (Discord is faked: discord.test.ts covers it).
@@ -22,29 +21,16 @@ const discord = {
   },
 };
 let root: string;
-let dir: string;
 let app: ReturnType<typeof createApp>;
-// A small stand-in for the disc image: two whole pieces and a shorter last one.
-const SIZE = 2 * PIECE + 1234;
-const iso = new Uint8Array(SIZE).map((_, i) => (i * 7 + (i >> 20)) & 0xff);
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "cordplay-routes-"));
-  dir = join(root, "bt3");
-  await mkdir(dir);
-  await writeFile(join(dir, "disc.iso"), iso);
-  await mkdir(join(dir, "build"));
-  // (index.html with a </head>: the server puts the public address in it)
-  for (const f of [...GAMES[0]!.files, "bt3_node.js", "telemetry.log"]) await writeFile(join(dir, "build", f), `${f === "index.html" ? "<head></head>" : ""}file ${f}`);
-  await mkdir(join(dir, "work"));
-  await writeFile(join(dir, "work", "secret.txt"), "intermediate");
   app = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "/* entry */", passes, discord });
 });
 afterAll(() => rm(root, { recursive: true, force: true }));
 
 const get = (path: string, init?: RequestInit) => app.handle(new Request(`http://localhost${path}`, init)) as Promise<Response>;
 const home = (rest: string) => `/p/${pass}/${rest}`;
-const p = (rest: string) => home(`bt3/${rest}`);
 
 const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.com https://*.discordsays.com";
 
@@ -62,9 +48,8 @@ test("the entry page, its script and the icon are public, framed only by Discord
 
 test("the rest needs a valid pass", async () => {
   const forged = `${pass.split(".")[0]}.AAAA`;
-  for (const path of [`/p/${forged}/`, `/p/${forged}/status`, `/p/${forged}/game/disc/00000.bin`, "/p/nopass/status"])
+  for (const path of [`/p/${forged}/`, `/p/${forged}/games`, `/p/${forged}/ps2/slus-21678/game/`, "/p/nopass/games"])
     expect((await get(path)).status).toBe(403);
-  expect((await get(`/p/${forged}/game/index.html`)).status).toBe(403);
   expect((await get("/elsewhere")).status).toBe(404);
 });
 
@@ -100,43 +85,10 @@ test("the home, with the sandbox and CORS headers; the trailing slash is added",
   const bare = await get(`/p/${pass}`);
   expect(bare.status).toBe(301);
   expect(bare.headers.get("location")).toBe(`${pass}/`);
-  expect((await get(p("game"))).headers.get("location")).toBe("game/");
-  expect((await get(home("bt3"))).status).toBe(404);
   // Preflight of the upload's PUT.
-  const pre = await get(p("upload"), { method: "OPTIONS" });
+  const pre = await get(home("ps2/slus-21678/upload"), { method: "OPTIONS" });
   expect(pre.status).toBe(204);
   expect(pre.headers.get("access-control-allow-methods")).toContain("PUT");
-});
-
-test("only the game's listed files, with their types", async () => {
-  expect(await (await get(p("game/"))).text()).toEndWith("</head>file index.html");
-  const wasm = await get(p("game/bt3-jspi.wasm"));
-  expect(wasm.headers.get("content-type")).toBe("application/wasm");
-  expect(wasm.headers.get("access-control-allow-origin")).toBe("*");
-  expect((await get(p("game/net.js"))).headers.get("content-type")).toStartWith("text/javascript");
-  for (const f of ["game/bt3_node.js", "game/telemetry.log", "game/../work/secret.txt", "game/%2e%2e/work/secret.txt", "game/disc.iso", "disc.iso", "work/secret.txt"])
-    expect((await get(p(f))).status).toBe(404);
-});
-
-test("the disc in 1 MiB pieces, read from the image; the last one is shorter", async () => {
-  expect(await (await get(p("game/disc/index.json"))).json()).toEqual({ size: SIZE, piece: PIECE });
-  for (const [n, from, to] of [[0, 0, PIECE], [1, PIECE, 2 * PIECE], [2, 2 * PIECE, SIZE]] as const) {
-    const res = await get(p(`game/disc/0000${n}.bin`));
-    expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
-    const body = new Uint8Array(await res.arrayBuffer());
-    expect(body.length).toBe(to - from);
-    expect(Buffer.from(body).equals(Buffer.from(iso.subarray(from, to)))).toBe(true);
-  }
-  expect((await get(p("game/disc/00003.bin"))).status).toBe(404);
-  expect((await get(p("game/disc/1.bin"))).status).toBe(404);
-});
-
-test("status, net endpoints that keep nothing, and WebSockets only by upgrade", async () => {
-  expect(await (await get(p("status"))).json()).toEqual({ state: "ready" });
-  for (const f of ["game/net/stat", "game/net/log", "game/telemetry"]) expect((await get(p(f), { method: "POST", body: "{}" })).status).toBe(204);
-  expect((await get(p("game/net/ws?room=ABCD&role=host"))).status).toBe(426);
-  expect((await get(p("game/net/ws?room=bad&role=host"))).status).toBe(400);
 });
 
 test("every script of the home (page/home/*.js) is served: one left out breaks the whole home, as they import each other", async () => {
@@ -145,25 +97,10 @@ test("every script of the home (page/home/*.js) is served: one left out breaks t
   for (const f of scripts) expect([f, (await get(home(`home/${f}`))).status]).toEqual([f, 200]);
 });
 
-test("the catalog, each game with its state and without its file list", async () => {
-  const body = (await (await get(home("games"))).json()) as { me: string; games: Record<string, unknown>[] };
-  expect(body.me).toBe("Ana");
-  expect(body.games.map((g) => g.id)).toEqual(["bt3"]);
-  expect(body.games[0]).toMatchObject({ name: GAMES[0]!.name, status: { state: "ready" }, rooms: 0 });
-  expect(body.games[0]).not.toHaveProperty("files");
-});
-
-test("only games from the catalog: an id never reaches the disk", async () => {
+test("anything else is 404: a path never reaches the disk", async () => {
   // ("../" never gets here: the URL is normalized before routing.)
-  for (const path of ["nope/status", "nope/game/", "..%2fbt3/status", "bt3./status", "work/secret.txt", "status", "upload"])
+  for (const path of ["nope/status", "nope/game/", "..%2fbt3/status", "bt3/game/", "work/secret.txt", "status", "upload"])
     expect((await get(home(path))).status).toBe(404);
-});
-
-test("the games' pages carry the app's public address: Abrir no navegador shows the link without waiting on Discord", async () => {
-  const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, publicUrl: "https://hype.example" });
-  const page = await (web.handle(new Request(`https://hype.example${p("game/")}`)) as Promise<Response>);
-  expect(await page.text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
-  expect(await (await get(p("game/"))).text()).not.toContain("hypeplay-public");
 });
 
 test("without PUBLIC_URL, the public address is the one each request came to (Discord's proxy and Traefik ask by name), never a local one or Discord's own", async () => {
@@ -175,8 +112,6 @@ test("without PUBLIC_URL, the public address is the one each request came to (Di
   expect(await at("http://hype.example:8443", { "x-forwarded-proto": "http" })).toBe("http://hype.example:8443");
   for (const local of ["http://localhost:3913", "http://127.0.0.1:3913", "http://192.168.0.10:3913", "http://[::1]:3913", "https://1565741822813409280.discordsays.com"])
     expect(await at(local)).toBe("");
-  const page = await (app.handle(new Request(`http://hype.example${p("game/")}`)) as Promise<Response>);
-  expect(await page.text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
   // a PUBLIC_URL set stands, whatever the request's address
   const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, publicUrl: "https://hype.example" });
   const body = (await (await (web.handle(new Request(`http://other.example${home("games")}`)) as Promise<Response>)).json()) as { publicUrl: string };

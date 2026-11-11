@@ -15,9 +15,6 @@ export interface DiscId {
   boot: string;
 }
 
-/** Budokai Tenkaichi 3's own port has this serial: sending it again points at that one. */
-export const BT3_SERIAL = "SLUS-21678";
-
 const SECTOR = 2048;
 /** Directories and SYSTEM.CNF are small; anything larger isn't a disc we read. */
 const MOST = 1024 * 1024;

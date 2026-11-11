@@ -14,7 +14,7 @@ export interface Prefs {
   volume: number;
   filter: "off" | "crt" | "scan";
 }
-export const DEFAULT_PREFS: Prefs = { volume: 0.7, filter: "off" };
+const DEFAULT_PREFS: Prefs = { volume: 0.7, filter: "off" };
 const FILTERS = new Set(["off", "crt", "scan"]);
 
 /** More than this many controllers for one person is not a person. */

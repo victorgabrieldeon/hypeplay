@@ -32,9 +32,6 @@ let engine: string;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "cordplay-routes-ps2-"));
-  await mkdir(join(root, "bt3", "build"), { recursive: true });
-  await writeFile(join(root, "bt3", "disc.iso"), "iso");
-  await writeFile(join(root, "bt3", "build", "index.html"), "<html><head></head><body>bt3</body></html>");
   library = createLibrary(root, { min: 1024 });
   // TabStationToo's files (emulator/ps2/): its real page, and stand-ins for the rest
   engine = join(root, "engine");
@@ -72,12 +69,10 @@ async function send(id: string, disc: Uint8Array<ArrayBuffer>, who = ana) {
   return who(`ps2/${id}/upload?offset=0&size=${disc.length}`, { method: "PUT", body: disc });
 }
 
-test("games lists BT3 and the PS2 games, each with its key, cover and state", async () => {
+test("games lists the PS2 games, each with its key, cover and state", async () => {
   expect((await ana("ps2", json({ serial: "SLES-11111", name: "Jogo Um" }))).status).toBe(201);
   const body = await catalog();
   expect(body.me).toBe("Ana");
-  const bt3 = body.games.find((g) => g.key === "bt3")!;
-  expect(bt3).toMatchObject({ kind: "port", id: "bt3", cover: expect.stringMatching(/^cover\/bt3\?v=/), open: [], status: { state: "ready" } });
   const one = body.games.find((g) => g.key === "ps2/sles-11111")!;
   expect(one).toMatchObject({ kind: "recomp", id: "sles-11111", name: "Jogo Um", status: { state: "empty" }, open: [], by: "Ana" });
   expect(one.cover).toStartWith("cover/ps2/sles-11111?v=");
@@ -89,7 +84,6 @@ test("reserve, upload in pieces and the disc is checked when complete", async ()
   expect(r.status).toBe(201);
   expect(await r.json()).toEqual({ key: "ps2/sles-22222", id: "sles-22222" });
   expect((await ana("ps2", json({ serial: "SLES-22222", name: "de novo" }))).status).toBe(409);
-  expect(await (await ana("ps2", json({ serial: "SLUS-21678", name: "bt3" }))).json()).toEqual({ exists: "bt3" });
   // another copy, when asked: the same game again gets its own id, and plays like any other
   const again = await ana("ps2", json({ serial: "SLES-22222", name: "Dois (mod)", copy: true }));
   expect(again.status).toBe(201);
@@ -126,7 +120,6 @@ test("rename, cover (webp, generated, too big) and remove", async () => {
   const svg = await ana("cover/ps2/sles-44444");
   expect(svg.headers.get("content-type")).toBe("image/svg+xml");
   expect(await svg.text()).toContain("Quatro (editado)");
-  expect((await ana("cover/bt3")).headers.get("content-type")).toBe("image/svg+xml");
 
   const png = await sharp({ create: { width: 300, height: 300, channels: 3, background: "#7655ff" } }).png().toBuffer();
   expect((await ana("ps2/sles-44444/cover", { method: "PUT", body: png })).status).toBe(204);
@@ -144,43 +137,11 @@ test("rename, cover (webp, generated, too big) and remove", async () => {
   expect((await catalog()).games.some((g) => g.id === "sles-44444")).toBe(false);
 });
 
-test("without BT3's port (production: games []), the home lists only the library, and BT3's disc goes in it", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "cordplay-noport-"));
-  try {
-    const lib = createLibrary(dir, { min: 1024, port: false });
-    const noPort = createApp({ dir, pageDir: PAGE_DIR, entryJs: "", passes, discord, library: lib, games: [] });
-    const go = async (rest: string, init?: RequestInit) => (await noPort.handle(new Request(`http://localhost/p/${ANA}/${rest}`, init))) as Response;
-    expect(((await (await go("games")).json()) as { games: { key: string }[] }).games.some((g) => g.key === "bt3")).toBe(false);
-    expect((await go("bt3/status")).status).toBe(404);
-    const r = await go("ps2", json({ serial: "SLUS-21678", name: "Budokai Tenkaichi 3" }));
-    expect(r.status).toBe(201);
-    expect(await r.json()).toEqual({ key: "ps2/slus-21678", id: "slus-21678" });
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("BT3's cover can be sent and taken off too, like any game's", async () => {
-  const coverOf = async () => (await catalog()).games.find((g) => g.key === "bt3")!.cover;
-  const drawn = await coverOf();
-  const png = await sharp({ create: { width: 300, height: 300, channels: 3, background: "#3ddc84" } }).png().toBuffer();
-  expect((await bia("bt3/cover", { method: "PUT", body: png })).status).toBe(204);
-  const sent = await coverOf();
-  expect(sent).not.toBe(drawn);
-  expect(sent).toEndWith("-c");
-  expect((await ana("cover/bt3")).headers.get("content-type")).toBe("image/webp");
-  expect((await ana("bt3/cover", { method: "PUT", body: "not an image" })).status).toBe(400);
-  expect((await ana("bt3/cover", { method: "DELETE" })).status).toBe(204);
-  expect(await coverOf()).toBe(drawn);
-  expect((await ana("cover/bt3")).headers.get("content-type")).toBe("image/svg+xml");
-});
-
 test("a cover's address changes whenever its picture does (it is kept a year): a rename, each cover sent, a new drawing", async () => {
   await ana("ps2", json({ serial: "SLES-56565", name: "Antes" }));
   const coverOf = async (key = "ps2/sles-56565") => (await catalog()).games.find((g) => g.key === key)!.cover;
   const drawn = await coverOf();
   expect(drawn).toContain(`g${COVER_ART}`);
-  expect(await coverOf("bt3")).toContain(`g${COVER_ART}`);
   await ana("ps2/sles-56565", json({ name: "Depois" }, "PATCH"));
   const renamed = await coverOf();
   expect(renamed).not.toBe(drawn);
@@ -225,8 +186,8 @@ test("pad maps and the last game played round-trip", async () => {
   expect((await ana("keys", { method: "DELETE" })).status).toBe(204);
   expect(await (await ana("keys")).json()).toBeNull();
 
-  expect((await ana("played", json({ key: "bt3" }))).status).toBe(204);
-  expect((await catalog()).last).toBe("bt3");
+  expect((await ana("played", json({ key: "ps2/sles-11111" }))).status).toBe(204);
+  expect((await catalog()).last).toBe("ps2/sles-11111");
   expect((await ana("played", json({ key: "ps2/slus-00000" }))).status).toBe(400);
   expect((await ana("played", json({ key: "../x" }))).status).toBe(400);
 });
@@ -412,12 +373,6 @@ test("the disc of a PS2 game answers Range and HEAD", async () => {
   expect((await ana(`ps2/${id}/game/disc.iso`, { headers: { range: "bytes=5000000000-" } })).status).toBe(416);
 });
 
-test("BT3's page gets pad.js, everything else of BT3 is as before", async () => {
-  const page = await ana("bt3/game/");
-  expect(await page.text()).toBe('<html><head><meta name="hypeplay-online" content="menu">\n<script src="../../pad.js"></script><script src="../../overlay.js"></script></head><body>bt3</body></html>');
-  expect(page.headers.get("content-security-policy")).toStartWith("sandbox ");
-});
-
 test("a removed game's routes 404 while open, and its disc is deleted from the server", async () => {
   const id = await built("SLES-88888", "SLES_888.88");
   expect((await ana(`ps2/${id}/game/disc.iso`, { method: "HEAD" })).status).toBe(200);
@@ -543,7 +498,6 @@ test("prefs: the person's volume and filter round-trip", async () => {
 });
 
 test("every game page gets pad.js and then overlay.js", async () => {
-  expect(await (await ana("bt3/game/")).text()).toContain('<script src="../../pad.js"></script><script src="../../overlay.js"></script></head>');
   const id = await built("SLES-13131", "SLES_131.31");
   expect(await (await ana(`ps2/${id}/game/`)).text()).toContain('<script src="../../../pad.js"></script><script src="../../../overlay.js"></script></head>');
 });
@@ -558,29 +512,13 @@ test("the home's own scripts, from a fixed list, with the home's headers", async
 });
 
 test("PS2 routes 404 for unknown ids and without a library", async () => {
-  for (const path of ["ps2/slus-00000/status", "ps2/SLUS-00000/status", "ps2/..%2fbt3/status", "ps2/sles-11111/nope", "cover/ps2/slus-00000", "cover/nope"])
+  for (const path of ["ps2/slus-00000/status", "ps2/SLUS-00000/status", "ps2/..%2fx/status", "ps2/sles-11111/nope", "cover/ps2/slus-00000", "cover/nope"])
     expect((await ana(path)).status).toBe(404);
   const bare = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord });
   for (const path of ["ps2/sles-11111/status", "pad", "cover/ps2/sles-11111"])
     expect(((await bare.handle(new Request(`http://localhost/p/${ANA}/${path}`))) as Response).status).toBe(404);
   const games = (await ((await bare.handle(new Request(`http://localhost/p/${ANA}/games`))) as Response).json()) as { games: Entry[] };
-  expect(games.games.map((g) => g.key)).toEqual(["bt3"]);
-});
-
-test("BT3's page tells the game panel where its online is (the game's own menu)", async () => {
-  const html = await (await ana("bt3/game/")).text();
-  expect(html).toContain('<meta name="hypeplay-online" content="menu">');
-  expect(html.indexOf("hypeplay-online")).toBeLessThan(html.indexOf("</head>"));
-});
-
-test("BT3's rooms (the game's Dragon Net Battle) are listed in the library, with the code to type", async () => {
-  const rooms = app.shelf.get("bt3")!.rooms;
-  const ws = { send() {}, close() {} };
-  rooms.openRoom(ws, { room: "QRST", role: "host", phase: "lobby", name: "Ana", cid: "a" });
-  const bt3 = () => catalog().then((c) => c.games.find((g) => g.key === "bt3")!);
-  expect((await bt3()).open).toEqual([{ code: "QRST", host: "Ana", since: expect.any(Number), busy: false }]);
-  rooms.close(ws, 1000);
-  expect((await bt3()).open).toEqual([]);
+  expect(games.games).toEqual([]);
 });
 
 test("people: who else is around, the game their page says, and the room they host", async () => {
@@ -600,4 +538,13 @@ test("people: who else is around, the game their page says, and the room they ho
   expect((await people()).find((p) => p.name === "Bia")!.room).toEqual({ key: `ps2/${id}`, code: room, busy: false, watchers: 0 });
   await bia(`ps2/${id}/room/${room}`, { method: "DELETE" });
   expect((await bia("here")).status).toBe(405);
+});
+
+test("the games' pages carry the app's public address: Abrir no navegador shows the link without waiting on Discord", async () => {
+  const web = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, ps2Engine: engine, publicUrl: "https://hype.example" });
+  const page = (a: typeof app, url: string) => a.handle(new Request(`${url}/p/${ANA}/ps2/sles-11111/game/`)) as Promise<Response>;
+  expect(await (await page(web, "https://hype.example")).text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
+  // without PUBLIC_URL: the name the request came to, never a local one
+  expect(await (await page(app, "http://hype.example")).text()).toContain('<meta name="hypeplay-public" content="https://hype.example">');
+  expect(await (await page(app, "http://localhost")).text()).not.toContain("hypeplay-public");
 });

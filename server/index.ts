@@ -41,11 +41,9 @@ async function bundle(entry: string, define: Record<string, string> = {}) {
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 // R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
 const r2 = r2FromEnv();
-// BT3's port is off the catalog (games: []): its disc goes in the library like any PS2 game. Its code stays.
-const library = createLibrary(dir, { r2, port: false });
+const library = createLibrary(dir, { r2 });
 const app = createApp({
-  games: [],
-  // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/, the PS2 games live in /app/data/ps2/.
+  // (the PS2 games live in /app/data/ps2/)
   dir,
   pageDir,
   entryJs: await bundle("entry.ts", {

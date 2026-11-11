@@ -3,7 +3,7 @@
 Direção: **"Mosaico"**. A biblioteca é uma parede de capas no escuro de cinema; a interface só aparece onde é preciso
 (uma barra fina no topo, as palavras à esquerda, a gaveta do jogo). Preto de verdade, um acento coral contido: as
 capas são o que tem cor. Tudo vira CSS variables em `page/index.html` (`--nome`); as páginas usam nomes, nunca
-valores. As direções exploradas até aqui (e a escolha) estão em `docs/estilos/`.
+valores. O estudo que virou esta direção está em `docs/estilos/19-mosaico.html`.
 
 ## Cor
 

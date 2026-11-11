@@ -241,7 +241,7 @@ function pageShell(s) {
         <div class="person">${avBtn(s.id, state.me)}<div class="who"><b>${profileBtn(s.id, state.me)}</b><span class="state">Ver meu perfil</span></div></div>
         <label class="fm-label"><span>Status</span><select class="field" id="fm-status">${['online', 'away', 'busy', 'invisible'].map(opt).join('')}</select></label>
         <p class="fp-hint">Ausente e Não perturbe aparecem para os amigos; em Não perturbe ninguém te convida. Invisível: offline para todo mundo.</p>
-        <label class="fm-label"><span>Recado (aparece embaixo do seu nome)</span><input class="field" id="fm-note" maxlength="80" placeholder="Procurando alguém pro BT3…" value="${esc(s.note)}"></label></div>
+        <label class="fm-label"><span>Recado (aparece embaixo do seu nome)</span><input class="field" id="fm-note" maxlength="80" placeholder="Procurando alguém pra jogar…" value="${esc(s.note)}"></label></div>
       <div class="fp-box"><h2>Adicionar alguém</h2>
         <input class="field" id="fm-q" type="search" placeholder="Nome de quem já abriu o HypePlay" autocomplete="off" aria-label="Adicionar alguém pelo nome">
         <div class="people-list" id="fm-results"></div></div>

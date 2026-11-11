@@ -28,7 +28,7 @@ export function actionOf(method: string, path: string, search: URLSearchParams):
     if (/^\/friends\/[^/]+$/.test(path)) return "friend";
     if (/^\/ps2\/[^/]+\/fast-build$/.test(path)) return "fast";
   }
-  if (method === "PUT" && /^\/ps2\/[^/]+\/upload$/.test(path) && Number(search.get("offset")) === 0) return "iso";
+  if (method === "PUT" && /^\/ps2\/[^/]+\/upload$/.test(path) && search.get("offset") === "0") return "iso";
   return null;
 }
 

@@ -18,6 +18,8 @@ test("only the requests that create something are limited", () => {
   expect(actionOf("PUT", "/ps2/slus-21678/upload", q("offset=0&size=10"))).toBe("iso");
   expect(actionOf("PUT", "/ps2/slus-21678/upload", q("offset=41943040&size=99"))).toBeNull();
   expect(actionOf("GET", "/ps2/slus-21678/upload", q())).toBeNull();
+  // (no offset at all isn't the first byte: the route turns it down)
+  expect(actionOf("PUT", "/ps2/slus-21678/upload", q("size=10"))).toBeNull();
 });
 
 test("past the limit, refused until the oldest turn leaves the window", () => {

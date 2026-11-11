@@ -25,8 +25,8 @@ export { RESTART };
 export const DRAIN_MS = 10_000;
 const GAMES_MS = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10_000];
 const PASS = /^\/p\/([\w.-]+)(\/.*)?$/;
-/** The disc as a game reads it: a PS2 game's disc.iso (the emulator's and the "versão rápida"'s). */
-const DISC = /^\/(ps2\/[^/]+)\/(?:game|fast)\/disc\.iso$/;
+/** A game's disc as its page reads it: every such answer says where it came from (X-Disc-Source), under ps2/<id>/. */
+const GAME = /^\/(ps2\/[^/]+)\//;
 
 export interface OpsApp {
   handle(req: Request, server?: Server<NetData>): Promise<Response | undefined>;
@@ -104,9 +104,10 @@ export function createOps({ app, passes, telemetry, ps2Rooms, limiter = new Rate
     requests.add(1, { status: `${Math.floor(res.status / 100)}xx` });
     if (rest === "/games") games.record(performance.now() - started, { status: res.status });
     if (m && req.method === "GET" && (res.status === 200 || res.status === 206)) {
-      const game = DISC.exec(rest)?.[1];
+      const source = res.headers.get("x-disc-source");
+      const game = source && GAME.exec(rest)?.[1];
       const n = Number(res.headers.get("content-length"));
-      if (game && n > 0) discBytes.add(n, { game, source: res.headers.get("x-disc-source") ?? "local" });
+      if (game && n > 0) discBytes.add(n, { game, source });
     }
     return res;
   }

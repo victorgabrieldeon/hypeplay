@@ -114,7 +114,8 @@ async function shutdown(signal: string) {
   } catch (err) {
     log.error("shutdown: something pending was lost", { err });
   }
-  await telemetry.shutdown().catch(() => {});
+  // (a collector away doesn't hold the exit: drain + this stay well under stop_grace_period)
+  await Promise.race([telemetry.shutdown().catch(() => {}), Bun.sleep(3000)]);
   process.exit(0);
 }
 let stopping = false;

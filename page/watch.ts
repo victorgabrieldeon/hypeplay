@@ -45,6 +45,8 @@ let linked = false;
 let turn: Turn = "none";
 /** The game through the server, once it went that way. */
 let relaying: ReturnType<typeof joinRelay> | null = null;
+/** A deploy closed the relay (RESTART): waiting for the server to come back. */
+let restarting = false;
 /** While playing, "here" every few seconds: the library shows the room as taken. */
 let beat = 0;
 const here = () => {
@@ -87,6 +89,8 @@ function goRelay(tell: boolean, pc: RTCPeerConnection | null) {
       status(s.title, s.text, "error", [retry]);
     };
     if (why === "restart") {
+      // (the relay's own timeout below must not call it a dropped connection meanwhile)
+      restarting = true;
       const s = relayStuck(why);
       status(s.title, s.text);
       return void backAfterRestart().then((back) => {
@@ -117,7 +121,7 @@ function goRelay(tell: boolean, pc: RTCPeerConnection | null) {
     onSound: () => ($("sound").hidden = false),
   });
   setTimeout(() => {
-    if (linked || !relaying) return;
+    if (linked || !relaying || restarting) return;
     relaying.stop();
     stop("closed");
   }, RELAY_MS);

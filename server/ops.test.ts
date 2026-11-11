@@ -80,11 +80,14 @@ test("metrics: disc bytes per game (GET only), the catalog's latency, rooms, peo
   const { ops, metrics } = setup(async (r) => {
     const path = new URL(r.url).pathname;
     if (path.endsWith("disc.iso")) return new Response(r.method === "HEAD" ? null : "x", { status: 206, headers: { "Content-Length": "1048576", "X-Disc-Source": "r2" } });
+    // (a game's other files aren't its disc)
+    if (path.endsWith(".wasm")) return new Response("x", { headers: { "Content-Length": "500" } });
     return new Response("{}");
   });
   await ops.handle(req("/p/good/ps2/slus-21678-2/game/disc.iso"));
   await ops.handle(req("/p/good/ps2/slus-21678-2/fast/disc.iso"));
   await ops.handle(req("/p/good/ps2/slus-21678-2/game/disc.iso", { method: "HEAD" }));
+  await ops.handle(req("/p/good/ps2/slus-21678-2/fast/ps2web.wasm"));
   await ops.handle(req("/p/good/games"));
   const m = await metrics();
   const bytes = m["hypeplay.disc.bytes"].sum.dataPoints.map((p: any) => [p.attributes.map((a: any) => a.value.stringValue).join(" "), p.asDouble]);
@@ -92,7 +95,7 @@ test("metrics: disc bytes per game (GET only), the catalog's latency, rooms, peo
   expect(m["hypeplay.games.duration"].histogram.dataPoints[0].count).toBe("1");
   expect(m["hypeplay.rooms.active"].gauge.dataPoints[0].asDouble).toBe(4);
   expect(m["hypeplay.people.online"].gauge.dataPoints[0].asDouble).toBe(2);
-  expect(m["hypeplay.http.requests"].sum.dataPoints[0]).toMatchObject({ asDouble: 4, attributes: [{ key: "status", value: { stringValue: "2xx" } }] });
+  expect(m["hypeplay.http.requests"].sum.dataPoints[0]).toMatchObject({ asDouble: 5, attributes: [{ key: "status", value: { stringValue: "2xx" } }] });
 });
 
 test("a route that throws: 500 and an error in the log, never the pass in it", async () => {

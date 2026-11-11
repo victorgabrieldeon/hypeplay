@@ -128,6 +128,27 @@ test("the profile: games in common, mutual friends, played with; and it's all st
   expect((await createSocial(sql, dir)).profile("2", "1")!.total).toBe(10_000);
 });
 
+test("the Amigos screen: each friend's last games and hours, games in common, the friends' badges, people to add", async () => {
+  const { s, clock } = await fresh();
+  const dani = { id: "4", name: "Dani" };
+  for (const p of [ana, bia, caio, dani]) s.seen(p);
+  for (const [a, b] of [["1", "2"], ["2", "3"]] as const) s.add(a, b), s.add(b, a);
+  s.beat(ana, bt3, ["4"]);
+  s.beat(bia, bt3);
+  clock.t += 10_000;
+  s.beat(ana, bt3);
+  s.beat(bia, bt3);
+  const v = s.view("1", () => true)!;
+  expect(v.friends.map((f) => [f.name, f.games, f.more, f.ms])).toEqual([["Bia", [{ key: "bt3", title: "BT3" }], 0, 10_000]]);
+  expect(v.mine).toEqual({ games: 1, ms: 10_000 });
+  expect(v.common).toEqual([{ key: "bt3", title: "BT3", friends: 1, ms: 10_000 }]);
+  expect(v.badges).toEqual([]);
+  // Caio: a friend of Bia's; Dani: played with Ana, nobody in common
+  expect(v.suggest.map((u) => [u.name, u.mutual, u.together])).toEqual([["Caio", 1, false], ["Dani", 0, true]]);
+  s.add("1", "3");
+  expect(s.view("1", () => true)!.suggest.map((u) => u.name)).toEqual(["Dani"]); // (asked: out of the suggestions)
+});
+
 test("every change is written: after a restart, everyone's view and profiles are the same", async () => {
   const { s, clock, dir, sql } = await fresh();
   const outro = { key: "ps2/sles-12345", title: "Outro", watch: false };

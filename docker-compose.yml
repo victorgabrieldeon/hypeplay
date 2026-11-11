@@ -10,11 +10,14 @@ x-otel: &otel
   OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
   OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
   OTEL_METRIC_EXPORT_INTERVAL: ${OTEL_METRIC_EXPORT_INTERVAL:-}
+# docker logs kept to 3 files of 10 MB per container: without it they grow on the system disk, the data's own.
+x-logging: &logging { driver: json-file, options: { max-size: 10m, max-file: "3" } }
 
 services:
   app:
     build: .
     restart: unless-stopped
+    logging: *logging
     environment:
       <<: *otel
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
@@ -39,6 +42,8 @@ services:
       # (with R2) optional, off: the discs served by edge/worker.ts near the players (README "Edge para os discos")
       DISC_EDGE_URL: ${DISC_EDGE_URL:-}
       DISC_EDGE_SECRET: ${DISC_EDGE_SECRET:-}
+      # (with R2) the daily backup to R2's backup/ (server/backup.ts, README "Backup automático"): on; 0 turns it off
+      BACKUP: ${BACKUP:-}
       # Optional: ps2-builder workers on other machines take jobs from the builds' queue through /worker/ with this
       # token (README "Workers em outra máquina"). Empty: only the builders here, which open /app/data/queue.db.
       WORKER_TOKEN: ${WORKER_TOKEN:-}
@@ -70,6 +75,7 @@ services:
       context: .
       dockerfile: ps2-builder/Dockerfile
     restart: unless-stopped
+    logging: *logging
     cpus: "2"
     environment:
       <<: *otel
@@ -98,6 +104,7 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: hypeplay
       POSTGRES_DB: hypeplay

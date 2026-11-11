@@ -34,6 +34,8 @@ export interface FastGame {
   recomp?: string;
   /** Where its disc is: this machine's disk or R2 (discs.ts). */
   disc: "local" | "r2";
+  /** Its bytes: room for them is checked before it's brought to a worker (absent from an app before it). */
+  size?: number;
 }
 
 export interface FastClaim {
@@ -56,6 +58,8 @@ export function fastPaths(dir: string, id: string) {
   return {
     json: join(root, "game.json"),
     iso: join(root, "disc.iso"),
+    /** A disc brought here for a build (ps2-builder's folder: the app never reads discs from it), gone after. */
+    workIso: join(dir, "ps2-work", id, "disc.iso"),
     fast,
     request: join(fast, "request"),
     misses: join(fast, "misses.txt"),
@@ -109,8 +113,11 @@ export async function claimFast(dir: string, queue: Queue, worker: string, image
       continue;
     }
     const p = fastPaths(dir, id);
-    const disc = (await exists(p.iso)) ? "local" : (await markedSize(p.iso)) ? "r2" : null;
-    if (!disc) {
+    // (the mark first: a copy here of a disc in R2 is a leftover the app's sweep clears)
+    const marked = await markedSize(p.iso);
+    const size = marked ?? (await stat(p.iso).then((s) => s.size, () => null));
+    const disc = marked ? "r2" : "local";
+    if (size === null) {
       queue.fail(c.key, c.token, { status: { state: "failed", message: "O jogo não tem a ISO no servidor" } });
       continue;
     }
@@ -126,6 +133,7 @@ export async function claimFast(dir: string, queue: Queue, worker: string, image
         ...(built && c.shell !== null ? { shell: c.shell } : {}),
         ...(built && c.recomp !== null ? { recomp: c.recomp } : {}),
         disc,
+        size,
       },
     };
   }

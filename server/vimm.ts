@@ -10,6 +10,7 @@
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normalizeCover } from "./cover";
+import { NO_ROOM } from "./discs";
 import { fileRead, readDiscId } from "./iso9660";
 import { PS2_MAX, PS2_MIN, type Library } from "./library";
 import { log } from "./log";
@@ -142,6 +143,8 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
       throw new Refused("O vimm.net não entregou um jogo nesse link. Ele pode estar desatualizado ou indisponível. Cole um link de download atual ou envie sua ISO.");
     const size = Number(res.headers.get("content-length")) || null;
     if (size && size > max) throw new Refused("Esse arquivo é grande demais para um jogo de PS2.");
+    // (the archive and the ISO out of it, both here for a while)
+    if (size && !(await library.room(2 * size))) throw new Refused(NO_ROOM);
     const file = /filename="?([^";]+)"?/i.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? "";
     const name = file.replace(/\.(7z|zip|rar)$/i, "").trim().slice(0, 80);
     const by = pass.name;
@@ -177,6 +180,8 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
           : "O arquivo não tem uma ISO de PS2 dentro.",
       );
     if (isos[0]!.size < min || isos[0]!.size > max) throw new Refused("A ISO de dentro não tem o tamanho de um jogo de PS2.");
+    // (its real size now, the archive still here)
+    if (!(await library.room(isos[0]!.size))) throw new Refused(NO_ROOM);
     // `e` flattens paths: whatever the archive names its files, they land in out/
     await sevenZip(["e", archive, `-o${join(work, "out")}`, "-y", "-r", "-ssc-", "*.iso"]);
     await rm(archive, { force: true });
@@ -196,7 +201,7 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
       throw err;
     }
     await coverFrom(r.game.id, shown.box || name);
-    library.settle(r.game.id);
+    void library.settle(r.game.id);
     return { state: "done", by, name: r.game.name, key: `ps2/${r.game.id}`, existed: false } as const;
   }
 

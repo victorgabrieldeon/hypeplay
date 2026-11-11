@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ABANDONED_MS, createLibrary } from "./library";
@@ -98,15 +98,36 @@ test("rename, cover flag and remove (saves stay)", async () => {
   expect(await exists(join(dir, "saves", "sles-12345", "42.ps2"))).toBe(true);
 });
 
-test("an abandoned reservation goes after 24 h; one with an upload under way stays", async () => {
-  const { library, advance } = await setup();
+test("an abandoned reservation goes after 24 h; one with an upload under way stays, until it stopped 24 h ago", async () => {
+  const { dir, library, advance } = await setup();
   await library.reserve(ana, "SLES-12345", "parado");
   await library.reserve(ana, "SCUS-97481", "enviando");
   expect((await library.disc("scus-97481").put(ana, 0, 20, new Uint8Array(8))).ok).toBe(true);
-  advance(ABANDONED_MS + 1);
+  advance(ABANDONED_MS - 1000);
+  // (its last piece, not the reservation, says when it stopped)
+  expect((await library.disc("scus-97481").put(ana, 8, 20, new Uint8Array(8))).ok).toBe(true);
+  advance(2000);
   await library.sweep();
   expect((await library.list()).map((g) => g.id)).toEqual(["scus-97481"]);
   expect(await library.get("sles-12345")).toBeNull();
+  advance(ABANDONED_MS);
+  await library.sweep();
+  expect(await library.list()).toEqual([]);
+  expect(await exists(join(dir, "ps2", "scus-97481"))).toBe(false);
+});
+
+test("a folder the sweep can't look into (a disk error, not a missing file) is left alone", async () => {
+  if (process.getuid?.() === 0) return; // (root reads it all the same)
+  const { dir, library } = await setup();
+  await mkdir(join(dir, "ps2", "sles-12345"), { recursive: true });
+  await writeFile(join(dir, "ps2", "sles-12345", "disc.iso.r2"), "1000");
+  await chmod(join(dir, "ps2", "sles-12345"), 0o000);
+  try {
+    await library.sweep();
+  } finally {
+    await chmod(join(dir, "ps2", "sles-12345"), 0o755);
+  }
+  expect(await exists(join(dir, "ps2", "sles-12345", "disc.iso.r2"))).toBe(true);
 });
 
 test("ids from outside never reach the disk", async () => {

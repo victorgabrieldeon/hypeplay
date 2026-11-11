@@ -1,4 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
+import { statfsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createTelemetry } from "./otlp";
 import { LIMITS, RateLimiter } from "./limits";
 import { captureLog } from "./log";
@@ -14,7 +17,7 @@ afterEach(() => {
   cap = captureLog();
 });
 
-function setup(handle: OpsApp["handle"], o: { limits?: Partial<typeof LIMITS> } = {}) {
+function setup(handle: OpsApp["handle"], o: { limits?: Partial<typeof LIMITS>; dataDir?: string } = {}) {
   const sent: any[] = [];
   const telemetry = createTelemetry({
     endpoint: "http://otel",
@@ -28,7 +31,7 @@ function setup(handle: OpsApp["handle"], o: { limits?: Partial<typeof LIMITS> } 
     websocket: { open() {}, message() {}, close() {} },
     presence: { others: () => [{}, {}] },
   };
-  const ops = createOps({ app, passes, telemetry, ps2Rooms: { size: 4 }, limiter: new RateLimiter(() => 0, { ...LIMITS, ...o.limits }) });
+  const ops = createOps({ app, passes, telemetry, ps2Rooms: { size: 4 }, limiter: new RateLimiter(() => 0, { ...LIMITS, ...o.limits }), dataDir: o.dataDir });
   const metrics = async () => {
     await telemetry.flush();
     const last = sent.at(-1);
@@ -96,6 +99,27 @@ test("metrics: disc bytes per game (GET only), the catalog's latency, rooms, peo
   expect(m["hypeplay.rooms.active"].gauge.dataPoints[0].asDouble).toBe(4);
   expect(m["hypeplay.people.online"].gauge.dataPoints[0].asDouble).toBe(2);
   expect(m["hypeplay.http.requests"].sum.dataPoints[0]).toMatchObject({ asDouble: 5, attributes: [{ key: "status", value: { stringValue: "2xx" } }] });
+});
+
+test("metrics: the data disk's free and total bytes and the process' memory, read at the export", async () => {
+  const { metrics } = setup(async () => new Response("{}"), { dataDir: tmpdir() });
+  const m = await metrics();
+  const s = statfsSync(tmpdir());
+  const free = m["hypeplay.disk.free_bytes"].gauge.dataPoints[0].asDouble;
+  const total = m["hypeplay.disk.total_bytes"].gauge.dataPoints[0].asDouble;
+  expect(m["hypeplay.disk.free_bytes"].unit).toBe("By");
+  expect(total).toBe(s.blocks * s.bsize);
+  expect(free).toBeGreaterThan(0);
+  expect(free).toBeLessThanOrEqual(total);
+  expect(m["hypeplay.memory.rss"].gauge.dataPoints[0].asDouble).toBeGreaterThan(0);
+});
+
+test("metrics: a data dir that can't be read leaves out only the disk", async () => {
+  const { metrics } = setup(async () => new Response("{}"), { dataDir: join(tmpdir(), "hypeplay-no-such-dir") });
+  const m = await metrics();
+  expect(m["hypeplay.disk.free_bytes"]).toBeUndefined();
+  expect(m["hypeplay.disk.total_bytes"]).toBeUndefined();
+  expect(m["hypeplay.rooms.active"].gauge.dataPoints[0].asDouble).toBe(4);
 });
 
 test("a route that throws: 500 and an error in the log, never the pass in it", async () => {

@@ -1,7 +1,8 @@
 /**
  * The PS2 BIOS the PS2 games boot with (TabStationToo, like PCSX2, needs one): sent once, by whoever adds the first PS2
  * game, for the whole server, and kept in the data folder (bios/bios.bin, bios/bios.json with who and when). It's
- * Sony's software, from the sender's own console: like the disc images, it never leaves the volume.
+ * Sony's software, from the sender's own console: it stays in the volume, and (with R2) in its daily backup only
+ * (backup.ts), in the same private bucket as the discs.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";

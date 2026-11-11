@@ -1,7 +1,4 @@
 node_modules
-# The PC app's build (app/) and its packages, made by the Dockerfile.
-app/target
-downloads
 *.tsbuildinfo
 .env
 # The disc image and everything made from it: never in git.

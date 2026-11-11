@@ -1,7 +1,9 @@
+import { SQL } from "bun";
 import { join } from "node:path";
 import { telemetryFromEnv } from "./otlp";
 import { createBios } from "./bios";
 import { createChunkCache, discCacheBytes } from "./chunkcache";
+import { importOld, migrate } from "./db";
 import { createDiscs, r2FromEnv } from "./discs";
 import { createDiscord } from "./discord";
 import { edgeFromEnv } from "./edgetoken";
@@ -65,7 +67,14 @@ if (adopted) log.info("queue: fast builds from the volume", { adopted });
 // go to R2 and are served from there: without R2 here, they'd be ready and never found.
 if (process.env.WORKER_TOKEN && !r2) throw new Error("WORKER_TOKEN without S3_BUCKET: workers elsewhere publish their builds in R2");
 const workers = process.env.WORKER_TOKEN ? createWorkerApi({ dir, queue, r2, token: process.env.WORKER_TOKEN }) : null;
-const social = createSocial(dir);
+// Postgres (the compose's postgres service): what's kept per person and the friends (people.ts, social.ts). Its tables
+// are made first, once, and what came before it (hypeplay.db, the JSON files) imported the first time (db.ts).
+const sql = new SQL(env("DATABASE_URL"));
+await migrate(sql);
+await importOld(sql, dir);
+const people = createPeople(sql, dir);
+await people.ready;
+const social = await createSocial(sql, dir);
 const ps2Rooms = new Ps2Rooms();
 // The client secret signs the passes too: resetting it in the portal also ends every open session.
 const passes = createPasses(DISCORD_CLIENT_SECRET);
@@ -90,7 +99,7 @@ const app = createApp({
   // Optional: the R2 discs served near the players by edge/worker.ts (DISC_EDGE_URL, DISC_EDGE_SECRET; README)
   edge: r2 ? edgeFromEnv() : null,
   saves: createSaves(dir, r2),
-  people: createPeople(dir),
+  people,
   social,
   ps2Rooms,
   bios: createBios(dir),
@@ -126,13 +135,14 @@ log.info("cordplay listening", { port: PORT, otlp: telemetry.enabled });
 
 /**
  * A deploy (docker stop: SIGTERM, then SIGKILL after stop_grace_period): no new connections, the WebSockets told to
- * connect again, the requests going on finish, the friends' file and the telemetry written, then out.
+ * connect again, the requests going on finish, the friends' changes and the telemetry written, then out.
  */
 async function shutdown(signal: string) {
   log.info("shutdown", { signal });
   try {
     await ops.drain(server);
     await social.settle();
+    await sql.close();
   } catch (err) {
     log.error("shutdown: something pending was lost", { err });
   }

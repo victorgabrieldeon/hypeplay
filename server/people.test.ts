@@ -1,20 +1,24 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Mapping } from "../page/padmap";
 import { createPeople } from "./people";
+import { needsPg as test, testDb } from "./testing/pg";
 
-let dirs: string[] = [];
+let done: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
-  await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
-  dirs = [];
+  await Promise.all(done.map((d) => d()));
+  done = [];
 });
 
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "cordplay-people-"));
-  dirs.push(dir);
-  return { dir, people: createPeople(dir) };
+  const { sql, close } = await testDb();
+  done.push(close, () => rm(dir, { recursive: true, force: true }));
+  const people = createPeople(sql, dir);
+  await people.ready;
+  return { dir, people };
 }
 
 const adapter: Mapping = {

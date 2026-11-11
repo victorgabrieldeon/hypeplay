@@ -4,14 +4,15 @@
  *
  * Everyone who ever opened the home has a profile here (their name, kept for when they're offline). Hours come from a
  * game's page beat (presence.ts HERE_MS, every 15 s): the time since the last beat counts while it's the same game and
- * the beat came on time. Kept in the database (db.ts: profiles, links, played, recent, played_with), in memory while
- * the server runs, and the profiles that changed written a moment after, together: one process, so no two writes
- * race. The old <dir>/social.json is imported once and left there. Invites live in memory only (they're for right now).
+ * the beat came on time. Kept in Postgres (db.ts: profiles, links, played, recent, played_with), in memory while the
+ * server runs, and the profiles that changed written a moment after, together, one write at a time: one process, so
+ * nobody else writes them. The old <dir>/social.json is imported once and left there. Invites live in memory only
+ * (they're for right now).
  */
-import type { Database } from "bun:sqlite";
+import type { SQL } from "bun";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { importOnce, openDb } from "./db";
+import { importOnce } from "./db";
 import { HERE_MS, QUIET_MS } from "./presence";
 import { USER } from "./saves";
 
@@ -90,49 +91,70 @@ export function badges(p: { games: Record<string, Played>; recent: Session[]; fr
   return out;
 }
 
-/** Writes these profiles whole (each one's rows in every table: delete, insert). */
-function store(db: Database, users: Record<string, Profile>, ids: Iterable<string>, { keep = false } = {}) {
-  // (`keep`: the import, where a row already there wins)
-  const or = keep ? "OR IGNORE" : "OR REPLACE";
-  // (an upsert, not a replace: the row keeps its place, the order of search's results)
-  const profile = db.query(
-    `INSERT INTO profiles (id, name, since, seen, status, note) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO ${keep ? "NOTHING" : "UPDATE SET name = excluded.name, seen = excluded.seen, status = excluded.status, note = excluded.note"}`,
-  );
-  const link = db.query(`INSERT ${or} INTO links (user, other, kind, pos) VALUES (?, ?, ?, ?)`);
-  const played = db.query(`INSERT ${or} INTO played (user, key, title, ms, sessions, last) VALUES (?, ?, ?, ?, ?, ?)`);
-  const recent = db.query(`INSERT ${or} INTO recent (user, pos, key, title, start, "end") VALUES (?, ?, ?, ?, ?, ?)`);
-  const along = db.query(`INSERT ${or} INTO played_with (user, other, at) VALUES (?, ?, ?)`);
-  const clear = ["links", "played", "recent", "played_with"].map((t) => db.query(`DELETE FROM ${t} WHERE user = ?`));
+type Rows = Record<string, Record<string, string | number>[]>;
+
+/** These profiles as the tables' rows (a copy: what they are now, whatever changes while it's written). */
+function rows(users: Record<string, Profile>, ids: Iterable<string>): Rows {
+  const out: Rows = { profiles: [], links: [], played: [], recent: [], played_with: [] };
   for (const id of ids) {
     const p = users[id];
     if (!p) continue;
-    if (!keep) for (const q of clear) q.run(id);
-    profile.run(id, p.name, p.since, p.seen, p.status, p.note);
-    for (const kind of ["friends", "incoming", "outgoing"] as const) p[kind].forEach((o, i) => link.run(id, o, kind, i));
-    for (const [key, g] of Object.entries(p.games)) played.run(id, key, g.title, g.ms, g.sessions, g.last);
-    p.recent.forEach((r, i) => recent.run(id, i, r.key, r.title, r.start, r.end));
-    for (const [o, at] of Object.entries(p.with)) along.run(id, o, at);
+    out.profiles!.push({ id, name: p.name, since: p.since, seen: p.seen, status: p.status, note: p.note });
+    for (const kind of ["friends", "incoming", "outgoing"] as const) p[kind].forEach((other, pos) => out.links!.push({ person: id, other, kind, pos }));
+    Object.entries(p.games).forEach(([key, g], pos) => out.played!.push({ person: id, key, pos, title: g.title, ms: g.ms, sessions: g.sessions, last: g.last }));
+    p.recent.forEach((r, pos) => out.recent!.push({ person: id, pos, key: r.key, title: r.title, start: r.start, end: r.end }));
+    for (const [other, at] of Object.entries(p.with)) out.played_with!.push({ person: id, other, at });
+  }
+  return out;
+}
+
+/** Postgres takes at most 65535 values a query: rows go in parts. */
+const PART = 1000;
+
+/**
+ * Writes these profiles whole: each one's rows in every table, deleted and put back. `keep` (the import): a profile
+ * already there wins, and its rows aren't touched.
+ */
+async function store(tx: SQL, r: Rows, { keep = false } = {}) {
+  let ids = r.profiles!.map((p) => p.id as string);
+  if (!ids.length) return;
+  if (keep) {
+    const there = new Set((await tx`SELECT id FROM profiles WHERE id IN ${tx(ids)}`).map((p: { id: string }) => p.id));
+    ids = ids.filter((id) => !there.has(id));
+    if (!ids.length) return;
+    const fresh = new Set(ids);
+    for (const t of Object.keys(r)) r[t] = r[t]!.filter((row) => fresh.has((row.id ?? row.person) as string));
+  }
+  for (const t of ["links", "played", "recent", "played_with"]) await tx`DELETE FROM ${tx(t)} WHERE person IN ${tx(ids)}`;
+  for (let i = 0; i < r.profiles!.length; i += PART) {
+    // (an upsert, not a delete: the row keeps its place, the order of search's results)
+    await tx`INSERT INTO profiles ${tx(r.profiles!.slice(i, i + PART), "id", "name", "since", "seen", "status", "note")}
+      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, seen = EXCLUDED.seen, status = EXCLUDED.status, note = EXCLUDED.note`;
+  }
+  for (const t of ["links", "played", "recent", "played_with"]) {
+    const list = r[t]!;
+    for (let i = 0; i < list.length; i += PART) await tx`INSERT INTO ${tx(t)} ${tx(list.slice(i, i + PART))}`;
   }
 }
 
-/** Everyone, from the database. */
-function load(db: Database): Record<string, Profile> {
+/** Everyone, from the database (its BIGINTs come as strings). */
+async function load(sql: SQL): Promise<Record<string, Profile>> {
   const users: Record<string, Profile> = {};
-  type Row = Record<string, string | number>;
-  for (const r of db.query("SELECT * FROM profiles ORDER BY rowid").all() as Row[]) {
-    users[r.id as string] = { ...blank(r.name as string, r.since as number), seen: r.seen as number, status: r.status as Status, note: r.note as string };
+  type Row = Record<string, string>;
+  for (const r of (await sql`SELECT * FROM profiles ORDER BY n`) as Row[]) {
+    users[r.id!] = { ...blank(r.name!, Number(r.since)), seen: Number(r.seen), status: r.status as Status, note: r.note! };
   }
-  for (const r of db.query("SELECT * FROM links ORDER BY user, kind, pos").all() as Row[]) users[r.user as string]?.[r.kind as "friends"].push(r.other as string);
-  for (const r of db.query("SELECT * FROM played ORDER BY rowid").all() as Row[]) {
-    const p = users[r.user as string];
-    if (p) p.games[r.key as string] = { title: r.title as string, ms: r.ms as number, sessions: r.sessions as number, last: r.last as number };
+  for (const r of (await sql`SELECT * FROM links ORDER BY person, kind, pos`) as Row[]) users[r.person!]?.[r.kind as "friends"].push(r.other!);
+  for (const r of (await sql`SELECT * FROM played ORDER BY person, pos`) as Row[]) {
+    const p = users[r.person!];
+    if (p) p.games[r.key!] = { title: r.title!, ms: Number(r.ms), sessions: Number(r.sessions), last: Number(r.last) };
   }
-  for (const r of db.query("SELECT * FROM recent ORDER BY user, pos").all() as Row[]) {
-    users[r.user as string]?.recent.push({ key: r.key as string, title: r.title as string, start: r.start as number, end: r.end as number });
+  for (const r of (await sql`SELECT * FROM recent ORDER BY person, pos`) as Row[]) {
+    users[r.person!]?.recent.push({ key: r.key!, title: r.title!, start: Number(r.start), end: Number(r.end) });
   }
-  for (const r of db.query("SELECT * FROM played_with").all() as Row[]) {
-    const p = users[r.user as string];
-    if (p) p.with[r.other as string] = r.at as number;
+  for (const r of (await sql`SELECT * FROM played_with`) as Row[]) {
+    const p = users[r.person!];
+    if (p) p.with[r.other!] = Number(r.at);
   }
   return users;
 }
@@ -143,7 +165,7 @@ const sitting = (r: Partial<Session> | null) => !!r && typeof r.key === "string"
 const ids = (list: unknown) => (Array.isArray(list) ? [...new Set(list.filter((id) => typeof id === "string" && USER.test(id)))] : []);
 
 /** The old social.json, once (when it can't be read, it isn't marked: tried again at the next start). */
-function importJson(db: Database, dir: string) {
+async function importJson(sql: SQL, dir: string) {
   const file = join(dir, "social.json");
   let old: Record<string, Partial<Profile>> = {};
   if (existsSync(file)) {
@@ -154,33 +176,30 @@ function importJson(db: Database, dir: string) {
       return;
     }
   }
-  importOnce(db, "social.json", () => {
-    const users: Record<string, Profile> = {};
-    for (const [id, p] of Object.entries(old)) {
-      if (!USER.test(id) || !p || typeof p.name !== "string") continue;
-      const t = typeof p.since === "number" ? p.since : Date.now();
-      const b = blank(p.name, t);
-      users[id] = {
-        ...b,
-        seen: typeof p.seen === "number" ? p.seen : t,
-        status: STATUSES.has(p.status as Status) ? (p.status as Status) : "online",
-        note: typeof p.note === "string" ? p.note : "",
-        games: Object.fromEntries(Object.entries(p.games ?? {}).filter(([, g]) => played(g))),
-        recent: (Array.isArray(p.recent) ? p.recent : []).filter(sitting).slice(0, MOST_RECENT),
-        friends: ids(p.friends),
-        incoming: ids(p.incoming),
-        outgoing: ids(p.outgoing),
-        with: Object.fromEntries(Object.entries(p.with ?? {}).filter(([o, at]) => USER.test(o) && Number.isFinite(at))),
-      };
-    }
-    store(db, users, Object.keys(users), { keep: true });
-  });
+  const users: Record<string, Profile> = {};
+  for (const [id, p] of Object.entries(old)) {
+    if (!USER.test(id) || !p || typeof p.name !== "string") continue;
+    const t = num(p.since) ? p.since! : Date.now();
+    users[id] = {
+      ...blank(p.name, t),
+      seen: num(p.seen) ? p.seen! : t,
+      status: STATUSES.has(p.status as Status) ? (p.status as Status) : "online",
+      note: typeof p.note === "string" ? p.note : "",
+      games: Object.fromEntries(Object.entries(p.games ?? {}).filter(([, g]) => played(g))),
+      recent: (Array.isArray(p.recent) ? p.recent : []).filter(sitting).slice(0, MOST_RECENT),
+      friends: ids(p.friends),
+      incoming: ids(p.incoming),
+      outgoing: ids(p.outgoing),
+      with: Object.fromEntries(Object.entries(p.with ?? {}).filter(([o, at]) => USER.test(o) && num(at))),
+    };
+  }
+  await importOnce(sql, "social.json", (tx) => store(tx, rows(users, Object.keys(users)), { keep: true }));
 }
 
-export function createSocial(dir: string, now: () => number = () => Date.now()) {
-  const db = openDb(dir);
-  importJson(db, dir);
-  const users = load(db);
+/** `sql`: the database, its tables made (db.ts' migrate); `dir`: the data folder, where an old social.json may be. */
+export async function createSocial(sql: SQL, dir: string, now: () => number = () => Date.now()) {
+  await importJson(sql, dir);
+  const users = await load(sql);
   /** each one's last beat, for the time since it */
   const beats = new Map<string, { key: string; at: number }>();
   const invites = new Map<string, Invite[]>();
@@ -189,26 +208,32 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
   /** the profiles changed since the last write */
   const dirty = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /** the write under way: one at a time (two would both delete and put back the same rows) */
+  let writing: Promise<void> = Promise.resolve();
 
   function save(...ids: string[]) {
     for (const id of ids) dirty.add(id);
     if (timer) return;
     timer = setTimeout(flush, SAVE_MS);
   }
-  /** Writes now (tests, and the timer). */
+  /** Writes now (tests, the timer, and before the process ends). */
   function flush(): Promise<void> {
     if (timer) clearTimeout(timer);
     timer = null;
     const ids = [...dirty];
     dirty.clear();
-    try {
-      db.transaction(() => store(db, users, ids))();
-    } catch (err) {
-      // (tried again with the next change)
-      for (const id of ids) dirty.add(id);
-      console.error("social: not written:", err);
-    }
-    return Promise.resolve();
+    const r = rows(users, ids);
+    writing = writing.then(() =>
+      sql.begin((tx) => store(tx, r)).then(
+        () => undefined,
+        (err) => {
+          // (tried again with the next change)
+          for (const id of ids) dirty.add(id);
+          console.error("social: not written:", err);
+        },
+      ),
+    );
+    return writing;
   }
 
   const known = (id: string) => USER.test(id) && Object.hasOwn(users, id);
@@ -225,9 +250,9 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
 
   return {
     flush,
-    /** Shutting down (index.ts): a change still waiting for its timer written now (the database writes at once). */
+    /** Shutting down (index.ts): a change still waiting for its timer written now, and the write under way finished. */
     settle(): Promise<void> {
-      return timer ? flush() : Promise.resolve();
+      return timer ? flush() : writing;
     },
 
     /** The home open (each of its looks, homefeed.ts or the poll): their profile, with the name the pass has now. */
@@ -413,4 +438,4 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
   }
 }
 
-export type Social = ReturnType<typeof createSocial>;
+export type Social = Awaited<ReturnType<typeof createSocial>>;

@@ -1,4 +1,4 @@
-# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET; optional PUBLIC_URL, and for the online's
+# Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, POSTGRES_PASSWORD; optional PUBLIC_URL, and for the online's
 # TURN COMPOSE_PROFILES=turn, TURN_URL, TURN_SECRET (README). The data (games, saves, builds) is the host's /srv/bt3-data,
 # on the system disk: the second one (/mnt/disk) is a network disk of ~250 reads/s, games stutter on it. Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
 # (never created when missing: without it the services don't start, rather than start empty)
@@ -44,7 +44,11 @@ services:
       WORKER_TOKEN: ${WORKER_TOKEN:-}
       # The JSON log's level: debug, info (default), warn, error.
       LOG_LEVEL: ${LOG_LEVEL:-}
+      # The postgres service below: what's kept per person and the friends (server/db.ts).
+      DATABASE_URL: postgres://hypeplay:${POSTGRES_PASSWORD}@postgres:5432/hypeplay
     volumes: [*data]
+    depends_on:
+      postgres: { condition: service_healthy }
     # GET /health (server/ops.ts): 503 once shutting down. Traefik only sends to a healthy container, so it's quick to
     # ask; the start covers the page bundles made at startup.
     healthcheck:
@@ -86,6 +90,28 @@ services:
       retries: 3
       start_period: 30s
 
+  # The database: each person's controller maps, keys, prefs and last game, and the friends, hours and status of
+  # everyone (server/db.ts). Only on the stack's network (no ports). POSTGRES_PASSWORD is required: without it the
+  # stack isn't deployed at all (rather than started without a database); letters and digits only, it goes in a URL
+  # (openssl rand -hex 24). Its files are the named volume postgres, not /srv/bt3-data (README "Arquivos": backup).
+  # 17 pinned: a new major needs a dump and restore (and 18 moves its data's path).
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hypeplay
+      POSTGRES_DB: hypeplay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (README, Deploy)}
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hypeplay", "-d", "hypeplay"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+    # (a checkpoint on SIGTERM: the default 10 s may cut it short)
+    stop_grace_period: 30s
+
   # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly
   # (README "Online: o TURN"). Off unless COMPOSE_PROFILES=turn; then also set TURN_SECRET and
   # TURN_URL=turn:<this server's public name>:3478, and open 3478/udp, 3478/tcp and 49160-49200/udp in the firewall.
@@ -102,3 +128,6 @@ services:
       --denied-peer-ip=100.64.0.0-100.127.255.255 --denied-peer-ip=127.0.0.0-127.255.255.255
       --denied-peer-ip=169.254.0.0-169.254.255.255 --denied-peer-ip=172.16.0.0-172.31.255.255
       --denied-peer-ip=192.168.0.0-192.168.255.255 --denied-peer-ip=::1 --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
+volumes:
+  postgres:

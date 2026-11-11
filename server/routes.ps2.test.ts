@@ -9,6 +9,7 @@ import { COVER_ART } from "./cover";
 import { createLibrary } from "./library";
 import type { Passes } from "./pass";
 import { createPeople } from "./people";
+import { needsPg, PG_URL, testDb } from "./testing/pg";
 import { Ps2Rooms } from "./ps2rooms";
 import { PRIORITY } from "./queue";
 import { createApp } from "./routes";
@@ -30,8 +31,11 @@ let root: string;
 let app: ReturnType<typeof createApp>;
 let library: ReturnType<typeof createLibrary>;
 let engine: string;
+let pg: Awaited<ReturnType<typeof testDb>> | null = null;
 
 beforeAll(async () => {
+  // (the pads, keys and last game are in Postgres: without one, their test is skipped and the rest runs)
+  if (PG_URL) pg = await testDb();
   root = await mkdtemp(join(tmpdir(), "cordplay-routes-ps2-"));
   library = createLibrary(root, { min: 1024 });
   // TabStationToo's files (emulator/ps2/): its real page, and stand-ins for the rest
@@ -47,14 +51,17 @@ beforeAll(async () => {
     discord,
     library,
     saves: createSaves(root),
-    people: createPeople(root),
+    people: pg ? createPeople(pg.sql, root) : undefined,
     ps2Rooms: new Ps2Rooms(),
     bios: createBios(root),
     ps2Engine: engine,
     scripts: { "disccache.js": "/* cache */" },
   });
 });
-afterAll(() => rm(root, { recursive: true, force: true }));
+afterAll(async () => {
+  await pg?.close();
+  await rm(root, { recursive: true, force: true });
+});
 
 const req = (path: string, init?: RequestInit) => app.handle(new Request(`http://localhost${path}`, init)) as Promise<Response>;
 const ana = (rest: string, init?: RequestInit) => req(`/p/${ANA}/${rest}`, init);
@@ -169,7 +176,7 @@ test("saves: one per person, never another's", async () => {
   expect((await ana("ps2/slus-00000/save")).status).toBe(404);
 });
 
-test("pad maps and the last game played round-trip", async () => {
+needsPg("pad maps and the last game played round-trip", async () => {
   const m: Mapping = { buttons: Array.from({ length: 16 }, (_, i) => ({ button: i })), axes: [{ axis: 0 }, { axis: 1 }, { axis: 2 }, { axis: 3 }] };
   expect(await (await ana("pad")).json()).toEqual({});
   expect((await ana("pad", json({ "Pad X": m }, "PUT"))).status).toBe(204);
@@ -501,7 +508,7 @@ test("the page's scripts and fonts", async () => {
   expect((await get("fonts/../package.json")).status).toBe(404);
 });
 
-test("prefs: the person's volume and filter round-trip", async () => {
+needsPg("prefs: the person's volume and filter round-trip", async () => {
   expect(await (await ana("prefs")).json()).toEqual({ volume: 0.7, filter: "off" });
   expect((await ana("prefs", json({ volume: 0.4, filter: "scan" }, "PUT"))).status).toBe(204);
   expect(await (await ana("prefs")).json()).toEqual({ volume: 0.4, filter: "scan" });

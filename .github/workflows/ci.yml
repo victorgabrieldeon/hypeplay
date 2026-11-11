@@ -18,6 +18,19 @@ jobs:
     name: Testes e tipos
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The tests that need Postgres (server/testing/pg.ts: a schema each), the same major as the compose's.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hypeplay
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: hypeplay
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hypeplay -d hypeplay" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://hypeplay:test@localhost:5432/hypeplay
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

@@ -1,5 +1,5 @@
 import { afterEach, expect } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Mapping } from "../page/padmap";
@@ -160,7 +160,10 @@ test("hypeplay.db (the SQLite of before) comes in whole and wins over the JSON f
   const { dir, sql } = await oldFolder();
   // what the SQLite version left: the JSON files imported, then changes (Ana away, no longer Bia's friend, her keys
   // deleted, her volume up; Duda new)
+  // (in WAL, as it ran, and still open, everything only in its -wal: a container stopped mid-way)
   const old = new Database(join(dir, "hypeplay.db"));
+  old.run("PRAGMA journal_mode = WAL");
+  old.run("PRAGMA wal_autocheckpoint = 0");
   old.run(SQLITE_SCHEMA);
   for (const source of ["keys/", "pads/", "prefs/", "social.json", "users/"]) old.query("INSERT INTO imported VALUES (?, 1)").run(source);
   old.query("INSERT INTO pads VALUES (?, ?)").run("1", JSON.stringify({ "USB Joystick": pad }));
@@ -177,7 +180,12 @@ test("hypeplay.db (the SQLite of before) comes in whole and wins over the JSON f
   played.run("1", "ps2/sles-12345", "Outro", 60_000, 1, 1_000_001);
   old.query('INSERT INTO recent VALUES (?, ?, ?, ?, ?, ?)').run("1", 0, "bt3", "BT3", 1_900_000, 2_000_000);
   old.query("INSERT INTO played_with VALUES (?, ?, ?)").run("1", "2", 1_000_009);
-  old.close();
+  const files = async () => {
+    const names = (await readdir(dir)).filter((f) => f.startsWith("hypeplay.db")).sort();
+    return Promise.all(names.map(async (f) => [f, Bun.hash(await readFile(join(dir, f))).toString()]));
+  };
+  const before = await files();
+  expect(before.map(([f]) => f)).toContain("hypeplay.db-wal");
 
   await importOld(sql, dir);
   await importOld(sql, dir); // (a second start: nothing again)
@@ -194,5 +202,7 @@ test("hypeplay.db (the SQLite of before) comes in whole and wins over the JSON f
   expect(await people.prefs("1")).toEqual({ volume: 1, filter: "off" });
   expect(await people.last("1")).toBe("bt3");
   expect((await sql`SELECT count(*)::int AS n FROM profiles`)[0].n).toBe(3);
-  expect(await Bun.file(join(dir, "hypeplay.db")).exists()).toBe(true);
+  // (nothing beside it touched: no -wal folded in, no -shm made)
+  expect(await files()).toEqual(before);
+  old.close();
 });

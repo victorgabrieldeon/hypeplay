@@ -10,7 +10,8 @@
  */
 import { Database } from "bun:sqlite";
 import type { SQL } from "bun";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const SCHEMA = `
@@ -72,30 +73,36 @@ const OLD_TABLES: [table: string, order: string][] = [
 
 /**
  * The SQLite file the server kept for a few hours (<dir>/hypeplay.db), once, whole, in one transaction: what's there
- * is newer than the JSON files, and its `imported` comes along, so those aren't imported again over it. Without the
- * file, nothing (and nothing is marked: it may still come, restored from a backup).
+ * is newer than the JSON files, and its `imported` comes along, so those aren't imported again over it. Read from a
+ * copy (with its -wal: what's only there comes too), so nothing beside it changes, not even a -shm made. Without the
+ * file, nothing (and nothing is marked: it may still come, restored from a backup); once in, it's never opened again.
  */
 export async function importOld(sql: SQL, dir: string) {
   const file = join(dir, "hypeplay.db");
   if (!existsSync(file)) return;
-  // (read only: the file and its -wal stay as they are, the -wal not folded into it)
-  const old = new Database(file, { readonly: true });
-  try {
-    const tables = new Set((old.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name));
-    await importOnce(sql, "hypeplay.db", async (tx) => {
-      for (const [table, order] of OLD_TABLES) {
-        if (!tables.has(table)) continue;
-        let rows = old.query(`SELECT * FROM ${table} ORDER BY ${order}`).all() as Record<string, unknown>[];
-        rows = rows.map(({ user, ...r }) => (user === undefined ? r : { person: user, ...r }));
-        // (played had no order of its own: the one it came in)
-        if (table === "played") {
-          const pos = new Map<unknown, number>();
-          rows = rows.map((r) => ({ ...r, pos: pos.set(r.person, (pos.get(r.person) ?? -1) + 1).get(r.person) }));
+  await importOnce(sql, "hypeplay.db", async (tx) => {
+    const tmp = mkdtempSync(join(tmpdir(), "hypeplay-import-"));
+    try {
+      for (const end of ["", "-wal"]) if (existsSync(file + end)) copyFileSync(file + end, join(tmp, `hypeplay.db${end}`));
+      const old = new Database(join(tmp, "hypeplay.db"));
+      try {
+        const tables = new Set((old.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name));
+        for (const [table, order] of OLD_TABLES) {
+          if (!tables.has(table)) continue;
+          let rows = old.query(`SELECT * FROM ${table} ORDER BY ${order}`).all() as Record<string, unknown>[];
+          rows = rows.map(({ user, ...r }) => (user === undefined ? r : { person: user, ...r }));
+          // (played had no order of its own: the one it came in)
+          if (table === "played") {
+            const pos = new Map<unknown, number>();
+            rows = rows.map((r) => ({ ...r, pos: pos.set(r.person, (pos.get(r.person) ?? -1) + 1).get(r.person) }));
+          }
+          for (let i = 0; i < rows.length; i += 1000) await tx`INSERT INTO ${tx(table)} ${tx(rows.slice(i, i + 1000))} ON CONFLICT DO NOTHING`;
         }
-        for (let i = 0; i < rows.length; i += 1000) await tx`INSERT INTO ${tx(table)} ${tx(rows.slice(i, i + 1000))} ON CONFLICT DO NOTHING`;
+      } finally {
+        old.close();
       }
-    });
-  } finally {
-    old.close();
-  }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 }

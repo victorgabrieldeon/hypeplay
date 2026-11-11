@@ -8,7 +8,7 @@
  * from the last piece taken. Someone else may take over an upload only after it went quiet.
  */
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { markOf } from "./discs";
+import { markOf, NO_ROOM } from "./discs";
 import { join } from "node:path";
 import type { Pass } from "./pass";
 
@@ -35,7 +35,7 @@ export type Status =
 
 export type PutResult =
   | { ok: true; received: number; done: boolean }
-  | { ok: false; status: number; code: "done" | "size" | "busy" | "order" | "gone"; error: string; received?: number };
+  | { ok: false; status: number; code: "done" | "size" | "busy" | "order" | "gone" | "space"; error: string; received?: number };
 
 async function readJsonFile<T>(path: string): Promise<T | null> {
   try {
@@ -55,9 +55,11 @@ export interface DiscStoreOptions {
   maxPiece?: number;
   /** Whether the game is still there when a piece has arrived (the PS2 library: it may be removed meanwhile). */
   alive?: () => Promise<boolean>;
+  /** Whether an image this big fits on the disk (discs.ts' hasRoom): asked before its first piece. */
+  room?: (bytes: number) => Promise<boolean>;
 }
 
-export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE, alive }: DiscStoreOptions = {}) {
+export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE, alive, room }: DiscStoreOptions = {}) {
   const paths = {
     part: join(dir, "upload", "disc.iso.part"),
     state: join(dir, "upload", "state.json"),
@@ -106,6 +108,7 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
         if (offset !== received) return { ok: false, status: 409, code: "order", error: "Fora de ordem", received };
         if (received + body.length > size || (!body.length && received < size))
           return { ok: false, status: 400, code: "order", error: "Pedaço fora do arquivo", received };
+        if (!received && room && !(await room(size))) return { ok: false, status: 507, code: "space", error: NO_ROOM };
         await mkdir(join(dir, "upload"), { recursive: true });
         const file = await open(paths.part, received ? "r+" : "w");
         try {

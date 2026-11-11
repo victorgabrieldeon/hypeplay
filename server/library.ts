@@ -9,15 +9,16 @@
  *   ps2/<id>/fast/              its "versão rápida", when someone asked for one: request and misses.txt written here,
  *                               build.log and build/ by ps2-builder/ (or its build in R2, made elsewhere); its place in
  *                               line and how it went in the builds' queue (queue.ts, fastjobs.ts)
- *   ps2-work/<id>/              port.sh's intermediate files (ps2-builder's)
+ *   ps2-work/<id>/              port.sh's intermediate files, and a disc from R2 while it builds (ps2-builder's)
  *   saves/<id>/                 memory cards (saves.ts): outside the game's folder, so removing a game keeps them
  *
  * An id only ever comes from here (ID): routes look games up, they never build paths from addresses.
  *
  * game.json stays the source (the builders read the folder), but the list is read from an index in memory, made from
  * the folders once and kept up to date by everything here that writes or removes a game. Clearing what was left
- * behind (abandoned reservations, folders without game.json) is `sweep`, on a timer (index.ts), not on the way to the
- * list; it also puts the index back in line with the folders, if anything changed them from outside.
+ * behind (abandoned reservations and uploads, folders without game.json, discs that didn't reach R2) is `sweep`, on a
+ * timer (index.ts), not on the way to the list; it also puts the index back in line with the folders, if anything
+ * changed them from outside. The sweep only ever clears this disk: R2 loses a disc when someone removes its game.
  */
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -44,8 +45,10 @@ export interface Ps2Game {
 /** Some PS2 games came on CD: a floor well under a DVD. */
 export const PS2_MIN = 100 * 1024 ** 2;
 export const PS2_MAX = 9 * 1024 ** 3;
-/** A game reserved and never sent goes after this long. */
+/** A game reserved and never sent goes after this long, and one whose upload stopped this long ago. */
 export const ABANDONED_MS = 24 * 60 * 60_000;
+/** A disc here this long and not in R2: its move was cut short (a deploy, an error), the sweep sends it again. */
+export const RESETTLE_MS = 10 * 60_000;
 export const ID = /^[a-z]{4}-\d{5}(?:-\d{1,2})?$/;
 /** Copies of one serial at most (its id's suffix). */
 const COPIES = 99;
@@ -80,11 +83,30 @@ const MISS = /^[0-9A-F]{8}$/;
 const MISSES_MAX = 256;
 
 const exists = (path: string) => stat(path).then(() => true, () => false);
+/** For what clears files: only "not there" is no (a disk error isn't, it throws). */
+const found = (path: string) =>
+  stat(path).then(
+    () => true,
+    (err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT") return false;
+      throw err;
+    },
+  );
 
-/** `queue`: the builds' (queue.ts), <dir>/queue.db in index.ts; one of its own in memory by default. */
+/**
+ * `queue`: the builds' (queue.ts), <dir>/queue.db in index.ts; one of its own in memory by default. `room`: whether a
+ * disc this big fits on the disk (discs.ts' hasRoom, in index.ts); without it, anything does.
+ */
 export function createLibrary(
   dir: string,
-  { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null, queue = null as Queue | null } = {},
+  {
+    now = () => Date.now(),
+    min = PS2_MIN,
+    max = PS2_MAX,
+    r2 = null as S3Client | null,
+    queue = null as Queue | null,
+    room = null as ((bytes: number) => Promise<boolean>) | null,
+  } = {},
 ) {
   const jobs = queue ?? createQueue(":memory:", { now });
   const stores = new Map<string, DiscStore>();
@@ -160,42 +182,85 @@ export function createLibrary(
 
   function disc(id: string): DiscStore {
     let s = stores.get(id);
-    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max, alive: () => exists(paths(id).game) })));
+    if (!s) stores.set(id, (s = createDiscStore(paths(id).root, { now, min, max, alive: () => exists(paths(id).game), ...(room ? { room } : {}) })));
     return s;
   }
 
-  /** Its disc here or in R2. */
-  const hasDisc = async (id: string) => (await exists(paths(id).iso)) || (await exists(markOf(paths(id).iso)));
+  /** Its disc here or in R2 (`is`: found, for what clears files). */
+  const hasDisc = async (id: string, is = exists) => (await is(paths(id).iso)) || (await is(markOf(paths(id).iso)));
 
-  /**
-   * A disc just in and checked goes to R2, in the background (minutes for a DVD); until it's there it plays from here.
-   * shortcut: a move cut short (a deploy, an error) leaves the game here for good; a sweep at startup would retry them.
-   */
-  function settle(id: string) {
-    if (!r2) return;
-    void moveToR2(r2, dir, paths(id).iso, () => exists(paths(id).game))
+  /** The games whose disc is on its way to R2 (one move each, whoever asks: verify, vimm, the sweep). */
+  const moving = new Set<string>();
+
+  /** A disc just in and checked goes to R2, in the background (minutes for a DVD); until it's there it plays from here. */
+  function settle(id: string): Promise<void> {
+    if (!r2 || moving.has(id)) return Promise.resolve();
+    moving.add(id);
+    return moveToR2(r2, dir, paths(id).iso, () => exists(paths(id).game))
       .then((moved) => log.info(moved ? "R2: disc moved" : "R2: game removed meanwhile", { game: id }))
-      .catch((err) => log.error("R2: disc stays here", { game: id, err }));
+      .catch((err) => log.error("R2: disc stays here", { game: id, err }))
+      .finally(() => moving.delete(id));
   }
 
-  async function remove(id: string) {
+  /**
+   * A game's folder and its build's files off this disk. `everywhere` (someone removed it): its disc and build in R2
+   * too. Without it (the sweep, a reservation over an orphan folder) nothing in R2 is touched.
+   */
+  async function discard(id: string, everywhere: boolean) {
     if (!ID.test(id)) return;
     const p = paths(id);
     await ready();
     stores.delete(id);
     index.delete(id);
     touched?.add(id);
-    await dropFromR2(r2, dir, p.iso).catch((err) => log.error("R2: disc stays there", { game: id, err }));
-    await dropR2Build(r2, jobs.drop(fastKey(id))?.build);
+    const job = jobs.drop(fastKey(id));
+    if (everywhere) {
+      await dropFromR2(r2, dir, p.iso).catch((err) => log.error("R2: disc stays there", { game: id, err }));
+      await dropR2Build(r2, job?.build);
+    } else if (job?.build) log.warn("R2: a build left there", { game: id, prefix: job.build.prefix });
     await rm(p.root, { recursive: true, force: true });
     await rm(p.work, { recursive: true, force: true });
   }
 
-  /** Reserved, nothing sent, nothing arriving: abandoned. */
+  const remove = (id: string) => discard(id, true);
+
+  /** Reserved and nothing sent, or an upload stopped (its last piece, not the reservation, a day old): abandoned. */
   async function abandoned(g: Ps2Game) {
-    if (now() - g.at <= ABANDONED_MS) return false;
     const p = paths(g.id);
-    return !(await hasDisc(g.id)) && !(await exists(join(p.root, "upload")));
+    if (await hasDisc(g.id, found)) return false;
+    if (!(await found(join(p.root, "upload")))) return now() - g.at > ABANDONED_MS;
+    const up = await readFile(join(p.root, "upload", "state.json"), "utf8").then((t) => JSON.parse(t) as { at?: number }, () => null);
+    // (no state yet: a first piece may be on its way, and the folder's time says when it began)
+    const last = typeof up?.at === "number" ? up.at : (await stat(join(p.root, "upload"))).mtimeMs;
+    return now() - last > ABANDONED_MS;
+  }
+
+  /** A worker building it now (its disc may be read from here). */
+  const building = (id: string) => {
+    const j = jobs.get(fastKey(id));
+    return j?.state === "running" && (j.leaseUntil ?? 0) >= now();
+  };
+
+  /**
+   * A game's disc as it should be: what a build left in its folder goes (ps2-builder's old ones fetched discs there),
+   * a copy here of a disc in R2 goes, and with R2 on, a disc that never got there is sent again (one at a time).
+   */
+  async function tidy(id: string) {
+    if (moving.has(id) || building(id)) return;
+    const p = paths(id);
+    await rm(`${p.iso}.part`, { force: true });
+    // (without R2 a disc here is the one there is, mark or not)
+    if (!r2 || !(await found(p.iso))) return;
+    if (await found(markOf(p.iso))) {
+      await rm(p.iso, { force: true });
+      log.info("disc: the copy here of one in R2 removed", { game: id });
+      return;
+    }
+    if (moving.size || (await found(join(p.root, "upload")))) return;
+    // (one just in is still being checked: verify sends it, vimm its own)
+    if (Date.now() - (await stat(p.iso)).mtimeMs < RESETTLE_MS) return;
+    log.info("R2: disc sent again", { game: id });
+    void settle(id);
   }
 
   return {
@@ -203,9 +268,11 @@ export function createLibrary(
     get,
     disc,
     remove,
-    hasDisc,
+    hasDisc: (id: string) => hasDisc(id),
 
     settle,
+    /** Whether a disc this big fits on the disk (vimm asks too). */
+    room: async (bytes: number) => !room || (await room(bytes)),
 
     async list(): Promise<Ps2Game[]> {
       await ready();
@@ -213,8 +280,9 @@ export function createLibrary(
     },
 
     /**
-     * What was left behind goes: folders without their game.json (a reservation that died halfway: it would block its
-     * serial) and reservations never sent. And the index is put back in line with the folders.
+     * What was left behind goes, from this disk only: folders without their game.json (a reservation that died
+     * halfway: it would block its serial) unless they hold a disc, reservations never sent and uploads stopped, and
+     * what a disc's move or a build left (tidy). And the index is put back in line with the folders.
      */
     async sweep() {
       await ready();
@@ -224,14 +292,24 @@ export function createLibrary(
         const seen = new Set(await folders());
         for (const id of seen) {
           if (reserving.has(id)) continue;
-          const g = await read(id);
-          if (!g) {
-            if (!reserving.has(id) && !mine.has(id) && !(await exists(paths(id).game))) await remove(id);
-            continue;
+          try {
+            const g = await read(id);
+            if (!g) {
+              if (reserving.has(id) || mine.has(id) || (await found(paths(id).game))) continue;
+              // (a disc is never a reservation's leftover: a folder copied in halfway, a restore. It waits for a person)
+              if (await hasDisc(id, found)) log.warn("library: a disc without its game.json, kept", { game: id });
+              else await discard(id, false);
+              continue;
+            }
+            if (await abandoned(g)) {
+              if (!mine.has(id)) await discard(id, false);
+              continue;
+            }
+            if (!index.has(id) && !mine.has(id)) index.set(id, g);
+            await tidy(id);
+          } catch (err) {
+            log.warn("library sweep: skipped", { game: id, err });
           }
-          if (await abandoned(g)) {
-            if (!mine.has(id)) await remove(id);
-          } else if (!index.has(id) && !mine.has(id)) index.set(id, g);
         }
         for (const id of [...index.keys()]) if (!seen.has(id) && !reserving.has(id) && !mine.has(id)) index.delete(id);
       } finally {
@@ -265,9 +343,9 @@ export function createLibrary(
               made = true;
             } catch (err) {
               if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-              // an orphan folder (no game.json) is cleared once; a real game is a real game
-              if (tries > 0 || (await exists(paths(id).game))) break;
-              await remove(id);
+              // an orphan folder (no game.json) is cleared once, here only; a real game, or a disc, stays
+              if (tries > 0 || (await found(paths(id).game)) || (await hasDisc(id, found))) break;
+              await discard(id, false);
             }
           }
           if (!made) {
@@ -289,7 +367,7 @@ export function createLibrary(
       const g = await get(id);
       const found = g && (await readDiscId(fileRead(paths(id).iso)));
       if (g && found?.serial === g.serial) {
-        settle(id);
+        void settle(id);
         return { ok: true };
       }
       await remove(id);

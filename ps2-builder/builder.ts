@@ -7,8 +7,8 @@
  * says how it went. Several can run, here or on other machines (jobs.ts): each job goes to one of them.
  *
  *   on this machine   the queue's file (<DATA>/queue.db) and the game's folder, ps2/<id>/ (server/fastjobs.ts): its
- *                     disc (or disc.iso.r2, the disc in R2, brought here for the build and gone again after), misses.txt,
- *                     build.log, and build/ (ps2web.{html,js,wasm,data} + .gz) swapped in whole
+ *                     disc (or disc.iso.r2, the disc in R2, brought to ps2-work/<id>/ for the build and gone again
+ *                     after), misses.txt, build.log, and build/ (ps2web.{html,js,wasm,data} + .gz) swapped in whole
  *   elsewhere         QUEUE_URL + WORKER_TOKEN: the app's /worker/ (server/workers.ts) for the job and its progress, R2
  *                     for the disc and the build (the app serves it from there)
  *   ps2-work/<id>/    port.sh's files: games/<id>, generated/<id>, build/web-<id>, build/native-<id> of the recompiler's
@@ -21,7 +21,7 @@
  * Before the first build, the recompiler's web/shell.html gets patch.ts (saves on the server, missing code, browser).
  */
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PUBLISHED, type FastClaim } from "../server/fastjobs";
 import { BUILD_SECONDS, telemetryFromEnv, type Histogram } from "../server/otlp";
@@ -213,6 +213,8 @@ export function createPs2Builder({ work, repo, run, commit = "", rounds = 4, fra
       jobs.log(c, log);
     };
     await link(id);
+    // (port.sh links the disc it's given once, and keeps a link that points nowhere: the disc may be elsewhere now)
+    if (iso) await rm(join(p.work, "game", "disc.iso"), { force: true });
     const explore = ["bash", "scripts/port.sh", id, iso, "--rounds", String(rounds), "--frames", String(frames)];
     const known = ["bash", "scripts/port.sh", id, iso, "--no-explore"];
     // (learning or a new recompiler: everything translated again with the entry points known, no test runs; a new page:
@@ -322,6 +324,12 @@ export function createPs2Builder({ work, repo, run, commit = "", rounds = 4, fra
 
 const LOOK_MS = 5000;
 
+/** The discs builds brought to ps2-work/ and never let go (the container stopped mid-build): nobody's now. */
+export async function clearDiscs(work: string) {
+  for (const id of await readdir(work).catch(() => [] as string[]))
+    for (const f of ["disc.iso", "disc.iso.part"]) await rm(join(work, id, f), { force: true });
+}
+
 /**
  * The container's own heartbeat (docker-compose.yml's healthcheck: healthy while it's recent), touched whenever the
  * queue answered a claim or a beat: idle for days, with no game asked for, it still beats.
@@ -351,6 +359,8 @@ if (import.meta.main) {
     builds: buildMetrics("hypeplay-ps2-builder"),
   });
   const { jobs: from, where } = jobsFromEnv(data);
+  // (one builder per volume: a disc there now is a stopped build's)
+  await clearDiscs(join(data, "ps2-work"));
   // (the container's heartbeat, docker-compose.yml's healthcheck: touched whenever the queue answers, idle or building)
   const touch = <T>(v: T) => (void beatHeartbeat().catch(() => undefined), v);
   const jobs: Jobs = { ...from, claim: (image) => from.claim(image).then(touch), beat: (c, status) => from.beat(c, status).then(touch) };

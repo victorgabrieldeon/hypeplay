@@ -1,12 +1,13 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { S3Client } from "bun";
 import { createChunkCache } from "./chunkcache";
-import { createDiscs, dropFromR2, fetchFromR2, markOf, moveToR2 } from "./discs";
+import { createDiscs, dropFromR2, fetchFromR2, fits, hasRoom, markOf, moveToR2, sendToR2 } from "./discs";
 import { rangeResponse } from "./http";
-import { ABANDONED_MS, createLibrary } from "./library";
+import { ABANDONED_MS, createLibrary, RESETTLE_MS } from "./library";
+import { fakeR2 } from "./testing/r2";
 import { createDiscStore } from "./upload";
 
 // A stand-in for R2: objects by key, single PUTs and multipart ones, GET by Range, DELETE.
@@ -164,4 +165,125 @@ test("the library: a game whose disc is in R2 is no abandoned game, and removing
 
   await library.remove(id);
   expect(objects.has(`ps2/${id}/disc.iso`)).toBe(false);
+});
+
+test("to R2 a few parts at a time: what's read of the disc never runs far ahead of what R2 took", async () => {
+  const slow = fakeR2({ partDelay: 30 });
+  const part = 8 * 1024 ** 2;
+  const total = 24 * part;
+  const piece = new Uint8Array(300 * 1024);
+  let pulled = 0;
+  let ahead = 0;
+  const from = new ReadableStream<Uint8Array>(
+    {
+      pull(c) {
+        if (pulled >= total) return c.close();
+        ahead = Math.max(ahead, pulled - slow.received);
+        const n = Math.min(piece.length, total - pulled);
+        pulled += n;
+        c.enqueue(piece.subarray(0, n));
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  try {
+    await sendToR2(slow.client, "big", from, part);
+    expect(slow.objects.get("big")?.length).toBe(total);
+    // (two parts held between flushes, four on their way, one filling: never the whole disc, as without the flushes)
+    expect(ahead).toBeLessThanOrEqual(8 * part);
+  } finally {
+    slow.stop();
+  }
+});
+
+test("room for a disc: what's free after it keeps max(2 GB, 5% of the disk)", async () => {
+  const GB = 1024 ** 3;
+  const disk = (free: number, total: number) => ({ bavail: free / 4096, bsize: 4096, blocks: total / 4096 });
+  // (a small disk: 2 GB stay free)
+  expect(fits(disk(10 * GB, 20 * GB), 8 * GB)).toBe(true);
+  expect(fits(disk(10 * GB, 20 * GB), 8 * GB + 4096)).toBe(false);
+  // (a big one: 5% of it, 20 GB of 400)
+  expect(fits(disk(30 * GB, 400 * GB), 10 * GB)).toBe(true);
+  expect(fits(disk(30 * GB, 400 * GB), 11 * GB)).toBe(false);
+  expect(typeof (await hasRoom(dir, 0))).toBe("boolean");
+});
+
+test("a copy here of a disc in R2 is a leftover: read from R2 (without R2, the copy is the disc)", async () => {
+  await disc("left");
+  await moveToR2(client, dir, iso("left"), async () => true);
+  await writeFile(iso("left"), "stale");
+  expect(await createDiscs(dir, client)(iso("left"))).toMatchObject({ size: 1000, from: "r2" });
+  expect(await createDiscs(dir, null)(iso("left"))).toMatchObject({ size: 5, from: "local" });
+});
+
+describe("the sweep, with R2 on: it clears this disk only", () => {
+  let fake: ReturnType<typeof fakeR2>;
+  let base = "";
+  const ana = { id: "u", name: "Ana", exp: Infinity };
+  beforeAll(async () => {
+    fake = fakeR2();
+    base = await mkdtemp(join(tmpdir(), "cordplay-sweep-"));
+  });
+  afterAll(async () => {
+    fake.stop();
+    await rm(base, { recursive: true, force: true });
+  });
+  const at = (id: string, f = "disc.iso") => join(base, "ps2", id, f);
+  /** A game whose disc went to R2 (its game.json there or not). */
+  async function inR2(library: ReturnType<typeof createLibrary>, serial: string) {
+    const r = await library.reserve(ana, serial, "Jogo");
+    if (!r.ok) throw new Error("not reserved");
+    await writeFile(at(r.game.id), data);
+    await moveToR2(fake.client, base, at(r.game.id), async () => true);
+    return r.game.id;
+  }
+
+  test("a folder with a disc in R2 and no game.json stays, and so does R2's copy; nor does a new reservation clear it", async () => {
+    const library = createLibrary(base, { min: 10, r2: fake.client });
+    const id = await inR2(library, "SLUS-20010");
+    await rm(at(id, "game.json"));
+    await library.sweep();
+    expect(await Bun.file(markOf(at(id))).exists()).toBe(true);
+    expect(fake.objects.has(`ps2/${id}/disc.iso`)).toBe(true);
+    expect(await createLibrary(base, { min: 10, r2: fake.client }).reserve(ana, "SLUS-20010", "Outro")).toEqual({ ok: false, exists: `ps2/${id}` });
+    expect(fake.objects.has(`ps2/${id}/disc.iso`)).toBe(true);
+    // (a local disc without game.json too)
+    await mkdir(join(base, "ps2", "slus-20011"));
+    await writeFile(at("slus-20011"), data);
+    await library.sweep();
+    expect(await Bun.file(at("slus-20011")).exists()).toBe(true);
+  });
+
+  test("what a build or a cut fetch left goes: the .part, and a copy here of a disc in R2; R2's stays", async () => {
+    const library = createLibrary(base, { min: 10, r2: fake.client });
+    const id = await inR2(library, "SLUS-20012");
+    await writeFile(at(id), data);
+    await writeFile(at(id, "disc.iso.part"), "half");
+    await library.sweep();
+    expect(await Bun.file(at(id)).exists()).toBe(false);
+    expect(await Bun.file(at(id, "disc.iso.part")).exists()).toBe(false);
+    expect(fake.objects.has(`ps2/${id}/disc.iso`)).toBe(true);
+    expect(await library.hasDisc(id)).toBe(true);
+  });
+
+  test("a disc whose move was cut short goes to R2 at a later sweep, once; one just in waits for its check", async () => {
+    const library = createLibrary(base, { min: 10, r2: fake.client });
+    const r = await library.reserve(ana, "SLUS-20013", "Jogo");
+    if (!r.ok) throw new Error("not reserved");
+    const id = r.game.id;
+    await writeFile(at(id), data);
+    await library.sweep();
+    expect(await Bun.file(markOf(at(id))).exists()).toBe(false);
+    const old = new Date(Date.now() - RESETTLE_MS - 1000);
+    await utimes(at(id), old, old);
+    const before = fake.written;
+    await library.sweep();
+    // (verify sending it meanwhile: the same move, not a second one)
+    await library.settle(id);
+    for (let i = 0; i < 100 && (await Bun.file(at(id)).exists()); i++) await Bun.sleep(20);
+    expect(await Bun.file(at(id)).exists()).toBe(false);
+    expect(await Bun.file(markOf(at(id))).exists()).toBe(true);
+    expect(fake.written - before).toBe(1);
+    expect(fake.objects.get(`ps2/${id}/disc.iso`)).toEqual(data);
+  });
 });

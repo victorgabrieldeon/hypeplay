@@ -3,6 +3,7 @@ import { createBios } from "./bios";
 import { createChunkCache, discCacheBytes } from "./chunkcache";
 import { createDiscs, r2FromEnv } from "./discs";
 import { createDiscord } from "./discord";
+import { edgeFromEnv } from "./edgetoken";
 import { createLibrary } from "./library";
 import { createPasses } from "./pass";
 import { createPeople } from "./people";
@@ -61,6 +62,8 @@ const app = createApp({
   library,
   vimm: createVimm(dir, library),
   discs: createDiscs(dir, r2, discCache),
+  // Optional: the R2 discs served near the players by edge/worker.ts (DISC_EDGE_URL, DISC_EDGE_SECRET; README)
+  edge: r2 ? edgeFromEnv() : null,
   saves: createSaves(dir, r2),
   people: createPeople(dir),
   social: createSocial(dir),

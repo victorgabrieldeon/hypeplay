@@ -109,3 +109,32 @@ test("covers: their address carries their version, kept by anyone on the way", a
   expect(cover).toMatch(/\?v=/);
   expect(cache(await ana(cover))).toBe(IMMUTABLE);
 });
+
+test("with an edge, the emulator's page of a game whose disc is in R2 gets its edge address; one here doesn't", async () => {
+  const { verifyDisc } = await import("./edgetoken");
+  const secret = "e".repeat(40);
+  let from: "r2" | "local" = "r2";
+  const edged = createApp({
+    dir: root,
+    pageDir: join(import.meta.dir, "..", "page"),
+    entryJs: "",
+    passes,
+    discord: { signIn: async () => ({ id: "42", name: "Ana", accessToken: "t" }) },
+    library,
+    ps2Engine: join(root, "engine"),
+    scripts: SCRIPTS,
+    edge: { base: "/p/edge", secret },
+    discs: async () => ({ size: 10, file: new Blob(["0123456789"]), from, version: "10:123", read: (s, e) => new Blob(["0123456789".slice(s, e)]) }),
+  });
+  const html = async (rest: string) => (await (edged.handle(new Request(`http://localhost/p/${ANA}/ps2/${id}/${rest}`)) as Promise<Response>)).text();
+  const meta = (h: string) => /<meta name="hypeplay-disc" content="([^"]+)">/.exec(h)?.[1]?.replace(/&amp;/g, "&");
+  const url = new URL(meta(await html("game/"))!, "https://x");
+  expect(url.pathname).toBe(`/p/edge/ps2/${id}/game/disc.iso`);
+  expect(await verifyDisc(secret, { key: `ps2/${id}/disc.iso`, size: 10, version: "10:123" }, url.searchParams.get("t"))).toBe(true);
+  // (the versão rápida reads its disc from here, through the browser's blocks it shares with the emulator: fastdisc.ts)
+  expect(meta(await html("fast/"))).toBeUndefined();
+  from = "local";
+  expect(meta(await html("game/"))).toBeUndefined();
+  // (and without an edge, never)
+  expect(await (await ana(`ps2/${id}/game/`)).text()).not.toContain("hypeplay-disc");
+});

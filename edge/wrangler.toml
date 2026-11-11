@@ -1,0 +1,15 @@
+# The optional edge for the PS2 discs (edge/worker.ts; README "Edge para os discos"). Not deployed by anything here:
+# `bunx wrangler deploy --config edge/wrangler.toml` by hand, once the steps in the README are done.
+name = "hypeplay-disc-edge"
+main = "worker.ts"
+compatibility_date = "2026-10-01"
+# (the Cache API keeps nothing on *.workers.dev: a domain of yours on Cloudflare, which Discord's URL Mapping points at)
+workers_dev = false
+routes = [{ pattern = "disc-edge.example.com", custom_domain = true }]
+
+# DISC_EDGE_SECRET, the same as the app's: `bunx wrangler secret put DISC_EDGE_SECRET --config edge/wrangler.toml`
+
+# The discs' bucket, the same one the app's S3_BUCKET names.
+[[r2_buckets]]
+binding = "DISCS"
+bucket_name = "CHANGE-ME"

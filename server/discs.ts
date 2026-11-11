@@ -14,6 +14,8 @@ export interface Disc {
   size: number;
   file: Blob;
   from: "r2" | "local";
+  /** Changes when the disc does (a new file, or sent to R2 again under the same name): its size and time. */
+  version: string;
   /**
    * Bytes [start, end): a slice of the local file; from R2, streamed (as it is, an R2 file would answer with a redirect
    * to R2, which Discord's proxy and the isolation headers don't allow) and through the memory cache when there's one.
@@ -46,18 +48,19 @@ export async function markedSize(iso: string): Promise<number | null> {
 export function createDiscs(dir: string, client: S3Client | null = null, cache: ChunkCache | null = null): Discs {
   return async (path) => {
     const f = Bun.file(path);
-    if (await f.exists()) return { size: f.size, file: f, from: "local", read: (start, end) => f.slice(start, end) };
+    if (await f.exists()) return { size: f.size, file: f, from: "local", version: `${f.size}:${f.lastModified}`, read: (start, end) => f.slice(start, end) };
     const size = client && (await markedSize(path));
     if (!size) return null;
     const key = relative(dir, path);
     const file = client.file(key);
     const load = async (start: number, end: number) => new Uint8Array(await file.slice(start, end).arrayBuffer());
-    const version = `${key}:${size}:${Bun.file(markOf(path)).lastModified}`;
+    const version = `${size}:${Bun.file(markOf(path)).lastModified}`;
     return {
       size,
       file,
       from: "r2",
-      read: (start, end) => (cache ? cache.read(version, size, start, end, load) : file.slice(start, end).stream()),
+      version,
+      read: (start, end) => (cache ? cache.read(`${key}:${version}`, size, start, end, load) : file.slice(start, end).stream()),
     };
   };
 }

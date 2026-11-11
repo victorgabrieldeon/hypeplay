@@ -28,6 +28,9 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       # (with R2) megabytes of the R2 discs' pieces kept in memory (server/chunkcache.ts): empty is 256, 0 none
       DISC_CACHE_MB: ${DISC_CACHE_MB:-}
+      # (with R2) optional, off: the discs served by edge/worker.ts near the players (README "Edge para os discos")
+      DISC_EDGE_URL: ${DISC_EDGE_URL:-}
+      DISC_EDGE_SECRET: ${DISC_EDGE_SECRET:-}
     volumes: [*data]
 
   # The PS2 games' "versão rápida" (ps2-builder/): compiles, one at a time, only the games someone asked for in the

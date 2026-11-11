@@ -32,10 +32,11 @@ import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { Bios } from "./bios";
 import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
 import { createDiscs, type Discs } from "./discs";
+import { edgeDiscUrl, type Edge } from "./edgetoken";
 import { cacheFor, FRAME_ANCESTORS, IMMUTABLE, injectPad, ISOLATED, rangeResponse, versionOf, withVersions } from "./http";
 import { type CloudflareTurn, iceServers, STUN } from "./ice";
 import { authorizeUrl, type Discord } from "./discord";
@@ -161,6 +162,8 @@ export interface AppOptions {
   vimm?: Vimm;
   /** Where the discs are played from (discs.ts): R2 when index.ts says so, the local file by default. */
   discs?: Discs;
+  /** The optional edge for the R2 discs (edgetoken.ts, edge/worker.ts): their pages get its address. */
+  edge?: Edge | null;
 }
 
 /** One game of the home's catalog: a PS2 game of the library. */
@@ -208,6 +211,7 @@ export function createApp({
   ps2Engine = join(import.meta.dir, "..", "emulator", "ps2"),
   vimm,
   discs = createDiscs(dir, null),
+  edge = null,
 }: AppOptions) {
   const presence = new Presence(now);
   // (each bundled script by its version: the pages ask for <name>.js?v=<it>, kept immutable; http.ts' withVersions)
@@ -470,6 +474,18 @@ export function createApp({
     return (g.cover && (await sent(library!.paths(g.id).cover))) || respond(generatedCover(g.serial, g.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
   }
 
+  /**
+   * The disc's edge address for its page (`<meta name="hypeplay-disc">`, read by page/edgedisc.ts), when there's an
+   * edge and the disc is in R2; nothing otherwise, and the page reads disc.iso from here as before.
+   */
+  async function edgeMeta(id: string): Promise<string> {
+    const iso = library!.paths(id).iso;
+    const d = edge && (await discs(iso));
+    if (!edge || !d || d.from !== "r2") return "";
+    const url = await edgeDiscUrl(edge, { key: relative(dir, iso), size: d.size, version: d.version }, now());
+    return `<meta name="hypeplay-disc" content="${url.replace(/&/g, "&amp;")}">`;
+  }
+
   let engineId: Promise<string> | undefined;
   /** TabStationToo's build id, the ?v= its page puts on app.js and app.js on the files it loads ("" without one). */
   function engineBuild(): Promise<string> {
@@ -496,7 +512,8 @@ export function createApp({
     const notFound = () => isolated("Não encontrado", 404, "text/plain; charset=utf-8");
     if (rest === "" || rest === "index.html") {
       const name = (await library!.get(id))?.name ?? id;
-      return page(req, join(ps2Engine, "index.html"), "../../../pad.js", ISOLATED, (html) => patchTabStation(html, name));
+      const meta = await edgeMeta(id);
+      return page(req, join(ps2Engine, "index.html"), "../../../pad.js", ISOLATED, (html) => patchTabStation(html, name).replace(/<\/head>/i, (h) => meta + h));
     }
     if (ENGINE_FILES.has(rest)) {
       const f = Bun.file(join(ps2Engine, rest));

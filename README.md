@@ -121,6 +121,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Opcionais. Os discos novos e os saves no R2 (`server/discs.ts`, `server/saves.ts`); sem eles, tudo fica no disco do servidor |
 | `DISC_CACHE_MB` | Opcional (com R2). Quantos MB de pedaços dos discos do R2 o app guarda na memória: veja [Cache](#cache-dos-discos-e-dos-arquivos). Padrão 256; `0` desliga |
+| `DISC_EDGE_URL`, `DISC_EDGE_SECRET` | Opcionais (com R2), desligados. Os discos do emulador servidos por um Worker da Cloudflare perto dos jogadores: veja [Edge para os discos](#edge-para-os-discos-opcional) |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
@@ -195,7 +196,42 @@ Três caches, do servidor ao navegador:
   versão e sem o passe: abrir o jogo de novo não baixa o motor de novo. Sem Cache Storage (origem opaca, armazenamento
   bloqueado ou cheio), tudo vem da rede como antes. Uma versão nova apaga a anterior do mesmo jogo.
 
-## Acesso
+### Edge para os discos (opcional)
+
+Desligado. Um Cloudflare Worker (`edge/worker.ts`) que serve os discos do R2 por Range e guarda os pedaços de 1 MiB no
+Cache API do data center que atendeu (São Paulo, Rio…): o segundo jogador da região, ou um menu lido de novo, não vai
+nem ao R2. O app só dá o endereço; o Worker confere um token assinado pelo app (HMAC com `DISC_EDGE_SECRET`, 12 h,
+`server/edgetoken.ts`, o mesmo código dos dois lados) e só serve discos (`…/ps2/<id>/game/disc.iso`). O tamanho e a
+versão do disco vêm assinados no endereço, então um pedaço que o data center já tem sai sem nenhuma pergunta ao R2. Só
+vale dentro do Discord: lá o Worker é um caminho do próprio `<client id>.discordsays.com` (URL Mapping), então é a mesma
+origem e o isolamento que o emulador pede continua valendo. Fora do Discord (aba do navegador) e para os discos que
+estão no disco do servidor, nada muda.
+
+Para ligar (nada disso está feito):
+
+1. **Domínio do Worker:** um subdomínio de um domínio seu na Cloudflare (ex. `disc-edge.exemplo.com`). Não serve
+   `*.workers.dev`: lá o Cache API não guarda nada.
+2. **`edge/wrangler.toml`:** troque `bucket_name` pelo bucket do `S3_BUCKET` e o `pattern` pelo domínio do passo 1.
+3. **Segredo:** gere um (`openssl rand -base64 48`) e guarde no Worker:
+   `bunx wrangler secret put DISC_EDGE_SECRET --config edge/wrangler.toml`.
+4. **Publicar o Worker:** `bunx wrangler deploy --config edge/wrangler.toml`. Conferir: sem token,
+   `https://disc-edge.exemplo.com/p/edge/ps2/<id>/game/disc.iso` responde 403.
+5. **Discord → Activities → URL Mappings:** acrescente `/p/edge` → `disc-edge.exemplo.com`, ao lado do `/` do app.
+   Confira que `https://<client id>.discordsays.com/p/edge/ps2/<id>/game/disc.iso` chega no Worker (403 "Acesso
+   vencido" sem token) e não no app (que responderia 403 "Acesso vencido: feche e abra a atividade de novo."). Se o
+   Discord só encaminhar pelo `/.proxy/`, use `/.proxy/p/edge` no passo 6.
+6. **No Dokploy**, em **Environment** do app: `DISC_EDGE_URL=/p/edge` (o caminho do passo 5) e
+   `DISC_EDGE_SECRET=<o mesmo do passo 3>`. Faça o deploy de novo.
+
+Ligado, a página do emulador de um jogo cujo disco está no R2 ganha
+`<meta name="hypeplay-disc" content="/p/edge/ps2/<id>/game/disc.iso?s=…&v=…&t=…">` e, dentro do Discord, o emulador
+lê o disco de lá (`page/ps2play.ts`, `page/edgedisc.ts`). O caminho termina igual ao do emulador e começa com
+`/p/<nome>/`, como um passe: o cache em disco do navegador (`page/disccache.ts`) dá ao disco o mesmo nome
+(`/ps2/<id>/game/disc.iso`), então os blocos já guardados, o "Baixar tudo" do painel e a versão rápida
+(`page/fastdisc.ts`, que guarda sob esse mesmo nome) continuam os mesmos. A versão rápida segue lendo o que falta pelo
+servidor; ligar o edge nela é ensinar o `fastdisc.ts` a buscar a rede no endereço do edge. Para desligar, tire as duas
+variáveis.
+
 ## Acesso
 
 A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopo `identify`) e o
@@ -239,6 +275,8 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`), as respostas com
   Range, isolamento e versão (`http.ts`), os discos no R2 (`discs.ts`) e os pedaços deles na memória (`chunkcache.ts`).
   A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`).
+- `edge/`: o Worker opcional que serve os discos do R2 perto dos jogadores (`worker.ts`, `wrangler.toml`), com o
+  token de `server/edgetoken.ts`. Nada aqui o publica.
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).

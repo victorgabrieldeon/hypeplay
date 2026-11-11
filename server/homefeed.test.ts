@@ -186,3 +186,32 @@ test("a view that fails sends nothing, but a sync is still answered", async () =
     console.error = err;
   }
 });
+
+test("a socket's pushes go out in order: a slow view begun before a change doesn't land after the sync showing it", async () => {
+  let name = "old";
+  const slow: (() => void)[] = [];
+  const feed = createHomeFeed({
+    view: async () => {
+      const v = home({ me: name });
+      // (the tick's view, begun before the change, takes longer than the sync's)
+      if (name === "old") await new Promise<void>((ok) => slow.push(ok));
+      return v;
+    },
+    tickMs: 60_000,
+  });
+  const a = socket(ana);
+  feed.open(a.ws);
+  await settle();
+  slow.shift()!();
+  await settle();
+  expect(a.got.map((m) => m.me)).toEqual(["old"]);
+  const tick = feed.tick();
+  await settle();
+  name = "new";
+  feed.message(a.ws, '{"sync":1}');
+  slow.shift()!();
+  await tick;
+  await settle();
+  expect(a.got.at(-1)).toEqual({ me: "new", last: null, publicUrl: "", sync: 1 });
+  feed.close(a.ws);
+});

@@ -721,10 +721,13 @@ export function createApp({
     }
   }
 
-  /** Every request; one that may have changed something (any method but GET) tells the home's feed once answered. */
+  /**
+   * Every request; one that may have changed something (any method but GET) tells the home's feed once answered. Not
+   * an upload's pieces nor a game's beat: many, and the feed's next tick shows them as soon as the poll did.
+   */
   async function handle(req: Request, server?: Server<NetData>): Promise<Response | undefined> {
     const res = await route(req, server);
-    if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") feed.nudge();
+    if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS" && !/\/(upload|here)$/.test(new URL(req.url).pathname)) feed.nudge();
     return res;
   }
 

@@ -50,7 +50,8 @@ async function open(pass: string) {
     waiters.splice(0).forEach((w) => w());
   };
   const next = async (pred: (m: Record<string, unknown>) => boolean = () => true) => {
-    for (let i = 0; i < 100; i++) {
+    // (up to 6 s: an upload's progress comes with the feed's tick, every 2 s)
+    for (let i = 0; i < 200; i++) {
       const m = got.find(pred);
       if (m) return (got.splice(got.indexOf(m), 1), m);
       await new Promise<void>((ok) => (waiters.push(ok), setTimeout(ok, 30)));

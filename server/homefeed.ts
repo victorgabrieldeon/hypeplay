@@ -5,8 +5,8 @@
  * One look for everyone: a tick every TICK_MS while some home is open walks the library once (`shared`: the views made
  * at the same time share the walk under way), then makes each person's view from it and sends each socket its
  * differences.
- * A request that changes something (any method but GET) and a vimm.net download changing step `nudge` it: the walk is
- * redone and the push comes within SOON_MS. What changes by itself (the builders' status.json, an upload gone quiet, an
+ * A request that changes something (any method but GET, except an upload's pieces and a game's beats, routes.ts) and a
+ * vimm.net download changing step `nudge` it: the walk is redone and the push comes within SOON_MS. What changes by itself (the builders' status.json, an upload gone quiet, an
  * invite expiring, someone's page no longer beating) shows on the next tick.
  *
  * The page keeps the poll for when the socket is down (Discord's proxy may cut it): `games` answers 304 when the view is
@@ -104,6 +104,11 @@ export interface HomeFeedOptions {
 
 export function createHomeFeed({ view, connect, disconnect, now = () => Date.now(), tickMs = TICK_MS, soonMs = SOON_MS }: HomeFeedOptions) {
   const sockets = new Map<HomeSocket, Sent | null>();
+  /**
+   * each socket's pushes, one after another: a tick's view begun before a change must not land after the sync that
+   * shows it (the game removed would come back for a tick)
+   */
+  const queues = new Map<HomeSocket, Promise<void>>();
   /** bumped by each nudge: a walk made before it is not reused */
   let generation = 0;
   let ticker: ReturnType<typeof setInterval> | null = null;
@@ -113,8 +118,15 @@ export function createHomeFeed({ view, connect, disconnect, now = () => Date.now
   /** how many times the library was walked and views were made (the tests, and the README's numbers) */
   const counts = { walks: 0, views: 0, pushes: 0 };
 
-  /** Sends `ws` what changed (and `sync`, when it asked); an expired pass closes it. */
-  async function push(ws: HomeSocket, sync?: number) {
+  /** Sends `ws` what changed (and `sync`, when it asked), after what it was being sent. */
+  function push(ws: HomeSocket, sync?: number): Promise<void> {
+    const next = (queues.get(ws) ?? Promise.resolve()).then(() => pushNow(ws, sync));
+    queues.set(ws, next);
+    return next;
+  }
+
+  /** The push itself: a view, its differences; an expired pass closes the socket. */
+  async function pushNow(ws: HomeSocket, sync?: number) {
     if (!sockets.has(ws)) return;
     const { pass, publicUrl } = ws.data;
     if (pass.exp <= now()) return ws.close(EXPIRED, "Acesso vencido");
@@ -224,6 +236,7 @@ export function createHomeFeed({ view, connect, disconnect, now = () => Date.now
 
     close(ws: HomeSocket) {
       if (!sockets.delete(ws)) return;
+      queues.delete(ws);
       disconnect?.(ws.data.pass);
       nudge();
       stop();

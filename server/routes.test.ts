@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { NotAllowed } from "./discord";
 import type { Passes } from "./pass";
 import { createApp } from "./routes";
 
@@ -149,6 +150,39 @@ test("in a browser: Entrar com o Discord goes to Discord, and back here with a p
   const cancelled = await go(`/auth?error=access_denied&state=${await stateOf()}`);
   expect([cancelled.status, cancelled.headers.get("location")]).toEqual([302, "/"]);
   expect((await go(`/auth?code=forged&state=${await stateOf()}`)).status).toBe(502);
+});
+
+test("ALLOWED_GUILDS: someone outside the group's servers gets a 403 with why, from Discord and from a browser; the browser's sign-in asks for the servers", async () => {
+  issued = null;
+  const web = createApp({
+    dir: root, pageDir: PAGE_DIR, entryJs: "", passes, clientId: "app", publicUrl: "https://hype.example", scopes: ["identify", "guilds"],
+    discord: {
+      signIn: async (code: string) => {
+        if (code === "stranger") throw new NotAllowed("7 is in none of the allowed servers");
+        if (code === "down") throw new Error("discord guilds lookup failed (503)");
+        return { id: "42", name: "Ana", accessToken: "tok-ana" };
+      },
+    },
+  });
+  const go = (path: string, init?: RequestInit) => web.handle(new Request(`https://hype.example${path}`, init)) as Promise<Response>;
+  const post = (code: string) => go("/token", { method: "POST", body: JSON.stringify({ code }) });
+  const no = await post("stranger");
+  expect([no.status, await no.json()]).toEqual([403, { error: "Este HypePlay é só para os servidores do grupo." }]);
+  // Discord failing on the check: refused too, and the page says to try again
+  const down = await post("down");
+  expect(down.status).toBe(502);
+  expect(((await down.json()) as { error: string }).error).toContain("de novo");
+  expect(issued).toBeNull();
+  expect((await post("ana")).status).toBe(200);
+
+  const login = new URL((await go("/login")).headers.get("location")!);
+  expect(login.searchParams.get("scope")).toBe("identify guilds");
+  const back = await go(`/auth?code=stranger&state=${login.searchParams.get("state")}`);
+  expect([back.status, await back.text()]).toEqual([403, "Este HypePlay é só para os servidores do grupo."]);
+  // (without it, identify only)
+  const open = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, clientId: "app", publicUrl: "https://hype.example" });
+  const plain = new URL((await (open.handle(new Request("https://hype.example/login")) as Promise<Response>)).headers.get("location")!);
+  expect(plain.searchParams.get("scope")).toBe("identify");
 });
 
 test("without PUBLIC_URL there's no signing in from a browser", async () => {

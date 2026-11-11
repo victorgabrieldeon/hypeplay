@@ -5,9 +5,12 @@ biblioteca, com capa se quiser. Ela fica guardada no servidor e roda direto no
 [TabStationToo](https://github.com/TabStationToo/TabStationToo), o PCSX2 compilado para WebAssembly, sem compilar
 nada (ver [Jogos de PS2](#jogos-de-ps2)). Depois disso o jogo fica na biblioteca para todo mundo.
 
-> **Só para servidor privado.** Use só com amigos que têm, cada um, a própria cópia do jogo. Qualquer pessoa que
-> abrir a atividade no Discord joga: o que segura o acesso é o app não ser divulgado (deixe o *Public Bot*
-> desligado e adicione o app só aos seus servidores).
+> **Só para servidor privado.** Use só com amigos que têm, cada um, a própria cópia do jogo. Com `ALLOWED_GUILDS`
+> só entra quem é membro de um dos servidores do Discord listados ali, pela atividade ou pelo navegador; quem não é
+> vê "Este HypePlay é só para os servidores do grupo" (ver [Acesso](#acesso)). Sem `ALLOWED_GUILDS`, qualquer conta
+> do Discord que achar o app entra (o *client id* é público, e o domínio aparece nos registros públicos de
+> certificados), e o servidor avisa disso no log ao subir. Deixe também o *Public Bot* desligado e adicione o app só
+> aos seus servidores.
 
 ## Jogos de PS2
 
@@ -120,6 +123,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
 | `POSTGRES_PASSWORD` | A senha do banco (o `app` monta o `DATABASE_URL` com ela). Só letras e números, porque vai dentro de uma URL: `openssl rand -hex 24`. Escolhida uma vez: o Postgres grava a senha ao criar o volume, e trocar aqui depois não troca lá |
+| `ALLOWED_GUILDS` | Recomendado. Os ids dos servidores do Discord cujos membros entram, separados por vírgula (`111…,222…`). Para pegar o id: no Discord, Configurações → Avançado → **Modo desenvolvedor** ligado; depois clique com o botão direito no ícone do servidor → **Copiar ID do servidor**. Sem ela, qualquer conta do Discord entra (ver [Acesso](#acesso)). Um valor que não é um id impede o servidor de subir |
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Opcionais. Os discos novos e os saves no R2 (`server/discs.ts`, `server/saves.ts`); sem eles, tudo fica no disco do servidor |
@@ -308,7 +312,17 @@ troca em `POST /token`. O servidor troca o código pelo usuário do Discord e de
 mesmo (HMAC, 12 h): sem passar pelo Discord, não há passe. A entrada então abre a home num iframe em
 `p/<passe>/`, e cada jogo em `p/<passe>/ps2/<id>/` (estado, envio, `game/`). Tudo mora sob esse caminho, porque o iframe não manda cabeçalhos e, no Discord, não tem
 cookie. Sem passe válido, tudo ali responde 403. A entrada e o ícone são públicos; só o Discord pode
-emoldurar as páginas.
+emoldurar as páginas. Pelo navegador é o mesmo, pela página de entrada do próprio Discord (`/login`, e de volta em
+`/auth`).
+
+Com `ALLOWED_GUILDS`, os dois caminhos pedem também o escopo `guilds` (o servidor decide o que a página de entrada
+pede, e quem já tinha entrado só com `identify` precisa aceitar a permissão nova). Depois de
+trocar o código, o servidor pergunta ao Discord os servidores da pessoa (`GET /users/@me/guilds`) e só emite o
+passe se ela estiver em pelo menos um dos permitidos; senão responde 403 com "Este HypePlay é só para os servidores
+do grupo", que a página de entrada (ou o navegador) mostra, e registra `sign-in refused` no log. Se o Discord não
+responder essa pergunta (erro ou demora), a entrada é recusada com o pedido de tentar de novo: nunca sai passe sem
+a checagem. Os passes já emitidos valem até vencer (12 h); tirar alguém de um servidor tira o acesso dele na próxima
+entrada.
 
 ## Arquivos
 

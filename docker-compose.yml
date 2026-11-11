@@ -19,6 +19,9 @@ services:
       <<: *otel
       DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      # Recommended: the ids of the Discord servers whose members get in, comma-separated (README "Acesso").
+      # Empty: any Discord account.
+      ALLOWED_GUILDS: ${ALLOWED_GUILDS:-}
       # The app's own https address, for "Abrir no navegador" when Discord can't run a PS2 game in its window.
       PUBLIC_URL: ${PUBLIC_URL:-}
       # The PS2 games' online, when two homes can't link direct: Cloudflare's TURN (Realtime → TURN in its

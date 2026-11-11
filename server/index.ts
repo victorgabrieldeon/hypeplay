@@ -5,7 +5,7 @@ import { createBios } from "./bios";
 import { createChunkCache, discCacheBytes } from "./chunkcache";
 import { importOld, migrate } from "./db";
 import { createDiscs, r2FromEnv } from "./discs";
-import { createDiscord } from "./discord";
+import { createDiscord, scopesFor } from "./discord";
 import { edgeFromEnv } from "./edgetoken";
 import { createLibrary } from "./library";
 import { log, useTelemetry } from "./log";
@@ -31,6 +31,11 @@ const PORT = Number(process.env.PORT ?? 3003);
 // The Discord app the Activity belongs to (Developer Portal → OAuth2).
 const DISCORD_CLIENT_ID = env("DISCORD_CLIENT_ID");
 const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
+// Optional, recommended: the ids of the servers whose members get in (comma-separated); empty: any Discord account.
+const ALLOWED_GUILDS = (process.env.ALLOWED_GUILDS ?? "").split(",").map((g) => g.trim()).filter(Boolean);
+const bad = ALLOWED_GUILDS.find((g) => !/^\d{17,20}$/.test(g));
+if (bad) throw new Error(`ALLOWED_GUILDS: "${bad}" isn't a Discord server id`);
+const SCOPES = scopesFor(ALLOWED_GUILDS);
 // Optional: the app's public address, for "Abrir no navegador" (inside Discord the page is behind its proxy).
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
 // Optional: Cloudflare's TURN (Realtime → TURN in its dashboard), near the players wherever they are.
@@ -87,10 +92,13 @@ const app = createApp({
   entryJs: await bundle("entry.ts", {
     "process.env.DISCORD_CLIENT_ID": JSON.stringify(DISCORD_CLIENT_ID),
     "process.env.PUBLIC_URL": JSON.stringify(PUBLIC_URL),
+    // (what its authorize asks for, as the browser's sign-in: the server decides)
+    "process.env.DISCORD_SCOPES": JSON.stringify(SCOPES.join(" ")),
   }),
   passes,
-  discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET }),
+  discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET, allowedGuilds: ALLOWED_GUILDS }),
   clientId: DISCORD_CLIENT_ID,
+  scopes: SCOPES,
   library,
   vimm: createVimm(dir, library),
   discs: createDiscs(dir, r2, discCache),
@@ -129,6 +137,7 @@ const server = Bun.serve<NetData>({
 });
 
 log.info("cordplay listening", { port: PORT, otlp: telemetry.enabled });
+if (!ALLOWED_GUILDS.length) log.warn("no ALLOWED_GUILDS: any Discord account that finds the app gets in (README \"Acesso\")");
 
 /**
  * A deploy (docker stop: SIGTERM, then SIGKILL after stop_grace_period): no new connections, the WebSockets told to

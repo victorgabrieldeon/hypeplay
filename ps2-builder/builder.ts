@@ -24,6 +24,7 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PUBLISHED, type FastClaim } from "../server/fastjobs";
+import { BUILD_SECONDS, telemetryFromEnv, type Histogram } from "../server/otlp";
 import { FAST_STEPS } from "../server/games";
 import type { Image } from "../server/queue";
 import { jobsFromEnv } from "./jobs";
@@ -135,12 +136,14 @@ export interface Ps2BuilderOptions {
   beatMs?: number;
   /** Where it says which job it took (the console). */
   announce?: (line: string) => void;
+  /** Each build's seconds, by its kind and result (server/otlp.ts) */
+  builds?: Histogram;
 }
 
 /** How much a build takes: all of it, code the players met, a new recompiler (or a retry), or the page alone. */
 type Mode = "full" | "learn" | "recomp" | "page";
 
-export function createPs2Builder({ work, repo, run, commit = "", rounds = 4, frames = 3600, now = () => Date.now(), beatMs = 5000, announce = console.log }: Ps2BuilderOptions) {
+export function createPs2Builder({ work, repo, run, commit = "", rounds = 4, frames = 3600, now = () => Date.now(), beatMs = 5000, announce = console.log, builds }: Ps2BuilderOptions) {
   /** The patched shell's hash, once patched. */
   let shell = "";
 
@@ -275,12 +278,16 @@ export function createPs2Builder({ work, repo, run, commit = "", rounds = 4, fra
     // The lease goes on during a build, which takes many minutes.
     const beating = setInterval(() => void jobs.beat(c, status).catch((err) => console.error("ps2-builder: beat:", err)), beatMs);
     let disc: { path: string; release: () => Promise<void> } | null = null;
+    const started = now();
+    const took = (result: string) => builds?.record((now() - started) / 1000, { mode, result });
     try {
       if (!(await jobs.beat(c, status))) throw new Gone();
       // (the page alone doesn't read the disc)
       disc = mode === "page" ? { path: "", release: async () => {} } : await jobs.disc(c);
       await build(c, jobs, mode, learn, status, disc.path);
+      took("ready");
     } catch (err) {
+      took(err instanceof Gone ? "gone" : "failed");
       if (err instanceof Gone) {
         // (removed: its files go; library.ts does the same on this machine)
         await rm(game(c.game.id).work, { recursive: true, force: true });
@@ -315,6 +322,23 @@ export function createPs2Builder({ work, repo, run, commit = "", rounds = 4, fra
 
 const LOOK_MS = 5000;
 
+/**
+ * The container's own heartbeat (docker-compose.yml's healthcheck: healthy while it's recent), touched whenever the
+ * queue answered a claim or a beat: idle for days, with no game asked for, it still beats.
+ */
+export const HEARTBEAT = process.env.HEARTBEAT_FILE ?? "/tmp/hypeplay-heartbeat";
+export const beatHeartbeat = () => writeFile(HEARTBEAT, String(Date.now()));
+
+/** The builds' seconds, out by OTLP only with OTEL_EXPORTER_OTLP_ENDPOINT (server/otlp.ts). */
+function buildMetrics(service: string) {
+  const telemetry = telemetryFromEnv(service);
+  const builds = telemetry.histogram("hypeplay.build.duration", { description: "Duração das compilações, por resultado", unit: "s", bounds: BUILD_SECONDS });
+  // (docker stop: the build going on is lost either way, and starts over at the next start; out now, not in 10 s)
+  for (const signal of ["SIGTERM", "SIGINT"] as const)
+    process.on(signal, () => void telemetry.shutdown().finally(() => process.exit(0)));
+  return builds;
+}
+
 if (import.meta.main) {
   const data = process.env.DATA ?? "/app/data";
   const builder = createPs2Builder({
@@ -324,8 +348,13 @@ if (import.meta.main) {
     commit: process.env.RECOMP_COMMIT ?? "",
     rounds: Number(process.env.PS2_ROUNDS ?? 4),
     frames: Number(process.env.PS2_FRAMES ?? 3600),
+    builds: buildMetrics("hypeplay-ps2-builder"),
   });
-  const { jobs, where } = jobsFromEnv(data);
+  const { jobs: from, where } = jobsFromEnv(data);
+  // (the container's heartbeat, docker-compose.yml's healthcheck: touched whenever the queue answers, idle or building)
+  const touch = <T>(v: T) => (void beatHeartbeat().catch(() => undefined), v);
+  const jobs: Jobs = { ...from, claim: (image) => from.claim(image).then(touch), beat: (c, status) => from.beat(c, status).then(touch) };
+  await beatHeartbeat();
   console.log(`ps2-builder: taking jobs from ${where}`);
   for (;;) {
     const built = await builder.next(jobs).catch((err) => (console.error("ps2-builder:", err), false));

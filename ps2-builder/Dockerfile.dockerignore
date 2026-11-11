@@ -4,6 +4,7 @@
 !server/discs.ts
 !server/queue.ts
 !server/fastjobs.ts
+!server/otlp.ts
 !ps2-builder/builder.ts
 !ps2-builder/jobs.ts
 !ps2-builder/patch.ts

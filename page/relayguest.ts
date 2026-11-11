@@ -3,7 +3,7 @@
 // (server/relay.ts), decoded with WebCodecs onto a canvas, the sound into relayaudio.ts' speaker; this person's
 // controller goes back the same way.
 import { playAudio } from "./relayaudio";
-import { decode, encode, VIDEO_CODECS, type Packet } from "./relaywire";
+import { decode, encode, RESTART, VIDEO_CODECS, type Packet } from "./relaywire";
 
 /** The controller goes out when it changes, and this often all the same (it also keeps the socket alive). */
 const PAD_EVERY_MS = 100;
@@ -16,7 +16,8 @@ export function joinRelay(o: {
   canvas: HTMLCanvasElement;
   pad(): unknown;
   onLinked(): void;
-  onStuck(why: "closed" | "no-decoder"): void;
+  /** "restart": the server is going down for a deploy (RESTART), and comes back */
+  onStuck(why: "closed" | "no-decoder" | "restart"): void;
   onSound(): void;
 }): { stop(): void; unmute(): Promise<void>; lag(): number | null } {
   const ws = new WebSocket(o.url);
@@ -130,10 +131,10 @@ export function joinRelay(o: {
       if (sound?.state === "configured") sound.decode(new EncodedAudioChunk({ type: "key", timestamp: p.time * 1000, data: p.data }));
     } else if (p.t === "bye") end("closed");
   };
-  ws.onclose = () => end("closed");
+  ws.onclose = (e) => end(e.code === RESTART ? "restart" : "closed");
 
   /** Everything stops; `why`, when it wasn't asked for. */
-  function end(why?: "closed" | "no-decoder") {
+  function end(why?: "closed" | "no-decoder" | "restart") {
     if (ended) return;
     ended = true;
     clearInterval(padTimer);

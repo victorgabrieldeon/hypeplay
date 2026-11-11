@@ -1,8 +1,11 @@
 import { join } from "node:path";
+import { telemetryFromEnv } from "./otlp";
 import { createBios } from "./bios";
 import { createDiscs, r2FromEnv } from "./discs";
 import { createDiscord } from "./discord";
 import { createLibrary } from "./library";
+import { log, useTelemetry } from "./log";
+import { createOps } from "./ops";
 import { createPasses } from "./pass";
 import { createPeople } from "./people";
 import { Ps2Rooms } from "./ps2rooms";
@@ -40,6 +43,10 @@ async function bundle(entry: string, define: Record<string, string> = {}) {
   return built.outputs[0]!.text();
 }
 
+// Metrics and logs out by OTLP only with OTEL_EXPORTER_OTLP_ENDPOINT (server/otlp.ts); without it, nothing changes.
+const telemetry = telemetryFromEnv("hypeplay");
+useTelemetry(telemetry);
+
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 // R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
 const r2 = r2FromEnv();
@@ -48,11 +55,15 @@ const queue = createQueue(join(dir, "queue.db"));
 const library = createLibrary(dir, { r2, queue });
 // (the "versão rápida" asked before the queue: in it, once)
 const adopted = await library.importFast();
-if (adopted) console.log(`queue: ${adopted} fast builds from the volume`);
+if (adopted) log.info("queue: fast builds from the volume", { adopted });
 // Optional: workers on other machines (ps2-builder with QUEUE_URL) take jobs through /worker/ (workers.ts). Their builds
 // go to R2 and are served from there: without R2 here, they'd be ready and never found.
 if (process.env.WORKER_TOKEN && !r2) throw new Error("WORKER_TOKEN without S3_BUCKET: workers elsewhere publish their builds in R2");
 const workers = process.env.WORKER_TOKEN ? createWorkerApi({ dir, queue, r2, token: process.env.WORKER_TOKEN }) : null;
+const social = createSocial(dir);
+const ps2Rooms = new Ps2Rooms();
+// The client secret signs the passes too: resetting it in the portal also ends every open session.
+const passes = createPasses(DISCORD_CLIENT_SECRET);
 const app = createApp({
   // (the PS2 games live in /app/data/ps2/)
   dir,
@@ -61,8 +72,7 @@ const app = createApp({
     "process.env.DISCORD_CLIENT_ID": JSON.stringify(DISCORD_CLIENT_ID),
     "process.env.PUBLIC_URL": JSON.stringify(PUBLIC_URL),
   }),
-  // The client secret signs the passes too: resetting it in the portal also ends every open session.
-  passes: createPasses(DISCORD_CLIENT_SECRET),
+  passes,
   discord: createDiscord({ clientId: DISCORD_CLIENT_ID, clientSecret: DISCORD_CLIENT_SECRET }),
   clientId: DISCORD_CLIENT_ID,
   library,
@@ -70,8 +80,8 @@ const app = createApp({
   discs: createDiscs(dir, r2),
   saves: createSaves(dir, r2),
   people: createPeople(dir),
-  social: createSocial(dir),
-  ps2Rooms: new Ps2Rooms(),
+  social,
+  ps2Rooms,
   bios: createBios(dir),
   publicUrl: PUBLIC_URL,
   turn: TURN,
@@ -90,12 +100,40 @@ const app = createApp({
   },
 });
 
-Bun.serve<NetData>({
+// /health, the limits per person and the metrics around the routes; drain() on SIGTERM (ops.ts).
+const ops = createOps({ app, passes, telemetry, ps2Rooms });
+
+const server = Bun.serve<NetData>({
   port: PORT,
   // (above the online rooms' long-poll, ps2rooms.ts WAIT_MS; Bun's default 10 s would cut it)
   idleTimeout: 30,
-  fetch: (req, server) => workers?.handle(req) ?? app.handle(req, server),
-  websocket: app.websocket,
+  fetch: (req, server) => workers?.handle(req) ?? ops.handle(req, server),
+  websocket: ops.websocket,
 });
 
-console.log(`cordplay on http://localhost:${PORT}`);
+log.info("cordplay listening", { port: PORT, otlp: telemetry.enabled });
+
+/**
+ * A deploy (docker stop: SIGTERM, then SIGKILL after stop_grace_period): no new connections, the WebSockets told to
+ * connect again, the requests going on finish, the friends' file and the telemetry written, then out.
+ */
+async function shutdown(signal: string) {
+  log.info("shutdown", { signal });
+  try {
+    await ops.drain(server);
+    await social.settle();
+  } catch (err) {
+    log.error("shutdown: something pending was lost", { err });
+  }
+  // (a collector away doesn't hold the exit: drain + this stay well under stop_grace_period)
+  await Promise.race([telemetry.shutdown().catch(() => {}), Bun.sleep(3000)]);
+  process.exit(0);
+}
+let stopping = false;
+for (const signal of ["SIGTERM", "SIGINT"] as const)
+  process.on(signal, () => {
+    // (a second one: out now)
+    if (stopping) process.exit(1);
+    stopping = true;
+    void shutdown(signal);
+  });

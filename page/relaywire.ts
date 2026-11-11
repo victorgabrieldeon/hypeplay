@@ -14,6 +14,12 @@ export const BYE = 7;
 export const FROM_HOST: ReadonlySet<number> = new Set([CONFIG, VIDEO, AUDIO, BYE]);
 export const FROM_GUEST: ReadonlySet<number> = new Set([HELLO, PAD, KEY, BYE]);
 
+/**
+ * The close code of every WebSocket when the server goes down for a deploy (server/ops.ts): "Service Restart", so
+ * the page waits for it to come back and connects again rather than calling it a dropped connection.
+ */
+export const RESTART = 1012;
+
 /** In the host's order of preference: H.264 (Annex B, so no description), then VP8. */
 export const VIDEO_CODECS = ["avc1.42E01F", "vp8"] as const;
 

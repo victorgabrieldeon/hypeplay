@@ -135,6 +135,10 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
 
   return {
     flush,
+    /** Shutting down (index.ts): a change still waiting for its timer written now, and the write going on finished. */
+    settle(): Promise<void> {
+      return timer ? flush() : writing;
+    },
 
     /** The home open (each of its looks, homefeed.ts or the poll): their profile, with the name the pass has now. */
     seen(pass: { id: string; name: string }) {

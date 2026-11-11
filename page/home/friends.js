@@ -316,6 +316,7 @@ document.addEventListener('click', async (e) => {
   if (d.fAdd) {
     const r = await send(`friends/${encodeURIComponent(d.fAdd)}`, 'POST').then((x) => x.json()).catch(() => null);
     if (r?.result === 'sent') toast(`${icon('check')}<p>Pedido enviado</p>`);
+    else if (r?.error) toast(`${icon('close')}<p>${esc(r.error)}</p>`);
   }
   if (d.fRemove) await send(`friends/${encodeURIComponent(d.fRemove)}`, 'DELETE');
   if (d.fUnfriend) {

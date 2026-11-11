@@ -23,6 +23,7 @@ import { fileRead, readDiscId } from "./iso9660";
 import type { Pass } from "./pass";
 import { createQueue, PRIORITY, type Queue } from "./queue";
 import { createDiscStore, type DiscStore } from "./upload";
+import { log } from "./log";
 
 export interface Ps2Game {
   id: string;
@@ -142,15 +143,15 @@ export function createLibrary(
   function settle(id: string) {
     if (!r2) return;
     void moveToR2(r2, dir, paths(id).iso, () => exists(paths(id).game))
-      .then((moved) => console.log(`R2: ${id} ${moved ? "moved" : "removed meanwhile"}`))
-      .catch((err) => console.error(`R2: ${id} stays here:`, err));
+      .then((moved) => log.info(moved ? "R2: disc moved" : "R2: game removed meanwhile", { game: id }))
+      .catch((err) => log.error("R2: disc stays here", { game: id, err }));
   }
 
   async function remove(id: string) {
     if (!ID.test(id)) return;
     const p = paths(id);
     stores.delete(id);
-    await dropFromR2(r2, dir, p.iso).catch((err) => console.error(`R2: ${id}'s disc stays there:`, err));
+    await dropFromR2(r2, dir, p.iso).catch((err) => log.error("R2: disc stays there", { game: id, err }));
     await dropR2Build(r2, jobs.drop(fastKey(id))?.build);
     await rm(p.root, { recursive: true, force: true });
     await rm(p.work, { recursive: true, force: true });

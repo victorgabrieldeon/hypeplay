@@ -1,0 +1,54 @@
+# Each PR and push: the tests, the types, and the three images built (nothing pushed, no secrets, no deploy: Dokploy
+# deploys main by itself). The ps2-builder's image is heavy (Emscripten, the recompiler's tools): a job of its own, cached.
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Testes e tipos
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # (the same as the images: oven/bun:1.4)
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run typecheck
+
+  image:
+    name: Imagem ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: app
+            context: .
+            file: Dockerfile
+          - name: ps2-builder
+            context: .
+            file: ps2-builder/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

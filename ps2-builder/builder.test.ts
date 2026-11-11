@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { S3Client } from "bun";
 import { FAST_STEPS } from "../server/games";
 import { createQueue, PRIORITY, type EnqueueOptions } from "../server/queue";
-import { createPs2Builder, parseMisses, type FastStatus, type Runner } from "./builder";
+import { createPs2Builder, parseMisses, type FastStatus, type Ps2BuilderOptions, type Runner } from "./builder";
 import { localJobs } from "./jobs";
 import { MARK } from "./patch";
 
@@ -51,7 +51,7 @@ function fakeTools(fake: Fake = {}) {
   return { seen, run };
 }
 
-async function setup(tools: ReturnType<typeof fakeTools>, { r2 = null as S3Client | null } = {}) {
+async function setup(tools: ReturnType<typeof fakeTools>, { r2 = null as S3Client | null, builds = undefined as Ps2BuilderOptions["builds"] } = {}) {
   const root = await mkdtemp(join(tmpdir(), "hypeplay-ps2b-"));
   dirs.push(root);
   const data = join(root, "data");
@@ -64,7 +64,7 @@ async function setup(tools: ReturnType<typeof fakeTools>, { r2 = null as S3Clien
   const jobs = localJobs({ data, queue, r2, worker: "test" });
   // (another builder over the same folders: the next image, with its own page and recompiler)
   const make = (commit = "") => {
-    const b = createPs2Builder({ work: join(data, "ps2-work"), repo, run: tools.run, commit, now, announce: () => {} });
+    const b = createPs2Builder({ work: join(data, "ps2-work"), repo, run: tools.run, commit, now, announce: () => {}, builds });
     return { tick: () => b.next(jobs) };
   };
   const builder = make();
@@ -322,4 +322,20 @@ test("a worker that died mid-build: its job goes back in line once its lease is 
   await builder.tick();
   expect(queue.get("ps2/slus-20001")!.state).toBe("done");
   expect(tools.seen.length).toBe(1);
+});
+
+test("each build's seconds go to the metrics, with its kind and result", async () => {
+  const took: [number, Record<string, unknown>][] = [];
+  const builds = { record: (v: number, a?: Record<string, string | number | boolean>) => void took.push([v, a ?? {}]) };
+  const ok = await setup(fakeTools(), { builds });
+  await ok.game("scus-97399");
+  await ok.builder.tick();
+  const bad = await setup(fakeTools({ fail: { "scus-97399": { code: 1, output: "boom" } } }), { builds });
+  await bad.game("scus-97399");
+  await bad.builder.tick();
+  expect(took.map(([, a]) => a)).toEqual([
+    { mode: "full", result: "ready" },
+    { mode: "full", result: "failed" },
+  ]);
+  expect(took.every(([s]) => s > 0)).toBe(true);
 });

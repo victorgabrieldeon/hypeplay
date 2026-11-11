@@ -89,4 +89,6 @@ test("what player 2 hears when the server's way stops", () => {
   expect(relayStuck("closed").title).toBe("A conexão com o servidor caiu");
   expect(relayStuck("no-decoder").text).toContain("Chrome ou Edge");
   expect(relayStuck("host-cant").text).toContain("O navegador do host não consegue transmitir pelo servidor");
+  // (a deploy: it comes back by itself)
+  expect(relayStuck("restart").text).toContain("abre de novo sozinha");
 });

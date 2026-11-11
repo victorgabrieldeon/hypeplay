@@ -4,6 +4,7 @@
  * kind (--use-auth-secret): "<expiry>:<user>" signed with the shared secret, good for 12 h like the pass.
  */
 import { createHmac } from "node:crypto";
+import { log } from "./log";
 
 export const STUN = ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"];
 const TURN_TTL_S = 12 * 60 * 60;
@@ -66,7 +67,7 @@ export function cloudflareTurn({ keyId, token, fetch: fetched = fetch, now = Dat
       return server;
     } catch (err) {
       failedAt = at;
-      console.warn("Cloudflare TURN: no credential:", err instanceof Error ? err.message : err);
+      log.warn("Cloudflare TURN: no credential", { err });
       return null;
     }
   }

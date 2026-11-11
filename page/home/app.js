@@ -1,8 +1,10 @@
-// The home's state and wiring: reads `games` every 2 s, draws the spotlight, the library and the open drawer, and
-// handles every button (play, send a disc or the BIOS, remove, rename, cover). The add-a-game wizard, the
-// controller screen and the intro live in their own modules.
+// The home's state and wiring: follows home/ws (feed.js: the server pushes what changed), reading `games` every 2 s
+// only while that socket is down, draws the spotlight, the library and the open drawer, and handles every button
+// (play, send a disc or the BIOS, remove, rename, cover). The add-a-game wizard, the controller screen and the intro
+// live in their own modules.
 import { ask } from './ask.js';
 import { drawer } from './drawer.js';
+import { follow, merge } from './feed.js';
 import { addCard, arrange, card, esc, hero, icon, initials, installCard, installing, meter, needsDisc, paintInstall, sendBios, upload } from './library.js';
 
 const $ = (id) => document.getElementById(id);
@@ -21,7 +23,7 @@ export const state = {
   /** this window's upload: { key, size, received, inflight, meter, retrying } */
   sending: null,
   uploadError: { key: null, text: '' },
-  /** someone else's upload, seen through the polls: its speed per game */
+  /** someone else's upload, seen through the pushes (or the polls): its speed per game */
   watching: new Map(),
   /** the vimm.net download (server/vimm.ts), pushed by vimm/ws: GET vimm's shape */
   vimm: null,
@@ -115,20 +117,47 @@ export function soon() {
   if (!later) later = setTimeout(() => { later = 0; render(); }, 250);
 }
 
+/** Someone else's upload: its speed, from what each look says it has received. */
+function watchUploads() {
+  for (const g of state.games ?? []) {
+    const s = g.status;
+    if (s.state === 'uploading' && !s.mine && !s.stale) {
+      // The server takes 32 MB at a time: a minute of history smooths that out.
+      if (!state.watching.has(g.key)) state.watching.set(g.key, meter(60_000));
+      state.watching.get(g.key).add(s.received);
+    } else state.watching.delete(g.key);
+  }
+}
+
+/** The home as the feed pushed it (feed.js): only what changed. */
+function pushed(m) {
+  merge(state, m);
+  // (the poll's tag is of a home before these: the next poll gets the whole of it)
+  tag = null;
+  watchUploads();
+  render();
+}
+
+/**
+ * The version of the home the poll last read (its ETag): the server answers 304 while it's the same. Sent as `?v=`:
+ * If-None-Match would cost a preflight on every poll from this opaque origin.
+ */
+let tag = null;
+
+/** A fresh look at the home: asked on the socket while it's open, else read from `games`. */
 export async function poll() {
+  if (await feed?.sync()) return;
   try {
-    const r = await fetch('games', { cache: 'no-store' });
+    const r = await fetch(tag ? `games?v=${encodeURIComponent(tag)}` : 'games', { cache: 'no-store' });
     if (r.status === 403) { state.expired = true; render(); return; }
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const body = await r.json();
-    Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], social: body.social ?? null });
-    for (const g of state.games) {
-      const s = g.status;
-      if (s.state === 'uploading' && !s.mine && !s.stale) {
-        // The server takes 32 MB at a time: a minute of history smooths that out.
-        if (!state.watching.has(g.key)) state.watching.set(g.key, meter(60_000));
-        state.watching.get(g.key).add(s.received);
-      } else state.watching.delete(g.key);
+    // (the socket came back meanwhile: what it pushes is newer than this)
+    if (feed?.live) return;
+    if (r.status !== 304) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const body = await r.json();
+      Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], social: body.social ?? null });
+      tag = r.headers.get('etag');
+      watchUploads();
     }
   } catch (e) {
     // (no connection for a moment: the next look tries again)
@@ -351,8 +380,12 @@ function watchVimm(wait = 1000) {
   ws.onclose = () => { if (!state.expired) setTimeout(() => watchVimm(Math.min(wait * 2, 30_000)), wait); };
 }
 
+// The feed; while it's down, the poll every 2 s (and, with it, every 2 s a redraw: "há 3 min" and the greeting move on).
+let feed = null;
+feed = follow(new URL('home/ws', location.href).href.replace(/^http/, 'ws'), { apply: pushed, down: () => poll(), again: () => !state.expired });
+// (the first look read at once, without waiting for the socket: what it pushes replaces it)
 poll();
-setInterval(() => { if (!state.expired) poll(); }, 2000);
+setInterval(() => { if (!state.expired) feed.live ? render() : poll(); }, 2000);
 watchVimm();
 // The add-a-game wizard, the controller screen and the intro set their hooks once loaded.
 for (const m of ['./wizard.js', './controller.js', './settings.js', './store.js', './intro.js', './gamepadnav.js', './friends.js']) import(m).catch((e) => console.warn('home:', m, e));

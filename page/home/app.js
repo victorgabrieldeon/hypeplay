@@ -12,6 +12,8 @@ const $ = (id) => document.getElementById(id);
 export const state = {
   me: '',
   last: null,
+  /** the games this person starred, by key (server/people.ts) */
+  favorites: [],
   publicUrl: '',
   games: null,
   /** who else is around (server/presence.ts): the same call first */
@@ -31,6 +33,7 @@ export const state = {
 };
 
 export const gameOf = (key) => state.games?.find((g) => g.key === key);
+export const isFavorite = (key) => state.favorites.includes(key);
 
 /** Only touches the page where something changed: keeps focus and hover where they are between polls. */
 export function set(el, html) {
@@ -90,13 +93,13 @@ export function render() {
   const top = spotlight();
   $('hero').hidden = !top;
   if (top) {
-    set($('hero'), hero(top, state.sending, top.key === state.last ? 'Continuar jogando' : 'Em destaque'));
+    set($('hero'), hero(top, state.sending, top.key === state.last ? 'Continuar jogando' : 'Em destaque', isFavorite(top.key)));
     $('hero').classList.remove('loading');
     $('hero').removeAttribute('aria-busy');
   }
   // (a short window shows two rows: one big cover there, or the bigs would be all of it)
-  const wall = arrange(state.games, top, state.sending, matchMedia('(max-height: 620px)').matches ? 1 : 3);
-  const cards = wall.map(({ g, big }, i) => card(g, state.sending, state.open, i, big));
+  const wall = arrange(state.games, top, state.sending, matchMedia('(max-height: 620px)').matches ? 1 : 3, new Set(state.favorites));
+  const cards = wall.map(({ g, big }, i) => card(g, state.sending, state.open, i, big, isFavorite(g.key)));
   // (the game on its way from vimm.net: right after the big ones)
   if (installing(state.vimm)) { const at = wall.filter((x) => x.big).length; cards.splice(at, 0, installCard(state.vimm, at)); }
   set($('grid'), cards.join('') + addCard(n));
@@ -107,7 +110,7 @@ export function render() {
   else if (g) {
     $('drawer-title').textContent = g.name;
     // (the name being typed isn't redrawn under the cursor)
-    if (document.activeElement?.id !== 'game-name') set($('drawer-body'), drawer(g, state));
+    if (document.activeElement?.id !== 'game-name') set($('drawer-body'), drawer(g, state, isFavorite(g.key)));
   }
 }
 
@@ -155,7 +158,7 @@ export async function poll() {
     if (r.status !== 304) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const body = await r.json();
-      Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], social: body.social ?? null });
+      Object.assign(state, { me: body.me, last: body.last, favorites: body.favorites ?? [], publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], social: body.social ?? null });
       tag = r.headers.get('etag');
       watchUploads();
     }
@@ -262,6 +265,16 @@ export function closeDrawer() {
 
 const api = (path, init) => fetch(path, init).then((r) => { if (r.status === 403) state.expired = true; return r; });
 
+/** Stars or unstars a game: on the screen at once, then on the server (and back if it refused). */
+async function favorite(key) {
+  const on = !isFavorite(key);
+  const before = state.favorites;
+  state.favorites = on ? [...before, key] : before.filter((k) => k !== key);
+  render();
+  const r = await api('favorites', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key, on }) }).catch(() => null);
+  if (!r?.ok) { state.favorites = before; render(); }
+}
+
 let picking = null; // what the file picker is for: { key, kind: 'disc' | 'cover' | 'bios' }
 function pickFile(key, kind) {
   picking = { key, kind };
@@ -287,7 +300,7 @@ $('file').addEventListener('change', async (e) => {
 });
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
+  const el = e.target.closest('[data-open],[data-fav],[data-play],[data-pick],[data-bios],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
   if (!el) {
     if (e.target === $('scrim')) closeDrawer();
     return;
@@ -301,6 +314,7 @@ document.addEventListener('click', async (e) => {
     for (const b of document.querySelectorAll('[data-nav]')) b.classList.toggle('on', b === el);
     return document.getElementById(d.nav)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
+  if (d.fav) return favorite(d.fav);
   if (d.open) return openDrawer(d.open, el.querySelector('img'));
   // (player 2 watches the host's page, whichever it is; data-emulator: the drawer's "Jogar no emulador")
   if (d.play) { const g = gameOf(d.play); if (g) hooks.play(g, d.join, 'online' in d, !d.join && !('emulator' in d) && fastPlays(g), 'watch' in d); return; }

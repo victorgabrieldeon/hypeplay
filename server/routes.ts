@@ -9,6 +9,7 @@
  *             home/ws                      the same, pushed as it changes, and who's here while it's open (homefeed.ts)
  *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
  *             pad, keys, played            the person's controller maps, keys and last game (people.ts)
+ *             favorites                    PUT { key, on }: star a game of the library (on) or unstar it (people.ts)
  *             here                         POST: a game's page is still open (its path; empty, it closed): presence.ts
  *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
  *             ps2/<id>/                    PATCH name, DELETE; status, upload, cover, save
@@ -374,6 +375,8 @@ export function createApp({
     return {
       me: pass.name,
       last: (await people?.last(pass.id)) ?? null,
+      // (a removed game's star stays behind, unseen: only the library's keys)
+      favorites: (await people?.favorites(pass.id))?.filter((k) => games.some((g) => g.key === k)) ?? [],
       publicUrl,
       games,
       people: peopleFor(pass),
@@ -868,6 +871,14 @@ export function createApp({
       if (req.method === "GET") return json(await people.prefs(pass.id));
       if (req.method !== "PUT") return text("Método não permitido", 405);
       return (await people.setPrefs(pass.id, await body(req))) ? respond(null, 204) : text("Pedido inválido", 400);
+    }
+    if (path === "/favorites" && people) {
+      if (req.method !== "PUT") return text("Método não permitido", 405);
+      const b = await body<{ key?: unknown; on?: unknown }>(req);
+      if (typeof b?.key !== "string" || typeof b.on !== "boolean") return text("Pedido inválido", 400);
+      // (unstarring a game removed meanwhile is fine)
+      if (b.on && !(await titleOf(b.key))) return text("Pedido inválido", 400);
+      return (await people.setFavorite(pass.id, b.key, b.on)) ? respond(null, 204) : text("Pedido inválido", 400);
     }
     if (path === "/played" && people) {
       if (req.method !== "POST") return text("Método não permitido", 405);

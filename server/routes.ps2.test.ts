@@ -71,7 +71,7 @@ const exists = (path: string) => stat(path).then(() => true, () => false);
 const cnf = (program: string) => `BOOT2 = cdrom0:\\${program};1\r\n`;
 
 type Entry = { key: string; kind: string; id: string; name: string; cover: string; status: { state: string }; open: unknown[]; by?: string };
-const catalog = async () => (await (await ana("games")).json()) as { me: string; last: string | null; games: Entry[] };
+const catalog = async () => (await (await ana("games")).json()) as { me: string; last: string | null; favorites: string[]; games: Entry[] };
 
 async function send(id: string, disc: Uint8Array<ArrayBuffer>, who = ana) {
   return who(`ps2/${id}/upload?offset=0&size=${disc.length}`, { method: "PUT", body: disc });
@@ -85,6 +85,23 @@ test("games lists the PS2 games, each with its key, cover and state", async () =
   expect(one).toMatchObject({ kind: "recomp", id: "sles-11111", name: "Jogo Um", status: { state: "empty" }, open: [], by: "Ana" });
   expect(one.cover).toStartWith("cover/ps2/sles-11111?v=");
   expect(one).not.toHaveProperty("files");
+});
+
+test("favorites: each person stars the library's games for themselves", async () => {
+  expect((await ana("ps2", json({ serial: "SLES-33333", name: "Favorito" }))).status).toBe(201);
+  expect((await catalog()).favorites).toEqual([]);
+  expect((await ana("favorites", json({ key: "ps2/sles-33333", on: true }, "PUT"))).status).toBe(204);
+  expect((await catalog()).favorites).toEqual(["ps2/sles-33333"]);
+  // (Bia's are hers)
+  expect((await (await bia("games")).json()).favorites).toEqual([]);
+  // not a game of the library, a bad body, the wrong method
+  expect((await ana("favorites", json({ key: "ps2/nao-existe", on: true }, "PUT"))).status).toBe(400);
+  expect((await ana("favorites", json({ key: "ps2/sles-33333" }, "PUT"))).status).toBe(400);
+  expect((await ana("favorites", json({ key: "ps2/sles-33333", on: true }))).status).toBe(405);
+  // a removed game's star isn't shown; unstarring it still works
+  expect((await ana("ps2/sles-33333", { method: "DELETE" })).status).toBe(204);
+  expect((await catalog()).favorites).toEqual([]);
+  expect((await ana("favorites", json({ key: "ps2/sles-33333", on: false }, "PUT"))).status).toBe(204);
 });
 
 test("reserve, upload in pieces and the disc is checked when complete", async () => {

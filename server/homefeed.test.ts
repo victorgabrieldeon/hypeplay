@@ -10,6 +10,7 @@ const bia: Pass = { id: "2", name: "Bia", exp: Infinity };
 const home = (over: Partial<HomeView> = {}): HomeView => ({
   me: "Ana",
   last: null,
+  favorites: [],
   publicUrl: "",
   games: [
     { key: "ps2/a", status: { state: "ready" } },
@@ -53,7 +54,7 @@ test("the ETag follows the JSON; If-None-Match is read as a list, weak or not, a
 
 test("diff: everything the first time, then only what changed, a game alone when the library's games are the same", () => {
   const first = diff(home(), null);
-  expect(Object.keys(first.message).sort()).toEqual(["games", "last", "me", "people", "publicUrl", "social"]);
+  expect(Object.keys(first.message).sort()).toEqual(["favorites", "games", "last", "me", "people", "publicUrl", "social"]);
   // nothing changed: nothing to send
   expect(diff(home(), first.after).message).toEqual({});
   // one game's progress: that game only
@@ -65,7 +66,7 @@ test("diff: everything the first time, then only what changed, a game alone when
   expect(Object.keys(diff(more, second.after).message)).toEqual(["games"]);
   // someone around, a friend's request, a new last game: those sections
   const m = diff(home({ games: going.games, people: [{ id: "2" }], social: { incoming: [] }, last: "ps2/a" }), second.after).message;
-  expect(m).toEqual({ me: "Ana", last: "ps2/a", publicUrl: "", people: [{ id: "2" }], social: { incoming: [] } });
+  expect(m).toEqual({ me: "Ana", last: "ps2/a", favorites: [], publicUrl: "", people: [{ id: "2" }], social: { incoming: [] } });
 });
 
 test("open: the whole home at once, then a tick sends each socket only its own changes", async () => {
@@ -212,6 +213,6 @@ test("a socket's pushes go out in order: a slow view begun before a change doesn
   slow.shift()!();
   await tick;
   await settle();
-  expect(a.got.at(-1)).toEqual({ me: "new", last: null, publicUrl: "", sync: 1 });
+  expect(a.got.at(-1)).toEqual({ me: "new", last: null, favorites: [], publicUrl: "", sync: 1 });
   feed.close(a.ws);
 });

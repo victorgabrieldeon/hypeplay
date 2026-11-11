@@ -1,6 +1,6 @@
 // A game's drawer: its cover (a poster on top) and name (editable for the PS2 library), what's happening to it (the disc's upload,
 // a missing BIOS, a failure), a PS2 game's "versão rápida", its open rooms, and what can be done with it.
-import { clock, esc, icon, needsDisc, pct, progress, seal, stateBadge } from './library.js';
+import { clock, esc, favButton, icon, needsDisc, pct, progress, seal, stateBadge } from './library.js';
 
 function steps(g, s) {
   return `<ol class="steps">${Array.from({ length: s.total }, (_, i) => {
@@ -81,7 +81,8 @@ function fast(g) {
   return `<div class="block"><h3>Versão rápida</h3>${body}${remove}</div>`;
 }
 
-export function drawer(g, ctx) {
+/** `fav`: the person starred it. */
+export function drawer(g, ctx, fav = false) {
   const recomp = g.kind === 'recomp';
   const name = recomp
     ? `<label class="sr" for="game-name">Nome do jogo</label><input class="field" id="game-name" data-rename="${esc(g.key)}" value="${esc(g.name)}" maxlength="80">`
@@ -92,6 +93,7 @@ export function drawer(g, ctx) {
       <p>${esc(g.platform)}${g.serial ? ' · ' + esc(g.serial) : ''}</p>
       ${g.by ? `<p>Adicionado por ${esc(g.by)}</p>` : ''}
       <div class="chips">${seal(g)}${stateBadge(g, ctx.sending)}</div>
+      <div class="row-actions">${favButton(g, fav, 'second small')}</div>
     </div>`;
   const error = ctx.uploadError.key === g.key && ctx.uploadError.text ? `<p class="error">${esc(ctx.uploadError.text)}</p>` : '';
   const rooms = g.open.length

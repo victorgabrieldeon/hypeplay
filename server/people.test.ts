@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Mapping } from "../page/padmap";
-import { createPeople } from "./people";
+import { createPeople, MOST_FAVORITES } from "./people";
 import { needsPg as test, testDb } from "./testing/pg";
 
 let done: (() => Promise<unknown>)[] = [];
@@ -18,7 +18,7 @@ async function setup() {
   done.push(close, () => rm(dir, { recursive: true, force: true }));
   const people = createPeople(sql, dir);
   await people.ready;
-  return { dir, people };
+  return { dir, sql, people };
 }
 
 const adapter: Mapping = {
@@ -43,6 +43,28 @@ test("pads round-trip; a bad mapping is refused whole", async () => {
   expect(await people.setPads("42", "nope")).toBe(false);
   expect(Object.keys(await people.pads("42"))).toEqual(["USB Joystick (Vendor: 0810 Product: 0001)"]);
   expect(await people.pads("43")).toEqual({});
+});
+
+test("favorites: starred in order, once each, unstarred; only games' keys, and only so many", async () => {
+  const { dir, sql, people } = await setup();
+  expect(await people.favorites("42")).toEqual([]);
+  expect(await people.setFavorite("42", "ps2/sles-11111", true)).toBe(true);
+  expect(await people.setFavorite("42", "ps2/sles-22222", true)).toBe(true);
+  expect(await people.setFavorite("42", "ps2/sles-11111", true)).toBe(true);
+  expect(await people.favorites("42")).toEqual(["ps2/sles-11111", "ps2/sles-22222"]);
+  expect(await people.favorites("43")).toEqual([]);
+  expect(await people.setFavorite("42", "ps2/sles-11111", false)).toBe(true);
+  expect(await people.favorites("42")).toEqual(["ps2/sles-22222"]);
+  expect(await people.setFavorite("42", "../x", true)).toBe(false);
+  expect(await people.setFavorite("../x", "ps2/sles-11111", true)).toBe(false);
+  // (still there for the next server)
+  expect(await createPeople(sql, dir).favorites("42")).toEqual(["ps2/sles-22222"]);
+
+  await sql`INSERT INTO favorites ${sql(Array.from({ length: MOST_FAVORITES - 1 }, (_, i) => ({ person: "7", key: `ps2/g-${i}`, at: i })))}`;
+  expect(await people.setFavorite("7", "ps2/one-more", true)).toBe(true);
+  expect(await people.setFavorite("7", "ps2/too-many", true)).toBe(false);
+  expect(await people.setFavorite("7", "ps2/one-more", true)).toBe(true);
+  expect((await people.favorites("7")).length).toBe(MOST_FAVORITES);
 });
 
 test("played and last", async () => {

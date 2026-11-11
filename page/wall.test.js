@@ -14,6 +14,20 @@ test('the wall: the spotlight and games with a room big (3 at most), then what n
     ['Top*', 'Sala 1*', 'Sala 2*', 'BIOS', 'Quebrou', 'Subindo', 'Alfa', 'Sala 3', 'Zeta']);
   // a short window: only the spotlight is big
   expect(arrange(games, top, null, 1).filter((c) => c.big).map((c) => c.g.name)).toEqual(['Top']);
+  // the person's favorites come right after the big ones
+  expect(arrange(games, top, null, 3, new Set(['Zeta', 'Sala 3'])).map(({ g }) => g.name).slice(3, 6)).toEqual(['Sala 3', 'Zeta', 'BIOS']);
   // nothing to spotlight yet (an empty library)
   expect(arrange([], undefined, null)).toEqual([]);
+});
+
+test('a favorite: a star on its cover, and the hero and drawer buttons say so', async () => {
+  const { card, hero } = await import('./home/library.js');
+  const { drawer } = await import('./home/drawer.js');
+  const g = { ...game('Jogo', 'ready'), key: 'ps2/jogo', cover: 'c.png', kind: 'recomp', platform: 'PS2', steps: [] };
+  expect(card(g, null, null, 0, false, true)).toContain('fav-mark');
+  expect(card(g, null, null, 0, false, true)).toContain('Jogo (favorito)');
+  expect(card(g, null, null, 0, false, false)).not.toContain('fav-mark');
+  expect(hero(g, null, 'Em destaque', true)).toContain('data-fav="ps2/jogo" aria-pressed="true"');
+  expect(hero(g, null, 'Em destaque', false)).toContain('aria-pressed="false"');
+  expect(drawer(g, { sending: null, watching: new Map(), uploadError: { key: null } }, true)).toContain('data-fav="ps2/jogo" aria-pressed="true"');
 });

@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS pads (person TEXT PRIMARY KEY, maps TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS keys (person TEXT PRIMARY KEY, map TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS last_played (person TEXT PRIMARY KEY, key TEXT NOT NULL, at BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS prefs (person TEXT PRIMARY KEY, volume DOUBLE PRECISION NOT NULL, filter TEXT NOT NULL);
+-- the games a person starred (by key), at: when
+CREATE TABLE IF NOT EXISTS favorites (person TEXT NOT NULL, key TEXT NOT NULL, at BIGINT NOT NULL, PRIMARY KEY (person, key));
 
 -- n: the order they came in (search's results)
 CREATE TABLE IF NOT EXISTS profiles (

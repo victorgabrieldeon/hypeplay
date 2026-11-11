@@ -13,6 +13,10 @@ export const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 export const initials = (name) => String(name).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
 export const icon = (id) => `<svg class="i" aria-hidden="true"><use href="#i-${id}"/></svg>`;
 
+/** The star that adds a game to the person's favorites (or takes it out): app.js' data-fav. */
+export const favButton = (g, on, cls = 'second') =>
+  `<button class="btn ${cls} fav${on ? ' on' : ''}" data-fav="${esc(g.key)}" aria-pressed="${on}" aria-label="${on ? 'Tirar dos favoritos' : 'Favoritar'}: ${esc(g.name)}">${icon('star')}${on ? 'Favorito' : 'Favoritar'}</button>`;
+
 function duration(s) {
   if (s < 10) return 'segundos';
   if (s < 60) return `${Math.ceil(s / 5) * 5} s`;
@@ -78,8 +82,8 @@ function online(g, room) {
   return g.status.state === 'ready' ? `<button class="btn second" data-play="${esc(g.key)}" data-online>${icon('users')}Jogar online</button>` : '';
 }
 
-/** `label`: why this game is in the spotlight ("Continuar jogando", "Em destaque"), said under its name. */
-export function hero(g, sending, label) {
+/** `label`: why this game is in the spotlight ("Continuar jogando", "Em destaque"), said under its name; `fav`: starred. */
+export function hero(g, sending, label, fav = false) {
   const room = free(g)[0];
   const sub = g.by ? `Adicionado por ${g.by}. A ISO fica no servidor: é só jogar.` : '';
   const play = g.status.state === 'ready'
@@ -88,20 +92,21 @@ export function hero(g, sending, label) {
   return `<h2>${esc(g.name)}</h2>
     <div class="why"><span>${esc(label)}</span>·${seal(g)}${g.status.state === 'ready' ? '' : stateBadge(g, sending)}</div>
     ${sub ? `<p>${esc(sub)}</p>` : ''}
-    <div class="actions">${play}${online(g, room)}</div>
+    <div class="actions">${play}${online(g, room)}${favButton(g, fav, 'quiet')}</div>
     ${room ? `<span class="live">${esc(room.host)} está jogando</span>` : ''}`;
 }
 
 /**
  * The wall's order and sizes: the spotlight and the games with an open room are big (3 at most, so the first rows
- * show what can be played with someone now; `most`: fewer in a short window); then what needs someone (a missing BIOS, a stopped upload, a failure),
- * what's on its way, and the ready ones by name.
+ * show what can be played with someone now; `most`: fewer in a short window); then the person's favorites (`favs`, keys),
+ * what needs someone (a missing BIOS, a stopped upload, a failure), what's on its way, and the ready ones by name.
  */
-export function arrange(games, top, sending, most = 3) {
+export function arrange(games, top, sending, most = 3, favs = new Set()) {
   const bigs = [top, ...games.filter((g) => g !== top && g.open.length)].filter(Boolean).slice(0, most);
   const rank = (g) => ({ warn: 0, bad: 0, busy: 1 })[stateOf(g, sending)[0]] ?? 2;
+  const fav = (g) => (favs.has(g.key) ? 0 : 1);
   const rest = games.filter((g) => !bigs.includes(g))
-    .sort((a, b) => rank(a) - rank(b) || (rank(a) === 2 ? a.name.localeCompare(b.name, 'pt-BR') : 0));
+    .sort((a, b) => fav(a) - fav(b) || rank(a) - rank(b) || (rank(a) === 2 ? a.name.localeCompare(b.name, 'pt-BR') : 0));
   return [...bigs.map((g) => ({ g, big: true })), ...rest.map((g) => ({ g, big: false }))];
 }
 
@@ -113,16 +118,16 @@ function progressOf(g, sending) {
   return null;
 }
 
-/** One cover on the wall, its name and state at its foot. `i`: its place (the first look lights the wall up by it). */
-export function card(g, sending, selected, i, big) {
+/** One cover on the wall, its name and state at its foot. `i`: its place (the first look lights the wall up by it); `fav`: a star on it. */
+export function card(g, sending, selected, i, big, fav = false) {
   const [tone, text] = stateOf(g, sending);
   const ready = g.status.state === 'ready' && sending?.key !== g.key;
   const rooms = g.open.length ? `${g.open.length} ${g.open.length === 1 ? 'sala aberta' : 'salas abertas'}` : '';
   const state = ready ? (rooms ? `Pronto · ${rooms}` : 'Pronto') : text;
   const p = progressOf(g, sending);
   return `<article class="card${big ? ' big' : ''}${g.key === selected ? ' on' : ''}" style="--i:${i}">
-    <button class="cover" data-open="${esc(g.key)}" aria-label="${esc(g.name)}: ${esc(state)}">
-      <img src="${esc(g.cover)}" alt="" loading="lazy">
+    <button class="cover" data-open="${esc(g.key)}" aria-label="${esc(g.name)}${fav ? ' (favorito)' : ''}: ${esc(state)}">
+      <img src="${esc(g.cover)}" alt="" loading="lazy">${fav ? `<span class="fav-mark">${icon('star')}</span>` : ''}
       <span class="cap"><b>${esc(g.name)}</b>
         <span class="state ${tone}${rooms ? ' live' : ''}"><span>${esc(state)}</span></span>
         ${p === null ? '' : `<i class="seam ${tone}" style="--p:${p.toFixed(1)}%"></i>`}</span>

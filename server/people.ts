@@ -1,7 +1,7 @@
 /**
  * What the server keeps per person, in Postgres (db.ts): their controller maps (pads, by the browser's gamepad
  * id), their keys for the PS2 games (keys), the last game they opened (last_played, for the home's spotlight), and
- * their volume and screen filter (prefs). The files they were in before (pads/<id>.json, keys/, users/, prefs/) are
+ * their volume and screen filter (prefs), and the games they starred (favorites). The files they were in before (pads/<id>.json, keys/, users/, prefs/) are
  * imported once and left there.
  */
 import type { SQL } from "bun";
@@ -22,6 +22,10 @@ const FILTERS = new Set(["off", "crt", "scan"]);
 
 /** More than this many controllers for one person is not a person. */
 const MOST_PADS = 16;
+/** Starred games per person, at most. */
+export const MOST_FAVORITES = 500;
+/** A game's key ("ps2/<id>", routes.ts). */
+const GAME_KEY = /^[a-z0-9]+\/[\w-]{1,64}$/;
 
 const parse = (text: string | null): unknown => {
   try {
@@ -130,6 +134,25 @@ export function createPeople(sql: SQL, dir: string) {
       if (!USER.test(user)) return null;
       await ready;
       return (await one<{ key: string }>(sql`SELECT key FROM last_played WHERE person = ${user}`))?.key ?? null;
+    },
+
+    /** The games they starred, the oldest first. */
+    async favorites(user: string): Promise<string[]> {
+      if (!USER.test(user)) return [];
+      await ready;
+      return (await sql<{ key: string }[]>`SELECT key FROM favorites WHERE person = ${user} ORDER BY at, key`).map((r) => r.key);
+    },
+
+    /** Stars (`on`) or unstars a game; false: not a game's key, or too many already. */
+    async setFavorite(user: string, key: string, on: boolean): Promise<boolean> {
+      if (!USER.test(user) || !GAME_KEY.test(key)) return false;
+      await ready;
+      if (!on) return (await sql`DELETE FROM favorites WHERE person = ${user} AND key = ${key}`, true);
+      // (one statement: two stars at once can't both slip under the limit)
+      await sql`INSERT INTO favorites (person, key, at)
+        SELECT ${user}, ${key}, ${Date.now()} WHERE (SELECT count(*) FROM favorites WHERE person = ${user}) < ${MOST_FAVORITES}
+        ON CONFLICT (person, key) DO NOTHING`;
+      return !!(await one(sql`SELECT 1 FROM favorites WHERE person = ${user} AND key = ${key}`));
     },
 
     async played(user: string, key: string) {

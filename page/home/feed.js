@@ -3,11 +3,11 @@
 // poll, app.js, filling in meanwhile) and `sync` asks for a fresh look after doing something. No DOM here: tested alone.
 
 /** The sections a message may bring whole. */
-const SECTIONS = ['me', 'last', 'publicUrl', 'people', 'social'];
+const SECTIONS = ['me', 'last', 'favorites', 'publicUrl', 'people', 'social'];
 
 /** One pushed message into `state`: whole sections, the library whole (`games`) or only the games that changed (`game`). */
 export function merge(state, m) {
-  for (const k of SECTIONS) if (k in m) state[k] = m[k] ?? (k === 'people' ? [] : null);
+  for (const k of SECTIONS) if (k in m) state[k] = m[k] ?? (k === 'people' || k === 'favorites' ? [] : null);
   if (m.games) state.games = m.games;
   else if (m.game && state.games) {
     const by = new Map(m.game.map((g) => [g.key, g]));

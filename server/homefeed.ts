@@ -30,6 +30,8 @@ export const EXPIRED = 4003;
 export interface HomeView {
   me: string;
   last: string | null;
+  /** the games this person starred, by key */
+  favorites: string[];
   publicUrl: string;
   games: { key: string }[];
   people: unknown;
@@ -74,14 +76,14 @@ export function unchanged(req: Request, tag: string) {
 export function diff(view: HomeView, before: Sent | null): { message: Record<string, unknown>; after: Sent } {
   const games = new Map(view.games.map((g) => [g.key, JSON.stringify(g)]));
   const after: Sent = {
-    head: JSON.stringify([view.me, view.last, view.publicUrl]),
+    head: JSON.stringify([view.me, view.last, view.favorites, view.publicUrl]),
     order: JSON.stringify([...games.keys()]),
     games,
     people: JSON.stringify(view.people),
     social: JSON.stringify(view.social),
   };
   const message: Record<string, unknown> = {};
-  if (after.head !== before?.head) Object.assign(message, { me: view.me, last: view.last, publicUrl: view.publicUrl });
+  if (after.head !== before?.head) Object.assign(message, { me: view.me, last: view.last, favorites: view.favorites, publicUrl: view.publicUrl });
   if (!before || after.order !== before.order) message.games = view.games;
   else {
     const changed = view.games.filter((g) => games.get(g.key) !== before.games.get(g.key));

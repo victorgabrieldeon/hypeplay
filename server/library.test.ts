@@ -164,3 +164,15 @@ test("the list comes from the index, not the disk: kept up to date by every chan
   await library.remove("sles-12345");
   expect((await library.list()).map((g) => g.id)).toEqual(["slpm-66666"]);
 });
+
+test("a game reserved or removed while the sweep runs stays as it was left", async () => {
+  const { library } = await setup();
+  for (let n = 10_000; n < 10_030; n++) await library.reserve(ana, `SLES-${n}`, "x");
+  const sweep = library.sweep();
+  await library.reserve(bia, "SLPM-66666", "C");
+  await library.remove("sles-10029");
+  await sweep;
+  expect(await library.get("slpm-66666")).not.toBeNull();
+  expect(await library.get("sles-10029")).toBeNull();
+  expect((await library.list()).length).toBe(30);
+});

@@ -85,6 +85,8 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
   /** Every game, by id: what's in the game.json files. */
   const index = new Map<string, Ps2Game>();
   let loaded: Promise<void> | null = null;
+  /** While a sweep runs: the games written or removed meanwhile (what the sweep saw of them is old). */
+  let touched: Set<string> | null = null;
 
   function paths(id: string) {
     if (!ID.test(id)) throw new Error(`not a game id: ${id}`);
@@ -138,6 +140,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     await writeFile(`${p.game}.tmp`, JSON.stringify(game));
     await rename(`${p.game}.tmp`, p.game);
     index.set(game.id, game);
+    touched?.add(game.id);
   }
 
   async function update(id: string, change: (g: Ps2Game) => Ps2Game): Promise<boolean> {
@@ -173,6 +176,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     await ready();
     stores.delete(id);
     index.delete(id);
+    touched?.add(id);
     await dropFromR2(r2, dir, p.iso).catch((err) => console.error(`R2: ${id}'s disc stays there:`, err));
     await rm(p.root, { recursive: true, force: true });
     await rm(p.work, { recursive: true, force: true });
@@ -205,18 +209,25 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
      */
     async sweep() {
       await ready();
-      const seen = new Set(await folders());
-      for (const id of seen) {
-        if (reserving.has(id)) continue;
-        const g = await read(id);
-        if (!g) {
-          if (!reserving.has(id) && !(await exists(paths(id).game))) await remove(id);
-          continue;
+      if (touched) return;
+      const mine = (touched = new Set());
+      try {
+        const seen = new Set(await folders());
+        for (const id of seen) {
+          if (reserving.has(id)) continue;
+          const g = await read(id);
+          if (!g) {
+            if (!reserving.has(id) && !mine.has(id) && !(await exists(paths(id).game))) await remove(id);
+            continue;
+          }
+          if (await abandoned(g)) {
+            if (!mine.has(id)) await remove(id);
+          } else if (!index.has(id) && !mine.has(id)) index.set(id, g);
         }
-        if (await abandoned(g)) await remove(id);
-        else if (!index.has(id)) index.set(id, g);
+        for (const id of [...index.keys()]) if (!seen.has(id) && !reserving.has(id) && !mine.has(id)) index.delete(id);
+      } finally {
+        touched = null;
       }
-      for (const id of index.keys()) if (!seen.has(id) && !reserving.has(id)) index.delete(id);
     },
 
     /**

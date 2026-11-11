@@ -141,11 +141,11 @@ test("every change is written: after a restart, everyone's view and profiles are
     () => s.seen({ id: "3", name: "Caio Novo" }),
     () => s.remove("1", "3"),
   ];
+  const ids = ["1", "2", "3"];
+  const all = (x: typeof s) => ids.map((me) => [x.view(me, () => true), ids.map((id) => x.profile(me, id))]);
   for (const step of steps) {
     step();
     await s.flush();
+    expect(all(createSocial(dir, () => clock.t))).toEqual(all(s));
   }
-  const ids = ["1", "2", "3"];
-  const all = (x: typeof s) => ids.map((me) => [x.view(me, () => true), ids.map((id) => x.profile(me, id))]);
-  expect(all(createSocial(dir, () => clock.t))).toEqual(all(s));
 });

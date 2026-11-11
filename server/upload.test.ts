@@ -78,3 +78,18 @@ test("another file mid-way (another size) starts over", async () => {
   expect(await store.put(ana, 0, 30, bytes(8, 2))).toMatchObject({ ok: true, received: 8 });
   expect([...(await readFile(join(dir, "upload", "disc.iso.part")))]).toEqual([...bytes(8, 2)]);
 });
+
+test("no room for the whole image on the disk: 507 before its first piece, nothing written; once begun, the rest goes on", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "bt3-upload-"));
+  dirs.push(dir);
+  const asked: number[] = [];
+  let free = false;
+  const store = createDiscStore(dir, { min: 10, max: 100, maxPiece: 8, room: async (n) => (asked.push(n), free) });
+  expect(await store.put(ana, 0, 20, bytes(8, 1))).toMatchObject({ ok: false, status: 507, code: "space", error: expect.stringContaining("sem espaço") });
+  expect(await stat(join(dir, "upload")).catch(() => null)).toBeNull();
+  free = true;
+  expect(await store.put(ana, 0, 20, bytes(8, 1))).toMatchObject({ ok: true, received: 8 });
+  free = false;
+  expect(await store.put(ana, 8, 20, bytes(8, 2))).toMatchObject({ ok: true, received: 16 });
+  expect(asked).toEqual([20, 20]);
+});

@@ -17,7 +17,9 @@ nada (ver [Jogos de PS2](#jogos-de-ps2)). Depois disso o jogo fica na biblioteca
 - **ISO, uma vez por jogo:** "Adicionar jogo" na biblioteca. Antes do envio vem o aviso: o TabStationToo ainda está
   em teste, a maioria dos jogos roda e alguns podem travar ou ficar lentos. A página lê o serial da ISO
   (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. O servidor confere o serial de
-  novo com a ISO inteira e guarda a ISO.
+  novo com a ISO inteira e guarda a ISO. Antes do primeiro pedaço ele confere se a ISO inteira cabe no disco
+  deixando livre o maior entre 2 GB e 5% do disco (o Postgres e a fila moram nele); se não cabe, o envio nem começa
+  (507, e a home mostra o aviso). Um envio parado há mais de 24 horas (desde o último pedaço) é apagado com a reserva.
 - **Ou baixar do vimm.net, sem passar pelo PC:** na **Loja**, abra um jogo com **Instalação direta** e clique em
   **Instalar no servidor**. Também dá para colar a página (`https://vimm.net/vault/7843`) no campo de link da Loja ou no passo da ISO de
   "Adicionar jogo". O servidor consulta um catálogo público de metadados para encontrar o `mediaId` dessa edição,
@@ -30,7 +32,9 @@ nada (ver [Jogos de PS2](#jogos-de-ps2)). Depois disso o jogo fica na biblioteca
   link de download (`https://dl2.vimm.net/?mediaId=…`) ou enviar sua ISO. Para obter o link manual: abra a página,
   passe pela verificação de humano, clique em Download, cancele e copie o endereço na lista de downloads do navegador.
   O servidor não tenta resolver essa verificação. Só jogos em ISO (os de CD, em `.bin/.cue`, não). O servidor precisa de
-  espaço para o arquivo e a ISO ao mesmo tempo (em `/app/data/vimm/`, apagados no fim).
+  espaço para o arquivo e a ISO ao mesmo tempo (em `/app/data/vimm/`, apagados no fim): ele confere antes de baixar
+  (o dobro do tamanho do arquivo, com a mesma margem do envio) e de novo antes de extrair, e sem espaço a instalação
+  falha com o aviso.
 - **Jogar:** assim que a ISO entra (e o servidor tem a BIOS), o jogo está pronto para todo mundo, para sempre. A
   página do jogo é a do TabStationToo no nosso design: só o jogo na tela, a nossa barra e o painel de som e imagem.
   "Remover" tira o jogo para todo mundo (os saves ficam guardados).
@@ -310,7 +314,8 @@ workers, as mesmas credenciais do **mesmo bucket**.
      hypeplay-ps2-builder
    ```
    `QUEUE_URL` é o endereço do app (o mesmo do `PUBLIC_URL`). `WORKER_ID` é opcional: o nome que aparece nos logs e
-   na fila. O volume é só desta máquina: os arquivos da compilação (`ps2-work/`) e o disco enquanto compila.
+   na fila. O volume é só desta máquina: os arquivos da compilação (`ps2-work/`) e o disco enquanto compila
+   (`ps2-work/<serial>/disc.iso`, trazido só se couber com a mesma margem do envio; se não, o jogo volta para a fila).
 3. `docker logs -f ps2-worker` mostra `taking jobs from https://…` e cada jogo que ele pega. Na gaveta do jogo, o
    progresso aparece como se fosse aqui.
 
@@ -344,9 +349,16 @@ rápida: o pedido, `build.log`, `misses.txt` e `build/`; feita em outra máquina
 `ps2/<serial>/fast/<versão>/`) e a BIOS em `/app/data/bios/`. A fila de compilações é `/app/data/queue.db` (SQLite,
 um arquivo só dela, fora do Postgres): cada jogo pedido, quem está compilando, e como foi. Na primeira subida com
 ela, os pedidos que já estavam no volume entram sozinhos (uma versão pronta continua pronta, sem compilar de novo). O que a
-compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). A lista da biblioteca
-sai de um índice em memória, montado dos `game.json` na subida; reservas abandonadas e pastas sem `game.json` são
-limpas de 10 em 10 minutos. Os memory cards são `saves/<serial>/<id do Discord>.ps2`. A intro opcional é
+compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo); um disco que está no R2
+vem para `ps2-work/<serial>/disc.iso` só enquanto compila (nunca para a pasta do jogo, de onde o app lê os discos) e
+o `ps2-builder` apaga, na subida, o que um build interrompido deixou ali. A lista da biblioteca
+sai de um índice em memória, montado dos `game.json` na subida. De 10 em 10 minutos uma limpeza passa pelo disco do
+servidor, e só por ele (nada no R2 é apagado sem alguém clicar em "Remover"): reservas abandonadas, envios parados há
+24 horas e pastas sem `game.json` saem, mas uma pasta sem `game.json` com disco (`disc.iso` ou `disc.iso.r2`) fica,
+com um aviso no log, à espera de alguém. Ela também apaga o `disc.iso.part` de uma cópia cortada e, com o R2 ligado,
+a cópia local de um disco que já está no R2, e manda de novo ao R2 (um por vez) o disco que ficou aqui porque a
+subida foi cortada (um deploy, um erro). Um erro do disco ao olhar uma pasta (não um arquivo que falta) pula essa
+pasta. Restaure um backup com o app parado. Os memory cards são `saves/<serial>/<id do Discord>.ps2`. A intro opcional é
 `/app/data/intro.mp4` (enviada pela tela Servidor).
 
 O resto do que é de cada pessoa fica no Postgres (serviço `postgres`, volume `postgres`, fora do `/srv/bt3-data`):

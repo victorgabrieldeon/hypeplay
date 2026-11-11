@@ -3,11 +3,22 @@ import { S3Client } from "bun";
 /**
  * A stand-in for R2 (as discs.test.ts' one): objects by key, single PUTs and multipart ones, GET by Range, DELETE, and
  * the list (ListObjectsV2: by prefix, in pages of max-keys). `fail`: the PUTs it refuses (403, never retried).
+ * `partDelay`: each part waits this long before it's taken (a slow link); `received`: the parts' bytes taken so far,
+ * `written`: how many objects were written.
  */
-export function fakeR2() {
+export function fakeR2({ partDelay = 0 } = {}) {
   const objects = new Map<string, Uint8Array>();
-  const r2 = { fail: null as ((key: string) => boolean) | null };
   const uploads = new Map<string, Map<number, Uint8Array<ArrayBuffer>>>();
+  const counts = { received: 0, written: 0 };
+  const r2 = {
+    fail: null as ((key: string) => boolean) | null,
+    get received() {
+      return counts.received;
+    },
+    get written() {
+      return counts.written;
+    },
+  };
   let next = 0;
   const server = Bun.serve({
     port: 0,
@@ -38,17 +49,22 @@ export function fakeR2() {
         return ok(`<InitiateMultipartUploadResult><UploadId>${id}</UploadId></InitiateMultipartUploadResult>`);
       }
       if (req.method === "PUT" && q.has("partNumber")) {
-        uploads.get(q.get("uploadId")!)!.set(Number(q.get("partNumber")), new Uint8Array(await req.arrayBuffer()));
+        const part = new Uint8Array(await req.arrayBuffer());
+        if (partDelay) await Bun.sleep(partDelay);
+        uploads.get(q.get("uploadId")!)!.set(Number(q.get("partNumber")), part);
+        counts.received += part.length;
         return ok();
       }
       if (req.method === "POST" && q.has("uploadId")) {
         const parts = uploads.get(q.get("uploadId")!)!;
         const all = [...parts.entries()].sort((a, b) => a[0] - b[0]).map(([, p]) => p);
         objects.set(key, new Uint8Array(await new Blob(all).arrayBuffer()));
+        counts.written++;
         return ok('<CompleteMultipartUploadResult><ETag>"e"</ETag></CompleteMultipartUploadResult>');
       }
       if (req.method === "PUT") {
         objects.set(key, new Uint8Array(await req.arrayBuffer()));
+        counts.written++;
         return ok();
       }
       if (req.method === "DELETE") {

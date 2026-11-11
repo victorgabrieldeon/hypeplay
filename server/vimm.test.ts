@@ -81,6 +81,18 @@ const served = (body: BodyInit, headers: Record<string, string>, seen: string[] 
     return new Response(body, { headers });
   }) as unknown as typeof fetch;
 
+test("no room on the disk for the archive and its ISO: it fails with a message, nothing written", async () => {
+  const dir = await temp();
+  const asked: number[] = [];
+  const library = createLibrary(dir, { min: 10, room: async (n) => (asked.push(n), false) });
+  const vimm = createVimm(dir, library, { min: 10, fetch: served(new Uint8Array(1000), { "content-type": "application/x-7z-compressed", "content-length": "1000" }) });
+  expect(vimm.start(ana, "https://dl3.vimm.net/?mediaId=1")).toEqual({ ok: true });
+  await vimm.settled();
+  expect(vimm.status()).toMatchObject({ state: "failed", message: expect.stringContaining("sem espaço") });
+  expect(asked).toEqual([2000]);
+  expect(await readdir(dir)).toEqual([]);
+});
+
 test("a page instead of a game fails with a message, and leaves nothing behind", async () => {
   const dir = await temp();
   const library = createLibrary(dir, { min: 10 });

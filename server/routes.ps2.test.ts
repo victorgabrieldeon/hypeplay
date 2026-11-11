@@ -87,7 +87,7 @@ test("games lists the PS2 games, each with its key, cover and state", async () =
   expect(one).not.toHaveProperty("files");
 });
 
-test("favorites: each person stars the library's games for themselves", async () => {
+needsPg("favorites: each person stars the library's games for themselves", async () => {
   expect((await ana("ps2", json({ serial: "SLES-33333", name: "Favorito" }))).status).toBe(201);
   expect((await catalog()).favorites).toEqual([]);
   expect((await ana("favorites", json({ key: "ps2/sles-33333", on: true }, "PUT"))).status).toBe(204);

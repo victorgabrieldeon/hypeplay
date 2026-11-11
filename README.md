@@ -191,7 +191,7 @@ segundos.
 | --- | --- |
 | Disco quase cheio | `hypeplay.disk.free_bytes / hypeplay.disk.total_bytes < 0.15` |
 | Erros no servidor | aumento (`increase` ou `rate`) de `hypeplay.http.requests` com `status = 5xx` acima de 0 em 5 min. A métrica é cumulativa desde que o processo subiu: o valor cru acima de 0 avisaria para sempre |
-| Backup atrasado | quando o backup automático estiver no ar: mais de 26 h desde o último sucesso (`hypeplay.backup.last_success`), ou a métrica sem chegar |
+| Backup atrasado | quando o backup automático estiver no ar: agora menos `hypeplay.backup.last_ok` (Unix, em segundos) acima de 26 h, a métrica sem chegar, ou `hypeplay.backup.failures` subindo |
 
 **Limpeza semanal da VPS.** Cada deploy deixa imagens velhas e cache de build no disco do sistema, o mesmo dos dados.
 Um Schedule do Dokploy (no servidor, uma vez por semana) com:

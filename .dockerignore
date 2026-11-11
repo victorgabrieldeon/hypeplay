@@ -7,4 +7,3 @@ emulator/ps2.tmp
 .superpowers
 **/*.test.ts
 server/testing
-app/target

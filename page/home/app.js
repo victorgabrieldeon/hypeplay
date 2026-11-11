@@ -16,8 +16,6 @@ export const state = {
   people: [],
   /** friends, requests, invites and the friends' activity (server/social.ts; home/friends.js draws them) */
   social: null,
-  /** the PC app's systems this server has a package for (routes.ts APP_FILES): linux, windows */
-  apps: [],
   /** the drawer's game, by key */
   open: null,
   /** this window's upload: { key, size, received, inflight, meter, retrying } */
@@ -90,7 +88,6 @@ export function render() {
   const rooms = state.games.reduce((sum, g) => sum + g.open.length, 0);
   set($('sub'), `${n} ${n === 1 ? 'jogo' : 'jogos'} no servidor, prontos para a call${rooms ? ` <span class="state ok live">${rooms} ${rooms === 1 ? 'sala aberta' : 'salas abertas'} agora</span>` : ''}`);
   set($('n-games'), String(n));
-  document.querySelector('[data-app]').hidden = !state.apps.length;
   const top = spotlight();
   $('hero').hidden = !top;
   if (top) {
@@ -127,7 +124,7 @@ export async function poll() {
     if (r.status === 403) { state.expired = true; render(); return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const body = await r.json();
-    Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], social: body.social ?? null, apps: body.apps ?? [] });
+    Object.assign(state, { me: body.me, last: body.last, publicUrl: body.publicUrl, games: body.games, people: body.people ?? [], social: body.social ?? null });
     for (const g of state.games) {
       const s = g.status;
       if (s.state === 'uploading' && !s.mine && !s.stale) {

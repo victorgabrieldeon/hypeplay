@@ -78,7 +78,8 @@ const OLD_TABLES: [table: string, order: string][] = [
 export async function importOld(sql: SQL, dir: string) {
   const file = join(dir, "hypeplay.db");
   if (!existsSync(file)) return;
-  const old = new Database(file);
+  // (read only: the file and its -wal stay as they are, the -wal not folded into it)
+  const old = new Database(file, { readonly: true });
   try {
     const tables = new Set((old.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name));
     await importOnce(sql, "hypeplay.db", async (tx) => {

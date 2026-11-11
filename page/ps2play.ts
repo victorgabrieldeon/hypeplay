@@ -1,4 +1,5 @@
 import { createCardSync, heldByOtherTab, type CardStore } from "./cardsync";
+import { edgeDisc } from "./edgedisc";
 import type { OverlayApi } from "./overlay";
 import { BOOT_PARAMS, bootParams, perfSections, readBoot } from "./perf";
 import { syncPipelines } from "./pipesync";
@@ -240,7 +241,8 @@ async function start() {
   const openRoom = q.get("online") === "host";
   q.delete("online");
   q.set("bios", "../../../bios.bin");
-  q.set("disc", "disc.iso");
+  // (or, inside Discord, its address on the edge near the players when the server gave one: edgedisc.ts)
+  q.set("disc", edgeDisc() ?? "disc.iso");
   // The panel's "Avançado" (perf.ts), which the emulator reads only as it starts: what's saved now, never what an
   // earlier opening left in the address (a ?set= typed by hand goes too).
   for (const k of BOOT_PARAMS) q.delete(k);

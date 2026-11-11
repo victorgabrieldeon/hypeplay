@@ -9,6 +9,7 @@
  *     player is offered the emulator meanwhile;
  *   - when Discord doesn't isolate the frame, "Abrir no navegador" asks the entry page to open the game outside;
  *   - its own online (Invite) is hidden: the library's rooms play through the emulator's page;
+ *   - its .wasm and .data carry ps2web.js' version (?v=, given by the server), so the browser can keep them;
  *   - the messages a player meets, in Portuguese.
  *
  * Each swap must find its text exactly: a change in the project fails the build here, loudly, instead of shipping a
@@ -182,6 +183,16 @@ function storeCard(then) {
   {
     from: `<button id="invite" class="host-only" type="button" disabled title="Make a room and copy a link that lets a friend watch and play as player 2">Invite</button>`,
     to: `<button id="invite" class="host-only" type="button" disabled hidden style="display:none">Convidar</button>`,
+  },
+  {
+    from: `  engine.src = document.getElementById('engine').content.querySelector('script').getAttribute('src');
+  engine.async = true;`,
+    to: `  engine.src = document.getElementById('engine').content.querySelector('script').getAttribute('src');
+  // HypePlay: the server puts the build's version on ps2web.js (?v=, server/routes.ts); its .wasm, .data (and the .js
+  // an audio worklet loads) go with the same one, so the browser keeps them, and fastplay.js on its disk too (fastcache)
+  const engineVersion = new URL(engine.src, location.href).searchParams.get('v');
+  if (engineVersion) Module.locateFile = (path, dir) => dir + path + (/^ps2web\\.(js|wasm|data)$/.test(path) ? '?v=' + encodeURIComponent(engineVersion) : '');
+  engine.async = true;`,
   },
   { from: `<span id="status">Loading…</span>`, to: `<span id="status">Carregando…</span>` },
   { from: `<button id="start" disabled>Loading…</button>`, to: `<button id="start" disabled>Carregando…</button>` },

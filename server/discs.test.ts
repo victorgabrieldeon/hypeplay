@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { S3Client } from "bun";
+import { createChunkCache } from "./chunkcache";
 import { createDiscs, dropFromR2, fetchFromR2, markOf, moveToR2 } from "./discs";
 import { rangeResponse } from "./http";
 import { ABANDONED_MS, createLibrary } from "./library";
@@ -11,6 +12,8 @@ import { createDiscStore } from "./upload";
 // A stand-in for R2: objects by key, single PUTs and multipart ones, GET by Range, DELETE.
 const objects = new Map<string, Uint8Array>();
 const parts = new Map<number, Uint8Array<ArrayBuffer>>();
+/** The ranges GET asked of R2. */
+const gets: string[] = [];
 const r2 = Bun.serve({
   port: 0,
   async fetch(req) {
@@ -41,6 +44,7 @@ const r2 = Bun.serve({
     }
     const data = objects.get(key);
     if (!data) return new Response("<Error><Code>NoSuchKey</Code></Error>", { status: 404 });
+    if (req.method === "GET") gets.push(req.headers.get("range") ?? "all");
     const m = /bytes=(\d+)-(\d+)/.exec(req.headers.get("range") ?? "");
     const [a, b] = m ? [Number(m[1]), Number(m[2])] : [0, data.length - 1];
     return ok(req.method === "HEAD" ? null : data.slice(a, b + 1), { "Content-Length": String(b - a + 1) });
@@ -79,6 +83,40 @@ test("moved: R2 has it, its mark holds the size, the local file is gone; read fr
   expect([...new Uint8Array(await r.arrayBuffer())]).toEqual([...data.slice(10, 20)]);
   // (without R2 configured, a disc only in R2 isn't there)
   expect(await createDiscs(dir, null)(iso("a"))).toBeNull();
+});
+
+test("through the memory cache: by range, the same answers, and a piece read again isn't asked of R2 again", async () => {
+  await disc("c");
+  await moveToR2(client, dir, iso("c"), async () => true);
+  const cache = createChunkCache({ maxBytes: 4096, chunk: 256 });
+  const discs = createDiscs(dir, client, cache);
+  const get = async (range: string) => {
+    const d = (await discs(iso("c")))!;
+    const r = rangeResponse(new Request("http://x/disc.iso", { headers: { range } }), d, { "X-Disc-Source": d.from });
+    return { r, body: [...new Uint8Array(await r.arrayBuffer())] };
+  };
+  gets.length = 0;
+  const one = await get("bytes=200-599");
+  expect(one.r.status).toBe(206);
+  expect(one.r.headers.get("content-range")).toBe("bytes 200-599/1000");
+  expect(one.r.headers.get("content-length")).toBe("400");
+  expect(one.body).toEqual([...data.slice(200, 600)]);
+  expect(gets).toEqual(["bytes=0-255", "bytes=256-511", "bytes=512-767"]);
+  // (someone else in the same game, the same stretch of the disc)
+  const two = await get("bytes=300-700");
+  expect(two.body).toEqual([...data.slice(300, 701)]);
+  expect(gets).toHaveLength(3);
+  // (the last, shorter piece, and a HEAD reads nothing)
+  expect((await get("bytes=-10")).body).toEqual([...data.slice(990)]);
+  expect(gets).toEqual(["bytes=0-255", "bytes=256-511", "bytes=512-767", "bytes=768-999"]);
+  const d = (await discs(iso("c")))!;
+  expect(rangeResponse(new Request("http://x/disc.iso", { method: "HEAD" }), d, {}).headers.get("content-length")).toBe("1000");
+  expect(gets).toHaveLength(4);
+  // (the local file's read is its slice)
+  await disc("local");
+  const local = (await discs(iso("local")))!;
+  expect(local.from).toBe("local");
+  expect([...new Uint8Array(await new Response(local.read(5, 9)).arrayBuffer())]).toEqual([...data.slice(5, 9)]);
 });
 
 test("a big disc goes in parts", async () => {

@@ -1,13 +1,17 @@
 /**
- * Who's around, for the home's "Pessoas": everyone who had the library or a game open lately, in this process's memory
- * (nothing is kept). The library's poll (routes.ts' games, every 2 s) says they're here; a game's page says which
- * game (overlay.ts, every HERE_MS, and once more, empty, when it closes). Clock injectable for tests.
+ * Who's around, for the home's "Pessoas": everyone who has the library open or had it or a game open lately, in this
+ * process's memory (nothing is kept). The library's socket (homefeed.ts) says they're here for as long as it's open;
+ * without it, the library's poll (routes.ts' games, every 2 s) does. A game's page says which game (overlay.ts, every
+ * HERE_MS, and once more, empty, when it closes). Clock injectable for tests.
  */
 import type { Pass } from "./pass";
 
 /** How often a game's page says it's still open. */
 export const HERE_MS = 15_000;
-/** Not heard from for this long: gone (a game's page missed two beats, or the library closed). */
+/**
+ * Not heard from for this long: gone (a game's page missed two beats, or the library closed). A library closing its
+ * socket counts from then: reloading it or opening a game from it (the game's page beats at once) isn't leaving.
+ */
 export const QUIET_MS = 40_000;
 
 /** What a game's page is, from its path under /p/<pass>/: the game's key, and whether it only watches someone. */
@@ -29,6 +33,8 @@ export interface Person {
 
 export class Presence {
   private people = new Map<string, Person>();
+  /** the libraries open (their sockets) per person: here while there's one, whenever they last said anything */
+  private open = new Map<string, number>();
 
   constructor(private now: () => number = () => Date.now()) {}
 
@@ -36,6 +42,20 @@ export class Presence {
   library(pass: Pass) {
     const p = this.people.get(pass.id);
     this.people.set(pass.id, { id: pass.id, name: pass.name, call: pass.call, game: p?.game ?? null, at: this.now() });
+  }
+
+  /** The library's socket opened: here until it closes. */
+  connect(pass: Pass) {
+    this.open.set(pass.id, (this.open.get(pass.id) ?? 0) + 1);
+    this.library(pass);
+  }
+
+  /** It closed: here a while longer, as after the poll's last look (QUIET_MS). */
+  disconnect(pass: Pass) {
+    const n = (this.open.get(pass.id) ?? 0) - 1;
+    if (n > 0) this.open.set(pass.id, n);
+    else this.open.delete(pass.id);
+    this.library(pass);
   }
 
   /** A game's page: in that game; null, it closed. */
@@ -49,7 +69,7 @@ export class Presence {
     const t = this.now();
     const out: Person[] = [];
     for (const [id, p] of this.people) {
-      if (t - p.at > QUIET_MS) this.people.delete(id);
+      if (t - p.at > QUIET_MS && !this.open.has(id)) this.people.delete(id);
       else if (id !== me) out.push({ ...p, game: p.game && t - p.game.at <= QUIET_MS ? p.game : null });
     }
     return out;

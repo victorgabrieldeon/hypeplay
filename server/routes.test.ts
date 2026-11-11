@@ -165,6 +165,8 @@ test("vimm/ws pushes the download's status: now on open, then each change, until
   const server = Bun.serve({ port: 0, fetch: (req, s) => web.handle(req, s), websocket: web.websocket });
   try {
     expect((await (web.handle(new Request(`http://x${home("vimm/ws")}`)) as Promise<Response>)).status).toBe(426);
+    // (the home's feed follows the download too, for good: homefeed.ts)
+    const before = listeners.size;
     const ws = new WebSocket(`ws://localhost:${server.port}${home("vimm/ws")}`);
     const got: unknown[] = [];
     const next = () => new Promise<void>((ok) => (ws.onmessage = (e) => (got.push(JSON.parse(e.data)), ok())));
@@ -174,8 +176,8 @@ test("vimm/ws pushes the download's status: now on open, then each change, until
     await more;
     expect(got).toEqual([{ state: "idle" }, { state: "downloading", received: 5, size: 10 }]);
     ws.close();
-    for (let i = 0; i < 50 && listeners.size; i++) await Bun.sleep(10);
-    expect(listeners.size).toBe(0);
+    for (let i = 0; i < 50 && listeners.size > before; i++) await Bun.sleep(10);
+    expect(listeners.size).toBe(before);
   } finally {
     server.stop(true);
   }

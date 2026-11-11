@@ -105,17 +105,19 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 
 ## Deploy (Dokploy)
 
-`docker-compose.yml` sobe dois serviços (mais o `turn`, opcional) que dividem a pasta `/srv/bt3-data` do servidor (no disco do sistema: o segundo disco, `/mnt/disk`, é de rede e lento demais para os jogos):
+`docker-compose.yml` sobe três serviços (mais o `turn`, opcional): `app` e `ps2-builder` dividem a pasta `/srv/bt3-data` do servidor (no disco do sistema: o segundo disco, `/mnt/disk`, é de rede e lento demais para os jogos), e o `postgres` guarda o banco no volume `postgres`:
 
 | Serviço | Domínio | O que faz |
 | --- | --- | --- |
 | `app` | `bt3.exemplo.com` → 3003 | Entrada pelo Discord, a biblioteca, as páginas dos jogos, o envio da ISO, o online (WebSocket) |
+| `postgres` | — (só a rede da stack, sem porta) | O banco (Postgres 17): o que é de cada pessoa e o social (`server/db.ts`). O `app` só sobe depois dele saudável |
 | `ps2-builder` | — (só o volume) | A versão rápida dos jogos de PS2 pedidos (`ps2-builder/`): `port.sh` do ps2-web-recomp, um jogo por vez, 2 CPUs. `PS2_ROUNDS` e `PS2_FRAMES` (opcionais) dizem quantas partidas de teste e de quantos quadros |
 
 | Variável | Para quê |
 | --- | --- |
 | `DISCORD_CLIENT_ID` | *Client ID* do app |
 | `DISCORD_CLIENT_SECRET` | *Client Secret* do app. Também assina os passes: trocar o segredo derruba quem está jogando. Nunca vai pro git |
+| `POSTGRES_PASSWORD` | A senha do banco (o `app` monta o `DATABASE_URL` com ela). Só letras e números, porque vai dentro de uma URL: `openssl rand -hex 24`. Escolhida uma vez: o Postgres grava a senha ao criar o volume, e trocar aqui depois não troca lá |
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
 | `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
@@ -123,7 +125,8 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `DISC_CACHE_MB` | Opcional (com R2). Quantos MB de pedaços dos discos do R2 o app guarda na memória: veja [Cache](#cache-dos-discos-e-dos-arquivos). Padrão 256; `0` desliga |
 | `DISC_EDGE_URL`, `DISC_EDGE_SECRET` | Opcionais (com R2), desligados. Os discos do emulador servidos por um Worker da Cloudflare perto dos jogadores: veja [Edge para os discos](#edge-para-os-discos-opcional) |
 
-Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
+Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe. Sem `POSTGRES_PASSWORD` o Dokploy nem faz o
+deploy (o compose recusa), e a versão que está no ar continua.
 
 ### Saúde, deploy e limites
 
@@ -133,7 +136,7 @@ Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
   tem menos de um minuto.
 - **Deploy sem susto:** no SIGTERM o `app` para de aceitar conexões, fecha os WebSockets com o código 1012 (a página
   entende como "o servidor está reiniciando": o jogador 2 vê o aviso e a página abre de novo sozinha quando ele
-  volta; a home e a loja reconectam sozinhas), espera até 10 s os pedidos em andamento, grava o que falta (`social.json`) e sai.
+  volta; a home e a loja reconectam sozinhas), espera até 10 s os pedidos em andamento, grava o que falta do social no banco e sai.
   As salas do online vivem na memória: uma partida em andamento pelo servidor termina no deploy, e o host abre a
   sala de novo.
 - **Limites por pessoa** (pelo id do Discord do passe, em memória): 20 jogos adicionados e 20 envios de ISO por hora,
@@ -293,12 +296,19 @@ sai de um índice em memória, montado dos `game.json` na subida; reservas aband
 limpas de 10 em 10 minutos. Os memory cards são `saves/<serial>/<id do Discord>.ps2`. A intro opcional é
 `/app/data/intro.mp4` (enviada pela tela Servidor).
 
-O resto do que é de cada pessoa fica no banco `/app/data/hypeplay.db` (SQLite em WAL, com `hypeplay.db-wal` e
-`hypeplay.db-shm` ao lado; copie os três juntos): mapas de controle, teclas, volume e filtro, último jogo, e o
-social (perfis, amigos e pedidos, horas por jogo, sessões recentes, com quem jogou, status). Convites ficam só em
-memória. Antes eram arquivos (`social.json`, `pads/`, `keys/`, `users/`, `prefs/`): na primeira subida com o banco
-eles são importados uma vez (a tabela `imported` marca) e ficam onde estavam, parados. Dá para apagá-los depois;
-voltar para uma versão sem o banco leria esses arquivos como estavam na importação.
+O resto do que é de cada pessoa fica no Postgres (serviço `postgres`, volume `postgres`, fora do `/srv/bt3-data`):
+mapas de controle, teclas, volume e filtro, último jogo, e o social (perfis, amigos e pedidos, horas por jogo,
+sessões recentes, com quem jogou, status). Convites ficam só em memória. Backup e volta:
+
+```sh
+docker compose exec -T postgres pg_dump -U hypeplay hypeplay > hypeplay.sql
+docker compose exec -T postgres psql -U hypeplay hypeplay < hypeplay.sql
+```
+
+O que veio antes fica no `/app/data`, parado: por algumas horas um SQLite (`hypeplay.db`, com `-wal` e `-shm`) e,
+antes dele, arquivos (`social.json`, `pads/`, `keys/`, `users/`, `prefs/`). Na primeira subida com o Postgres o
+`hypeplay.db` é copiado inteiro e, sem ele, os arquivos; cada um uma vez só (a tabela `imported` marca), e nada é
+apagado. Dá para apagá-los depois de conferir.
 
 **Refazer do zero:** um jogo: "Remover" na biblioteca; só a versão rápida: "Apagar a versão rápida" na gaveta do jogo.
 
@@ -306,8 +316,10 @@ voltar para uma versão sem o banco leria esses arquivos como estavam na importa
 
 ```sh
 bun install
-bun test
-DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… bun run start   # porta 3003; guarda tudo em data/
+# um Postgres só para isto, na porta 55432 (os testes usam um schema cada e apagam depois)
+docker run -d --name hypeplay-pg -p 127.0.0.1:55432:5432 -e POSTGRES_USER=hypeplay -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=hypeplay postgres:17-alpine
+TEST_DATABASE_URL=postgres://hypeplay:dev@127.0.0.1:55432/hypeplay bun test   # sem a variável, os testes do banco são pulados
+DATABASE_URL=postgres://hypeplay:dev@127.0.0.1:55432/hypeplay DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… bun run start   # porta 3003; os arquivos em data/
 ```
 
 O Discord só abre a atividade por HTTPS: exponha a porta 3003 num túnel (ex. `cloudflared tunnel --url
@@ -323,7 +335,7 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 
 - `server/`: entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), a biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
-  mapas de controle e último jogo (`people.ts`), amigos e horas (`social.ts`), o banco SQLite dos dois (`db.ts`),
+  mapas de controle e último jogo (`people.ts`), amigos e horas (`social.ts`), o banco dos dois no Postgres (`db.ts`),
   salas e ICE do online (`ps2rooms.ts`, `ice.ts`), as respostas com
   Range, isolamento e versão (`http.ts`), os discos no R2 (`discs.ts`) e os pedaços deles na memória (`chunkcache.ts`).
   A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`).

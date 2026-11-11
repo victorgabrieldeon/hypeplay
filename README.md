@@ -58,7 +58,15 @@ nada (ver [Jogos de PS2](#jogos-de-ps2)). Depois disso o jogo fica na biblioteca
   mesma call** (o canal de voz em que a atividade foi aberta; quem entrou pelo navegador aparece como online), e o que
   cada um tem aberto: a biblioteca, o jogo em que está, ou o jogo que está assistindo. Quem abriu uma sala num jogo de
   PS2 aparece com **Entrar** (como jogador 2, se a vaga estiver livre) e **Assistir**. Nada fica gravado: o servidor
-  só lembra quem falou com ele nos últimos 40 s (a biblioteca a cada 2 s, a página do jogo a cada 15 s).
+  lembra quem está com a biblioteca aberta (enquanto a conexão dela estiver de pé) e quem falou com ele nos últimos
+  40 s (a página do jogo a cada 15 s; a biblioteca fechada ainda conta por esses 40 s, para recarregar ou abrir um
+  jogo não parecer saída).
+- **Biblioteca ao vivo:** a home não pergunta mais ao servidor a cada 2 s. Ela abre uma conexão (`home/ws`) e o
+  servidor manda só o que mudou: um jogo entrando ou saindo, o progresso de um envio ou da versão rápida, quem chegou
+  ou saiu, pedidos de amizade e convites. O servidor olha a biblioteca uma vez para todo mundo (a cada 2 s enquanto
+  alguém tem a home aberta, e logo depois de qualquer mudança), não uma vez por pessoa. Se a conexão cair (o proxy do
+  Discord pode cortar), a home volta a perguntar a cada 2 s até ela voltar, e a resposta é `304` (vazia) quando nada
+  mudou ([`server/homefeed.ts`](server/homefeed.ts)).
 - **Assistir:** além do jogador 2, até 4 pessoas podem assistir a uma sala (na gaveta do jogo, em Pessoas, ou pelo
   "A sala está cheia" de quem chegou depois). Elas veem e ouvem o jogo, sem controle. Cada pessoa assistindo é mais
   uma transmissão saindo do PC do host (cerca de 2,5 Mbps de upload a mais), ou do servidor no relé.
@@ -203,7 +211,7 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 - `server/`: entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), a biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
   mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
-  Range e isolamento (`http.ts`).
+  Range e isolamento (`http.ts`). A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).

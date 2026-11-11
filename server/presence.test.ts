@@ -35,3 +35,27 @@ test("the library and a game's page; others only, and gone after a quiet while",
   t += QUIET_MS + 1;
   expect(p.others("1")).toEqual([]);
 });
+
+test("the library's socket: here while one is open, however long; closed, the usual quiet while from then", () => {
+  let t = 1000;
+  const p = new Presence(() => t);
+  p.connect(ana);
+  p.connect(ana);
+  t += 10 * QUIET_MS;
+  expect(p.others("2").map((x) => x.name)).toEqual(["Ana"]);
+  // one of two closed (a second window): still here
+  p.disconnect(ana);
+  t += 10 * QUIET_MS;
+  expect(p.others("2").map((x) => x.name)).toEqual(["Ana"]);
+  // the last: here a while, as after a poll (a reload or a game's page opening isn't leaving), then gone
+  p.disconnect(ana);
+  t += QUIET_MS;
+  expect(p.others("2").map((x) => x.name)).toEqual(["Ana"]);
+  t += 1;
+  expect(p.others("2")).toEqual([]);
+  // a game's beat meanwhile keeps the game, the socket the person
+  p.connect(bia);
+  p.playing(bia, { key: "bt3", title: "BT3", watch: false });
+  t += QUIET_MS + 1;
+  expect(p.others("1").map((x) => [x.name, x.game])).toEqual([["Bia", null]]);
+});

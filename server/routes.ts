@@ -5,7 +5,8 @@
  *   /token                                 POST { code }: the Discord code for a pass (discord.ts, pass.ts)
  *   /login, /auth                          from a browser: Discord's sign-in page and back with a pass
  *   /p/<pass>/                             the home (page/index.html), framed by the entry page
- *             games                        the catalog (games.ts), each game with its state
+ *             games                        the catalog (games.ts), each game with its state (304 to its ETag)
+ *             home/ws                      the same, pushed as it changes, and who's here while it's open (homefeed.ts)
  *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
  *             pad, keys, played            the person's controller maps, keys and last game (people.ts)
  *             here                         POST: a game's page is still open (its path; empty, it closed): presence.ts
@@ -27,7 +28,7 @@
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
  */
-import type { Server, WebSocketHandler } from "bun";
+import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
@@ -44,6 +45,7 @@ import { CALL, type Pass, type Passes } from "./pass";
 import type { People } from "./people";
 import type { Social } from "./social";
 import { gameFrom, Presence } from "./presence";
+import { createHomeFeed, etagOf, unchanged, type HomeData, type HomeSocket, type HomeView } from "./homefeed";
 import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
 import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
@@ -79,7 +81,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** The home's own scripts (page/home/), plain ES modules. */
-const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js", "store.js", "friends.js"]);
+const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js", "store.js", "friends.js", "feed.js"]);
 /** TabStationToo's files (emulator/ps2/, pinned by emulator/ps2-files.json): nothing else of that folder is served. */
 const ENGINE_FILES = new Set(
   (JSON.parse(readFileSync(join(import.meta.dir, "..", "emulator", "ps2-files.json"), "utf8")) as { files: { path: string }[] }).files
@@ -99,7 +101,9 @@ const HEADERS = {
   "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups allow-downloads; ${FRAME_ANCESTORS}`,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, POST, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "content-type",
+  // (games' ETag, homefeed.ts: the home's poll reads it back; if-none-match, for whoever asks with it)
+  "Access-Control-Allow-Headers": "content-type, if-none-match",
+  "Access-Control-Expose-Headers": "ETag",
   "Cache-Control": "no-cache",
 };
 
@@ -114,6 +118,8 @@ export type NetData = { game: string } & (
   | { kind: "relay"; room: string; role: "host" | "guest"; me: string; watch: boolean }
   /** the vimm download as it goes (vimm.ts watch): `off` once open */
   | { kind: "vimm"; off?: () => void }
+  /** the home's feed (homefeed.ts) */
+  | ({ kind: "home" } & HomeData)
 );
 
 const typeOf = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? TYPES.bin!;
@@ -204,6 +210,18 @@ export function createApp({
   discs = createDiscs(dir, null),
 }: AppOptions) {
   const presence = new Presence(now);
+  const feed = createHomeFeed({
+    view: homeView,
+    now,
+    connect: (p) => (presence.connect(p), social?.seen(p)),
+    disconnect: (p) => (presence.disconnect(p), social?.seen(p)),
+  });
+  // (a game in from vimm.net: the wizard's "Jogar" looks for it in the library right after)
+  let vimmState = "";
+  vimm?.watch((job) => {
+    if (job.state !== vimmState) feed.nudge();
+    vimmState = job.state;
+  });
   function respond(body: ConstructorParameters<typeof Response>[0], status = 200, headers: Record<string, string> = {}) {
     return new Response(body, { status, headers: { ...HEADERS, ...headers } });
   }
@@ -326,19 +344,39 @@ export function createApp({
     return respond(null, 204);
   }
 
-  async function catalog(pass: Pass, req: Request) {
-    const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
-    presence.library(pass);
+  /** Nobody's: the shared catalog's statuses, where an upload is no one's own (`mine`). */
+  const NOBODY: Pass = { id: "", name: "", exp: Infinity };
+  /**
+   * The catalog's games, the same for everyone: one walk of the library for all the homes open (homefeed.ts' shared).
+   * Each with its status for whoever looks, made again only while it uploads (`mine` is the one sending it).
+   */
+  const sharedGames = feed.shared(async () =>
+    library ? Promise.all((await library.list()).map(async (g) => ({ entry: await ps2Entry(g, NOBODY), status: (p: Pass) => ps2Status(g.id, p) }))) : [],
+  );
+
+  /** One person's home: what `games` answers and the feed pushes. */
+  async function homeView(pass: Pass, publicUrl: string): Promise<HomeView & { games: CatalogEntry[] }> {
+    const games = await Promise.all(
+      (await sharedGames()).map(async ({ entry, status }) => (entry.status.state === "uploading" ? { ...entry, status: await status(pass) } : entry)),
+    );
     social?.seen(pass);
     const around = new Set(presence.others(pass.id).map((p) => p.id));
     return {
       me: pass.name,
       last: (await people?.last(pass.id)) ?? null,
-      publicUrl: publicFor(req),
-      games: ps2,
+      publicUrl,
+      games,
       people: peopleFor(pass),
       social: social?.view(pass.id, (id) => around.has(id)) ?? null,
     };
+  }
+
+  /** GET games, the poll (the feed's reserve): here for a while, and the home as it is, or 304 when it's the same. */
+  async function catalog(pass: Pass, req: Request) {
+    presence.library(pass);
+    const body = JSON.stringify(await homeView(pass, publicFor(req)));
+    const tag = etagOf(body);
+    return unchanged(req, tag) ? respond(null, 304, { ETag: tag }) : respond(body, 200, { "Content-Type": TYPES.json!, ETag: tag });
   }
 
   /**
@@ -683,7 +721,17 @@ export function createApp({
     }
   }
 
+  /**
+   * Every request; one that may have changed something (any method but GET) tells the home's feed once answered. Not
+   * an upload's pieces nor a game's beat: many, and the feed's next tick shows them as soon as the poll did.
+   */
   async function handle(req: Request, server?: Server<NetData>): Promise<Response | undefined> {
+    const res = await route(req, server);
+    if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS" && !/\/(upload|here)$/.test(new URL(req.url).pathname)) feed.nudge();
+    return res;
+  }
+
+  async function route(req: Request, server?: Server<NetData>): Promise<Response | undefined> {
     const { pathname } = new URL(req.url);
     if (req.method === "OPTIONS") return respond(null, 204);
     if (pathname === "/icon.svg") return file(join(pageDir, "icon.svg"));
@@ -699,7 +747,12 @@ export function createApp({
     const path = m[2];
     if (path === undefined) return respond(null, 301, { Location: slashed(pathname) });
     if (path === "/") return file(join(pageDir, "index.html"));
-    if (path === "/games") return json(await catalog(pass, req));
+    if (path === "/games") return catalog(pass, req);
+    if (path === "/home/ws") {
+      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
+      const data: NetData = { game: "", kind: "home", pass, publicUrl: publicFor(req) };
+      return server.upgrade(req, { data }) ? undefined : text("Não deu para abrir a conexão", 400);
+    }
     if (path === "/here") return here(req, pass);
     if (path === "/intro.mp4") {
       const where = join(dir, "intro.mp4");
@@ -812,25 +865,30 @@ export function createApp({
 
   // the PS2 games' online relay: one for the whole app, rooms by code
   const relay = new Relay();
+  /** A home's socket, for the feed: its data is the home's. */
+  const homeOf = (ws: ServerWebSocket<NetData>) => ws as unknown as HomeSocket;
   const websocket: WebSocketHandler<NetData> = {
     open(ws) {
       const d = ws.data;
-      if (d.kind === "vimm") {
+      if (d.kind === "home") feed.open(homeOf(ws));
+      else if (d.kind === "vimm") {
         ws.send(JSON.stringify(vimm!.status()));
         d.off = vimm!.watch((job) => ws.send(JSON.stringify(job)));
       } else relay.open(ws, d.room, d.role, d.me, d.watch);
     },
     message(ws, msg) {
       if (ws.data.kind === "vimm") return;
-      relay.message(ws, typeof msg === "string" ? msg : new Uint8Array(msg));
+      if (ws.data.kind === "home") feed.message(homeOf(ws), msg);
+      else relay.message(ws, typeof msg === "string" ? msg : new Uint8Array(msg));
     },
     close(ws) {
       if (ws.data.kind === "vimm") ws.data.off?.();
+      else if (ws.data.kind === "home") feed.close(homeOf(ws));
       else relay.close(ws);
     },
   };
 
-  return { handle, websocket };
+  return { handle, websocket, feed };
 }
 
 export type App = ReturnType<typeof createApp>;

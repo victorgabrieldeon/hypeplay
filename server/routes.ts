@@ -40,7 +40,7 @@ import { createDiscs, type Discs } from "./discs";
 import { edgeDiscUrl, type Edge } from "./edgetoken";
 import { cacheFor, FRAME_ANCESTORS, IMMUTABLE, injectPad, ISOLATED, rangeResponse, versionOf, withVersions } from "./http";
 import { type CloudflareTurn, STUN } from "./ice";
-import { authorizeUrl, type Discord } from "./discord";
+import { authorizeUrl, NotAllowed, type Discord } from "./discord";
 import { FAST_STEPS } from "./games";
 import { ID, PS2_MAX, PS2_MIN, type Fast, type Library, type Ps2Game } from "./library";
 import { CALL, type Pass, type Passes } from "./pass";
@@ -151,6 +151,8 @@ export interface AppOptions {
   publicUrl?: string;
   /** The Discord app's id: a browser's sign-in goes to its page (discord.ts' authorizeUrl). */
   clientId?: string;
+  /** What a browser's sign-in asks Discord for (discord.ts' scopesFor): identify by default. */
+  scopes?: string[];
   /** TabStationToo's files, emulator/ps2/ by default (emulator/ps2-fetch.ts). */
   ps2Engine?: string;
   /** The PS2 BIOS, sent once for the whole server (bios.ts); without it the PS2 games wait for one. */
@@ -205,6 +207,7 @@ export function createApp({
   ps2Rooms,
   publicUrl = "",
   clientId = "",
+  scopes,
   cloudflare,
   scripts = {},
   bios,
@@ -735,6 +738,9 @@ export function createApp({
     return text("Não encontrado", 404);
   }
 
+  // (ALLOWED_GUILDS: a Discord account outside the group's servers; discord.ts)
+  const NOT_ALLOWED = "Este HypePlay é só para os servidores do grupo.";
+
   async function token(req: Request): Promise<Response> {
     if (req.method !== "POST") return text("Método não permitido", 405);
     const sent = (await req.json().catch(() => null)) as { code?: unknown; call?: unknown } | null;
@@ -748,6 +754,10 @@ export function createApp({
       // outside Discord, for one, needs that), and the app's public address, what that link opens (publicFor)
       return json({ pass: passes.issue(user), access_token: user.accessToken, public_url: publicFor(req) });
     } catch (err) {
+      if (err instanceof NotAllowed) {
+        log.warn("sign-in refused", { reason: err.message });
+        return json({ error: NOT_ALLOWED }, 403);
+      }
       log.error("discord sign-in failed", { err });
       return json({ error: "Não deu para entrar pelo Discord. Feche e abra a atividade de novo." }, 502);
     }
@@ -762,7 +772,7 @@ export function createApp({
     for (const [s, exp] of states) if (exp < now()) states.delete(s);
     const state = randomBytes(18).toString("base64url");
     states.set(state, now() + 10 * 60_000);
-    return respond(null, 302, { Location: authorizeUrl(clientId, redirectUri, state) });
+    return respond(null, 302, { Location: authorizeUrl(clientId, redirectUri, state, scopes) });
   }
   async function auth(req: Request): Promise<Response> {
     const q = new URL(req.url).searchParams;
@@ -776,6 +786,10 @@ export function createApp({
     try {
       return respond(null, 302, { Location: `/p/${passes.issue(await discord.signIn(code, redirectUri))}/` });
     } catch (err) {
+      if (err instanceof NotAllowed) {
+        log.warn("sign-in refused", { from: "browser", reason: err.message });
+        return text(NOT_ALLOWED, 403);
+      }
       log.error("discord sign-in failed", { from: "browser", err });
       return text("Não deu para entrar pelo Discord. Volte e tente de novo.", 502);
     }

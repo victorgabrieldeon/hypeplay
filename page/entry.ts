@@ -1,5 +1,5 @@
 // The entry page's script (page/entry.html), bundled with the Discord SDK at startup (server/index.ts), which also
-// fills in DISCORD_CLIENT_ID and PUBLIC_URL.
+// fills in DISCORD_CLIENT_ID, PUBLIC_URL and DISCORD_SCOPES (identify, and guilds with ALLOWED_GUILDS).
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { openRequest } from "./open";
 
@@ -48,7 +48,7 @@ async function start() {
     response_type: "code",
     state: "",
     prompt: "none",
-    scope: ["identify"],
+    scope: (process.env.DISCORD_SCOPES || "identify").split(" ") as ("identify" | "guilds")[],
   });
   const res = await fetch("token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, call: sdk.channelId }) });
   const body = (await res.json().catch(() => ({}))) as { pass?: string; error?: string; access_token?: string; public_url?: string };

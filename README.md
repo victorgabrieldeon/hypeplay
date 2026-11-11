@@ -133,7 +133,7 @@ Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
   tem menos de um minuto.
 - **Deploy sem susto:** no SIGTERM o `app` para de aceitar conexões, fecha os WebSockets com o código 1012 (a página
   entende como "o servidor está reiniciando": o jogador 2 vê o aviso e a página abre de novo sozinha quando ele
-  volta; a loja reconecta sozinha), espera até 10 s os pedidos em andamento, grava o que falta (`social.json`) e sai.
+  volta; a home e a loja reconectam sozinhas), espera até 10 s os pedidos em andamento, grava o que falta (`social.json`) e sai.
   As salas do online vivem na memória: uma partida em andamento pelo servidor termina no deploy, e o host abre a
   sala de novo.
 - **Limites por pessoa** (pelo id do Discord do passe, em memória): 20 jogos adicionados e 20 envios de ISO por hora,
@@ -160,7 +160,7 @@ nada sai e nada muda.
 | --- | --- |
 | `hypeplay.rooms.active` | Salas do online abertas |
 | `hypeplay.people.online` | Pessoas com a home ou um jogo aberto |
-| `hypeplay.websockets.open` | WebSockets abertos, por tipo (`relay`, `vimm`) |
+| `hypeplay.websockets.open` | WebSockets abertos, por tipo (`home`, `relay`, `vimm`) |
 | `hypeplay.disc.bytes` | Bytes de disco servidos, por jogo (`game`) e origem (`source`: `local` ou `r2`) |
 | `hypeplay.games.duration` | Tempo da lista de jogos (`games`, a cada 2 s em cada home aberta), em ms |
 | `hypeplay.http.requests` | Pedidos por classe de status (`2xx`, `4xx`, `5xx`, `101` para WebSocket) |

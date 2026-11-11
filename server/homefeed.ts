@@ -18,6 +18,7 @@
  * that changed. The page may send `{ sync: n }` (it just did something and wants the result): the answer comes at once,
  * fresh, with `sync: n` in it, even when nothing changed.
  */
+import { log } from "./log";
 import type { Pass } from "./pass";
 
 export const TICK_MS = 2000;
@@ -135,7 +136,7 @@ export function createHomeFeed({ view, connect, disconnect, now = () => Date.now
       counts.views++;
       v = await view(pass, publicUrl);
     } catch (err) {
-      console.error("home feed:", err);
+      log.error("home feed failed", { err });
       if (sync !== undefined) ws.send(JSON.stringify({ sync }));
       return;
     }

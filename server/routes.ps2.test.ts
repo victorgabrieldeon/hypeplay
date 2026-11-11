@@ -10,6 +10,7 @@ import { createLibrary } from "./library";
 import type { Passes } from "./pass";
 import { createPeople } from "./people";
 import { Ps2Rooms } from "./ps2rooms";
+import { PRIORITY } from "./queue";
 import { createApp } from "./routes";
 import { createBios } from "./bios";
 import { fakeBios } from "./testing/bios";
@@ -337,22 +338,29 @@ test("the versão rápida: asked, its state in games, its page isolated with gzi
   expect((await ana(`ps2/${id}/fast-build`, { method: "POST" })).status).toBe(204);
   const dir = library.paths(id).fast;
   expect(await exists(join(dir, "request"))).toBe(true);
-  // (the builder hasn't answered: offline; then building, then its build)
+  // (no worker yet: offline; one up: in line; then building, then its build)
   const state = async () => ((await catalog()).games.find((g) => g.key === `ps2/${id}`) as Entry & { fast: Record<string, unknown> }).fast;
+  const { queue } = library;
   expect(await state()).toEqual({ state: "offline" });
-  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "building", step: 4, total: 6, label: "Explorando o jogo", startedAt: Date.now() - 5000 }));
+  expect(queue.claim("w", { kinds: ["bt3"] })).toBeNull();
+  expect(queue.online("ps2")).toBe(false);
+  let job = queue.claim("w", { kinds: ["ps2"] })!;
+  expect(job.key).toBe(`ps2/${id}`);
+  expect(await state()).toEqual({ state: "queued" });
+  queue.beat(job.key, job.token, { state: "building", step: 4, total: 6, label: "Explorando o jogo", startedAt: Date.now() - 5000 });
   expect(await state()).toMatchObject({ state: "building", step: 4, total: 6, label: "Explorando o jogo", learning: false, playable: false });
   await mkdir(join(dir, "build"), { recursive: true });
   await writeFile(join(dir, "build", "ps2web.html"), "<!doctypehtml><html><head><title>ps2-web-recomp</title></head><body>fast</body></html>");
   await writeFile(join(dir, "build", "ps2web.wasm"), "wasm");
   await writeFile(join(dir, "build", "ps2web.wasm.gz"), "wasm.gz");
   await writeFile(join(dir, "build", "ps2web.js"), "js");
-  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "ready" }));
+  queue.done(job.key, job.token, { status: { state: "ready" }, shell: "s1", recomp: "" });
   expect(await state()).toEqual({ state: "ready" });
   // brought up to date by a new image: the build there still plays
-  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "building", step: 6, total: 6, label: "Compilando a página", updating: true, startedAt: Date.now() }));
+  job = queue.claim("w", { kinds: ["ps2"], image: { shell: "s2", recomp: "" } })!;
+  queue.beat(job.key, job.token, { state: "building", step: 6, total: 6, label: "Compilando a página", updating: true, startedAt: Date.now() });
   expect(await state()).toMatchObject({ state: "building", updating: true, learning: false, playable: true });
-  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "ready" }));
+  queue.done(job.key, job.token, { status: { state: "ready" }, shell: "s2" });
 
   expect((await ana(`ps2/${id}/fast`)).headers.get("location")).toBe("fast/");
   const page = await ana(`ps2/${id}/fast/`);
@@ -378,18 +386,22 @@ test("the versão rápida: asked, its state in games, its page isolated with gzi
   for (const pc of ["0027959C", "0027959c", "0012A4C0"]) expect((await ana(`ps2/${id}/fast/miss`, { method: "POST", body: pc })).status).toBe(204);
   expect((await ana(`ps2/${id}/fast/miss`, { method: "POST", body: "../../x" })).status).toBe(400);
   expect(await Bun.file(join(dir, "misses.txt")).text()).toBe("0027959C\n0012A4C0\n");
+  // (and first in line for a worker)
+  expect(queue.get(`ps2/${id}`)).toMatchObject({ state: "queued", priority: PRIORITY.miss });
 
   // a failure, then "Tentar de novo"
-  await writeFile(join(dir, "status.json"), JSON.stringify({ at: Date.now(), state: "failed", message: "boom", reason: "[sys] unhandled syscall 0x77" }));
+  job = queue.claim("w", { kinds: ["ps2"] })!;
+  queue.fail(job.key, job.token, { status: { state: "failed", message: "boom", reason: "[sys] unhandled syscall 0x77" } });
   expect(await state()).toEqual({ state: "failed", message: "boom", reason: "[sys] unhandled syscall 0x77", playable: true });
   expect((await ana(`ps2/${id}/fast-build`, { method: "POST" })).status).toBe(204);
-  expect(await exists(join(dir, "retry"))).toBe(true);
+  expect(queue.get(`ps2/${id}`)).toMatchObject({ state: "queued", retry: true });
 
   await mkdir(join(root, "ps2-work", id), { recursive: true });
   expect((await ana(`ps2/${id}/fast-build`, { method: "DELETE" })).status).toBe(204);
   expect(await exists(dir)).toBe(false);
   expect(await exists(join(root, "ps2-work", id))).toBe(false);
   expect(await state()).toEqual({ state: "off" });
+  expect(queue.get(`ps2/${id}`)).toBeNull();
   // the game itself stays, in the emulator
   expect((await ana(`ps2/${id}/game/`)).status).toBe(200);
 });

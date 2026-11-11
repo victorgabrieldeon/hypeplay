@@ -10,9 +10,15 @@
  *
  * It's the only writer of status.json (with a heartbeat, `at`, every few seconds: the page shows "offline" without
  * it). The tools' output goes to build.log; their intermediate files stay in work/, reused by a later build.
+ *
+ * Several builders may watch the same folder: a build is the builds' queue's job "bt3" (server/queue.ts), and only the
+ * one that claimed it builds (and writes status.json meanwhile). Only on this machine: the disc never goes to R2.
  */
+import { randomBytes } from "node:crypto";
+import { hostname } from "node:os";
 import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createQueue, PRIORITY, type Queue } from "../server/queue";
 import { patchNet, patchShell } from "./patch";
 
 /** The game's files the server serves (the same list as bt3's files in server/games.ts). */
@@ -53,6 +59,23 @@ interface Status {
   refused?: boolean;
 }
 
+/** A build's turn: the job, claimed; its lease renewed while it builds; given back once done. */
+export interface Turn {
+  beat(): void;
+  done(): void;
+}
+
+/** The turn to build from the queue's job "bt3", or null while another builder has it. */
+export function queueTurns(queue: Queue, worker: string, key = "bt3"): () => Turn | null {
+  return () => {
+    // (rerun off: a builder asking while another builds isn't a second build)
+    queue.enqueue(key, "bt3", { priority: PRIORITY.ask, rerun: false });
+    const c = queue.claim(worker, { kinds: ["bt3"] });
+    if (!c) return null;
+    return { beat: () => void queue.beat(key, c.token, undefined, worker), done: () => void queue.done(key, c.token) };
+  };
+}
+
 export interface BuilderOptions {
   /** The data folder shared with the plugin's server (/app/data/bt3/). */
   dir: string;
@@ -64,6 +87,8 @@ export interface BuilderOptions {
   /** steps.py, next to this file. */
   steps?: string;
   now?: () => number;
+  /** Builds only with a turn (queueTurns): another builder over the same folder doesn't build it twice. */
+  take?: () => Turn | null;
 }
 
 class StepFailed extends Error {
@@ -78,7 +103,7 @@ class StepFailed extends Error {
 const exists = (path: string) => stat(path).then((s) => s, () => null);
 const tail = (text: string, lines = 12) => text.trimEnd().split("\n").slice(-lines).join("\n");
 
-export function createBuilder({ dir, source, commit, run, python = "python3", steps = join(import.meta.dir, "steps.py"), now = () => Date.now() }: BuilderOptions) {
+export function createBuilder({ dir, source, commit, run, python = "python3", steps = join(import.meta.dir, "steps.py"), now = () => Date.now(), take }: BuilderOptions) {
   const paths = {
     iso: join(dir, "disc.iso"),
     retry: join(dir, "retry"),
@@ -91,6 +116,9 @@ export function createBuilder({ dir, source, commit, run, python = "python3", st
   };
   let status: Status = { at: now(), state: "idle" };
   let log = "";
+  /** This builder's turn while it builds; `aside` while another builder has it (its status.json, not ours). */
+  let turn: Turn | null = null;
+  let aside = false;
 
   async function load() {
     try {
@@ -100,16 +128,20 @@ export function createBuilder({ dir, source, commit, run, python = "python3", st
     }
   }
 
+  // (its own temporary name: another builder over the same folder writes its own)
+  const tmp = `${paths.status}.${randomBytes(4).toString("hex")}.tmp`;
   async function save() {
     status.at = now();
     await mkdir(dir, { recursive: true });
-    await writeFile(`${paths.status}.tmp`, JSON.stringify(status));
-    await rename(`${paths.status}.tmp`, paths.status);
+    await writeFile(tmp, JSON.stringify(status));
+    await rename(tmp, paths.status);
   }
 
-  // One at a time: the heartbeat and tick() both write, and they'd share status.json.tmp.
+  // One at a time: the heartbeat and tick() both write, and they'd share the temporary file.
   let writing: Promise<unknown> = Promise.resolve();
   function write() {
+    turn?.beat();
+    if (aside) return writing;
     const next = writing.then(save, save);
     writing = next.catch(() => undefined);
     return next;
@@ -188,8 +220,9 @@ export function createBuilder({ dir, source, commit, run, python = "python3", st
   /** One look at the folder: builds if there's something to build. */
   async function tick() {
     const retry = !!(await exists(paths.retry));
-    if (retry) await rm(paths.retry, { force: true });
     const iso = await exists(paths.iso);
+    aside = false;
+    if (retry && (!iso || (await exists(join(paths.build, "index.html"))))) await rm(paths.retry, { force: true });
     if (!iso) {
       // "Tentar de novo" after the image was turned down: back to asking for one.
       if (retry && status.state === "failed") status = { at: now(), state: "idle" };
@@ -205,6 +238,13 @@ export function createBuilder({ dir, source, commit, run, python = "python3", st
       await write();
       return;
     }
+    turn = take?.() ?? null;
+    if (take && !turn) {
+      // (another builder is on it: what it writes stands)
+      aside = true;
+      return;
+    }
+    if (retry) await rm(paths.retry, { force: true });
     try {
       await build(iso.mtimeMs);
       status = { at: now(), state: "ready", iso: iso.mtimeMs };
@@ -216,6 +256,8 @@ export function createBuilder({ dir, source, commit, run, python = "python3", st
       status = { ...status, state: "failed", message: failed.message, refused: failed.refused };
     }
     await write();
+    turn?.done();
+    turn = null;
   }
 
   return { tick, load, write, paths, get status() { return status; } };
@@ -240,11 +282,15 @@ export const spawnRunner: Runner = async (cmd, { cwd, log }) => {
 const LOOK_MS = 5000;
 
 if (import.meta.main) {
+  const dir = process.env.BT3_DIR ?? "/app/data/bt3";
+  // (the builds' queue next to the data: <DATA>/queue.db, as the app and ps2-builder have it)
+  const queue = createQueue(process.env.QUEUE_DB ?? join(dir, "..", "queue.db"));
   const builder = createBuilder({
-    dir: process.env.BT3_DIR ?? "/app/data/bt3",
+    dir,
     source: process.env.BT3_SOURCE ?? "/opt/t3",
     commit: process.env.BT3_COMMIT ?? "",
     run: spawnRunner,
+    take: queueTurns(queue, process.env.WORKER_ID || `${hostname()}-${process.pid}`),
   });
   await builder.load();
   // The heartbeat goes on during a build, which takes many minutes.

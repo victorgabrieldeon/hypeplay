@@ -6,11 +6,13 @@ import { createLibrary } from "./library";
 import { createPasses } from "./pass";
 import { createPeople } from "./people";
 import { Ps2Rooms } from "./ps2rooms";
+import { createQueue } from "./queue";
 import { cloudflareTurn } from "./ice";
 import { createApp, type NetData } from "./routes";
 import { createSaves } from "./saves";
 import { createSocial } from "./social";
 import { createVimm } from "./vimm";
+import { createWorkerApi } from "./workers";
 
 const env = (name: string) => {
   const value = process.env[name];
@@ -41,8 +43,15 @@ async function bundle(entry: string, define: Record<string, string> = {}) {
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 // R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
 const r2 = r2FromEnv();
+// The builds' queue (queue.ts): its own file next to the data, shared with the builders on this machine.
+const queue = createQueue(join(dir, "queue.db"));
 // BT3's port is off the catalog (games: []): its disc goes in the library like any PS2 game. Its code stays.
-const library = createLibrary(dir, { r2, port: false });
+const library = createLibrary(dir, { r2, port: false, queue });
+// (the "versão rápida" asked before the queue: in it, once)
+const adopted = await library.importFast();
+if (adopted) console.log(`queue: ${adopted} fast builds from the volume`);
+// Optional: workers on other machines (ps2-builder with QUEUE_URL) take jobs through /worker/ (workers.ts).
+const workers = process.env.WORKER_TOKEN ? createWorkerApi({ dir, queue, r2, token: process.env.WORKER_TOKEN }) : null;
 const app = createApp({
   games: [],
   // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/, the PS2 games live in /app/data/ps2/.
@@ -85,7 +94,7 @@ Bun.serve<NetData>({
   port: PORT,
   // (above the online rooms' long-poll, ps2rooms.ts WAIT_MS; Bun's default 10 s would cut it)
   idleTimeout: 30,
-  fetch: (req, server) => app.handle(req, server),
+  fetch: (req, server) => workers?.handle(req) ?? app.handle(req, server),
   websocket: app.websocket,
 });
 

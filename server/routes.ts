@@ -250,11 +250,13 @@ export function createApp({
   let warned = false;
   /**
    * A game's page with pad.js (the mapped controller) and overlay.js (volume, screen filter) slipped in; `pad` is the
-   * relative address of pad.js, overlay.js sits next to it. Without a </head>, the page as it is.
+   * relative address of pad.js, overlay.js sits next to it. Without a </head>, the page as it is. `source`: its file, or
+   * its bytes already found (a "versão rápida" built elsewhere, in R2).
    */
-  async function page(req: Request, path: string, pad: string, headers: Record<string, string>, adjust: (html: string) => string = (h) => h) {
-    const f = Bun.file(path);
-    if (!(await f.exists())) return text("Não encontrado", 404);
+  async function page(req: Request, source: string | Blob, pad: string, headers: Record<string, string>, adjust: (html: string) => string = (h) => h) {
+    const path = typeof source === "string" ? source : "a build in R2";
+    const f = typeof source === "string" ? Bun.file(source) : source;
+    if (typeof source === "string" && !(await Bun.file(source).exists())) return text("Não encontrado", 404);
     let html: string;
     try {
       html = adjust(await f.text());
@@ -551,23 +553,27 @@ export function createApp({
    */
   async function ps2Fast(req: Request, id: string, rest: string): Promise<Response> {
     const p = library!.paths(id);
-    const build = join(p.fast, "build");
+    // (its build here, or in R2 when a worker elsewhere made it: streamed, as a disc piece is)
+    const built = (name: string) => library!.fastFile(id, name);
+    const body = (b: { file: Blob; from: string }) => (b.from === "r2" ? b.file.stream() : b.file);
     const isolated = (body: ConstructorParameters<typeof Response>[0], status: number, h: Record<string, string> = {}) =>
       new Response(body, { status, headers: { ...ISOLATED, "Content-Type": "text/plain; charset=utf-8", ...h } });
     if (rest === "" || rest === "index.html") {
       const name = ((await library!.get(id))?.name ?? id).replace(/[&<>"]/g, "");
+      const start = await built("ps2web.html");
+      if (!start) return isolated("Não encontrado", 404);
       // (its online: fastplay.js, before the pad.js and overlay.js page() adds; it waits for the page, by then both ran)
-      return page(req, join(build, "ps2web.html"), "../../../pad.js", ISOLATED, (html) =>
+      return page(req, start.file, "../../../pad.js", ISOLATED, (html) =>
         html.replace("<title>ps2-web-recomp</title>", `<title>${name} · HypePlay</title>`).replace(/<\/head>/i, '<script src="../../../fastplay.js"></script>$&'),
       );
     }
     const type = FAST_FILES[rest];
     if (type) {
       // (the build keeps a gzip copy of each: a third of the 15 MB of the engine through the Discord proxy)
-      const gz = /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") ? Bun.file(join(build, `${rest}.gz`)) : null;
-      if (gz && (await gz.exists())) return isolated(gz, 200, { "Content-Type": type, "Content-Encoding": "gzip", "Cache-Control": "no-cache" });
-      const f = Bun.file(join(build, rest));
-      return (await f.exists()) ? isolated(f, 200, { "Content-Type": type, "Cache-Control": "no-cache" }) : isolated("Não encontrado", 404);
+      const gz = /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") ? await built(`${rest}.gz`) : null;
+      if (gz) return isolated(body(gz), 200, { "Content-Type": type, "Content-Encoding": "gzip", "Cache-Control": "no-cache" });
+      const f = await built(rest);
+      return f ? isolated(body(f), 200, { "Content-Type": type, "Cache-Control": "no-cache" }) : isolated("Não encontrado", 404);
     }
     if (rest === "disc.iso") {
       const d = await discs(p.iso);

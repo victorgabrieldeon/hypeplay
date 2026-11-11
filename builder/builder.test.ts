@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GAMES } from "../server/games";
-import { createBuilder, GAME_FILES, REFUSED, STEPS, type Runner } from "./builder";
+import { createQueue } from "../server/queue";
+import { createBuilder, GAME_FILES, queueTurns, REFUSED, STEPS, type Runner } from "./builder";
 
 const fixtures = join(import.meta.dir, "fixtures");
 
@@ -151,4 +152,21 @@ test("status.json writes at the same time (the heartbeat and a look) don't trip 
   const { builder, read } = await setup(fakeTools());
   await Promise.all(Array.from({ length: 20 }, () => builder.write()));
   expect((await read()).state).toBe("idle");
+});
+
+test("two builders over the same folder and queue: one builds, the other leaves its status.json alone", async () => {
+  const tools = fakeTools();
+  const { dir, sendIso, read } = await setup(tools);
+  const queue = createQueue(":memory:");
+  let clock = 1_000_000;
+  const make = (worker: string) =>
+    createBuilder({ dir, source: join(dir, "..", "src"), commit: "abc123", run: tools.run, steps: "/opt/builder/steps.py", now: () => (clock += 1000), take: queueTurns(queue, worker) });
+  const [a, b] = [make("a"), make("b")];
+  await sendIso();
+  await Promise.all([a.tick(), b.tick()]);
+  expect(tools.calls.filter((c) => c === "steps.py disc").length).toBe(1);
+  expect((await read()).state).toBe("ready");
+  expect(queue.get("bt3")!.state).toBe("done");
+  await Promise.all([a.tick(), b.tick()]);
+  expect(tools.calls.filter((c) => c === "steps.py disc").length).toBe(1);
 });

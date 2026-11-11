@@ -6,8 +6,9 @@
  *   ps2/<id>/game.json          { id, serial, name, by, at, cover }   written here
  *   ps2/<id>/cover.webp         its cover, when someone sent one
  *   ps2/<id>/upload/, disc.iso  as BT3's (upload.ts); a game sent with R2 on: disc.iso.r2 instead, its disc in R2 (discs.ts)
- *   ps2/<id>/fast/              its "versão rápida", when someone asked for one: request, retry and misses.txt written
- *                               here, status.json and build/ by ps2-builder/ (see there)
+ *   ps2/<id>/fast/              its "versão rápida", when someone asked for one: request and misses.txt written here,
+ *                               build.log and build/ by ps2-builder/ (or its build in R2, made elsewhere); its place in
+ *                               line and how it went in the builds' queue (queue.ts, fastjobs.ts)
  *   ps2-work/<id>/              port.sh's intermediate files (ps2-builder's)
  *   saves/<id>/                 memory cards (saves.ts): outside the game's folder, so removing a game keeps them
  *
@@ -17,9 +18,11 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/p
 import { join } from "node:path";
 import type { S3Client } from "bun";
 import { dropFromR2, markOf, moveToR2 } from "./discs";
+import { dropR2Build, fastKey } from "./fastjobs";
 import { BT3_SERIAL, fileRead, readDiscId } from "./iso9660";
 import type { Pass } from "./pass";
-import { createDiscStore, QUIET_MS, type DiscStore } from "./upload";
+import { createQueue, PRIORITY, type Queue } from "./queue";
+import { createDiscStore, type DiscStore } from "./upload";
 
 export interface Ps2Game {
   id: string;
@@ -44,9 +47,8 @@ const SERIAL = /^[A-Z]{4}-\d{5}$/;
 
 export type Reserve = { ok: true; game: Ps2Game } | { ok: false; exists: string };
 
-/** ps2-builder's fast/status.json, as far as the app reads it. */
+/** ps2-builder's report of a build (its FastStatus, kept in the queue), as far as the app reads it. */
 interface FastFile {
-  at: number;
   state: "idle" | "building" | "ready" | "failed";
   step?: number;
   total?: number;
@@ -73,8 +75,15 @@ const MISSES_MAX = 256;
 
 const exists = (path: string) => stat(path).then(() => true, () => false);
 
-/** `port`: BT3's port is in the catalog (routes.ts' games); without it BT3's disc is a PS2 game like any other. */
-export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null, port = true } = {}) {
+/**
+ * `port`: BT3's port is in the catalog (routes.ts' games); without it BT3's disc is a PS2 game like any other. `queue`:
+ * the builds' (queue.ts), <dir>/queue.db in index.ts; one of its own in memory by default.
+ */
+export function createLibrary(
+  dir: string,
+  { now = () => Date.now(), min = PS2_MIN, max = PS2_MAX, r2 = null as S3Client | null, port = true, queue = null as Queue | null } = {},
+) {
+  const jobs = queue ?? createQueue(":memory:", { now });
   const stores = new Map<string, DiscStore>();
   /** Reservations between making their folder and writing their game.json: not orphans. */
   const reserving = new Set<string>();
@@ -145,6 +154,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     const p = paths(id);
     stores.delete(id);
     await dropFromR2(r2, dir, p.iso).catch((err) => console.error(`R2: ${id}'s disc stays there:`, err));
+    await dropR2Build(r2, jobs.drop(fastKey(id))?.build);
     await rm(p.root, { recursive: true, force: true });
     await rm(p.work, { recursive: true, force: true });
   }
@@ -242,18 +252,16 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     rename: (id: string, name: string) => update(id, (g) => ({ ...g, name: nameOr(name, g.serial) })),
     setCover: (id: string, has: boolean) => update(id, (g) => ({ ...g, cover: has, coverAt: Math.max(now(), (g.coverAt ?? 0) + 1) })),
 
-    /** The game's "versão rápida", from ps2-builder's files. */
+    /** The game's "versão rápida": its job in the queue and its build (here, or in R2). */
     async fast(id: string): Promise<Fast> {
       const f = paths(id).fast;
-      const [request, built, s] = await Promise.all([
-        exists(join(f, "request")),
-        exists(join(f, "build", "ps2web.html")),
-        readFile(join(f, "status.json"), "utf8").then((t) => JSON.parse(t) as FastFile, () => null),
-      ]);
-      if (!request) return { state: "off" };
-      // (a build plays whether or not the builder is up)
-      if (!s || now() - s.at > QUIET_MS) return built ? { state: "ready" } : { state: "offline" };
-      if (s.state === "building")
+      if (!(await exists(join(f, "request")))) return { state: "off" };
+      const job = jobs.get(fastKey(id));
+      const s = (job?.status ?? null) as FastFile | null;
+      const built = !!job?.build || (await exists(join(f, "build", "ps2web.html")));
+      if (job?.state === "failed") return { state: "failed", message: s?.message ?? "", ...(s?.reason ? { reason: s.reason } : {}), playable: built };
+      // (a worker that stopped renewing its lease isn't building any more: the job goes back in line)
+      if (job?.state === "running" && (job.leaseUntil ?? 0) >= now() && s?.state === "building")
         return {
           state: "building",
           step: s.step ?? 1,
@@ -264,28 +272,63 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
           updating: !!s.updating,
           playable: built,
         };
-      if (s.state === "failed") return { state: "failed", message: s.message ?? "", ...(s.reason ? { reason: s.reason } : {}), playable: built };
-      return built ? { state: "ready" } : { state: "queued" };
+      // (a build plays whether or not a worker is up)
+      if (built) return { state: "ready" };
+      return jobs.online("ps2") ? { state: "queued" } : { state: "offline" };
     },
 
-    /** "Compilar versão rápida", or "Tentar de novo" after it failed: ps2-builder picks it up. */
+    /** A file of the "versão rápida"'s build: here, or in R2 when a worker elsewhere made it (`from` says which). */
+    async fastFile(id: string, name: string): Promise<{ file: Blob; from: "local" | "r2" } | null> {
+      const local = Bun.file(join(paths(id).fast, "build", name));
+      if (await local.exists()) return { file: local, from: "local" };
+      const b = jobs.get(fastKey(id))?.build;
+      return r2 && b?.files.includes(name) ? { file: r2.file(`${b.prefix}/${name}`), from: "r2" } : null;
+    },
+
+    /** "Compilar versão rápida", or "Tentar de novo" after it failed: in line for a worker (queue.ts). */
     async askFast(id: string) {
       if (!(await get(id)) || !(await hasDisc(id))) return false;
       const f = paths(id).fast;
       await mkdir(f, { recursive: true });
-      const failed = (await this.fast(id)).state === "failed";
-      await writeFile(join(f, failed ? "retry" : "request"), "");
+      const failed = jobs.get(fastKey(id))?.state === "failed";
+      await writeFile(join(f, "request"), "");
+      jobs.enqueue(fastKey(id), "ps2", { priority: PRIORITY.ask, retry: failed });
       return true;
     },
 
-    /** The "versão rápida" goes, with its files; the game stays, in the emulator. */
+    /**
+     * The volume's requests from before the queue, in it (once each: the queue keeps what it knows). A ready build stays
+     * done, a failure stays failed (unless "Tentar de novo" was left for it), the rest waits in line.
+     */
+    async importFast() {
+      let adopted = 0;
+      for (const id of (await readdir(join(dir, "ps2")).catch(() => [] as string[])).filter((i) => ID.test(i))) {
+        const f = paths(id).fast;
+        if (!(await exists(join(f, "request"))) || jobs.get(fastKey(id))) continue;
+        const raw = await readFile(join(f, "status.json"), "utf8").then((t) => JSON.parse(t) as FastFile & { at?: number; shell?: string; recomp?: string }, () => null);
+        const { at: _, ...status } = raw ?? { state: "idle" as const };
+        const retry = await exists(join(f, "retry"));
+        const built = await exists(join(f, "build", "ps2web.html"));
+        // (code the players met may still be unlearned: in line, the worker sees whether it is)
+        const state = retry ? "queued" : status.state === "failed" ? "failed" : built && status.state === "ready" && !(await exists(join(f, "misses.txt"))) ? "done" : "queued";
+        if (jobs.adopt(fastKey(id), "ps2", state, { retry, status: raw ? status : null, shell: status.shell ?? null, recomp: status.recomp ?? null })) adopted++;
+        await rm(join(f, "retry"), { force: true });
+      }
+      return adopted;
+    },
+
+    /** The "versão rápida" goes, with its files (and its build in R2); the game stays, in the emulator. */
     async removeFast(id: string) {
       if (!ID.test(id)) return;
+      await dropR2Build(r2, jobs.drop(fastKey(id))?.build);
       // (the builder may be writing its log in there right now: a file made mid-removal is retried, not an error)
       const again = { recursive: true, force: true, maxRetries: 5, retryDelay: 50 };
       await rm(paths(id).fast, again);
       await rm(paths(id).work, again);
     },
+
+    /** The builds' queue it puts the "versão rápida" in. */
+    queue: jobs,
 
     /** Code a player's page met untranslated (`pc` as its halt message gives it): ps2-builder builds it in. */
     async fastMiss(id: string, pc: string) {
@@ -296,6 +339,8 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
       const kept = (await readFile(file, "utf8").catch(() => "")).split("\n").filter(Boolean);
       if (kept.includes(t) || kept.length >= MISSES_MAX) return true;
       await writeFile(file, `${[...kept, t].join("\n")}\n`);
+      // (first in line; a failed build keeps it for "Tentar de novo")
+      jobs.enqueue(fastKey(id), "ps2", { priority: PRIORITY.miss, revive: false });
       return true;
     },
   };

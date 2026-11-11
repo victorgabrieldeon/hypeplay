@@ -150,3 +150,38 @@ test("a folder left without game.json doesn't block its serial, and goes from th
   expect((await library.list()).map((g) => g.id)).toEqual(["sles-12345"]);
   expect(await exists(join(dir, "ps2", "scus-97481"))).toBe(false);
 });
+
+test("the requests left in the volume before the queue go in it once, and a ready build isn't built again", async () => {
+  const { dir, library } = await setup();
+  const fast = (id: string) => join(dir, "ps2", id, "fast");
+  async function old(id: string, status: object | null, files: string[] = []) {
+    await mkdir(join(fast(id), "build"), { recursive: true });
+    await writeFile(join(dir, "ps2", id, "game.json"), JSON.stringify({ id }));
+    await writeFile(join(fast(id), "request"), "");
+    if (status) await writeFile(join(fast(id), "status.json"), JSON.stringify({ at: 1, ...status }));
+    for (const f of files) await writeFile(join(fast(id), f), "x");
+  }
+  await old("slus-20001", { state: "ready", shell: "s", recomp: "r" }, ["build/ps2web.html"]);
+  await old("slus-20002", { state: "failed", message: "boom" });
+  await old("slus-20003", { state: "failed", message: "boom" }, ["retry"]);
+  await old("slus-20004", { state: "building", step: 3 });
+  await old("slus-20005", null);
+  await old("slus-20006", { state: "ready", shell: "s", recomp: "r" }, ["build/ps2web.html", "misses.txt"]);
+  // (asked for no more: not in line)
+  await mkdir(fast("slus-20007"), { recursive: true });
+  expect(await library.importFast()).toBe(6);
+  const q = library.queue;
+  expect(q.get("ps2/slus-20001")).toMatchObject({ state: "done", shell: "s", recomp: "r", status: { state: "ready", shell: "s" } });
+  expect(q.get("ps2/slus-20001")!.status).not.toHaveProperty("at");
+  expect(q.get("ps2/slus-20002")).toMatchObject({ state: "failed", status: { message: "boom" } });
+  expect(q.get("ps2/slus-20003")).toMatchObject({ state: "queued", retry: true });
+  expect(await exists(join(fast("slus-20003"), "retry"))).toBe(false);
+  expect(q.get("ps2/slus-20004")!.state).toBe("queued");
+  expect(q.get("ps2/slus-20005")!.state).toBe("queued");
+  expect(q.get("ps2/slus-20006")!.state).toBe("queued");
+  expect(q.get("ps2/slus-20007")).toBeNull();
+  expect(await library.fast("slus-20001")).toEqual({ state: "ready" });
+  expect(await library.fast("slus-20002")).toEqual({ state: "failed", message: "boom", playable: false });
+  // the next start: nothing new
+  expect(await library.importFast()).toBe(0);
+});

@@ -1,6 +1,7 @@
 # The Budokai Tenkaichi 3 plugin's builder (builder.ts): compiles the browser port from the server owner's disc image.
 # The image holds the toolchain and the fork's source only, never anything from the disc: that lives in the data
-# volume (/app/data/bt3/), and so does everything made from it.
+# volume (/app/data/bt3/), and so does everything made from it. Built from the repository's root (docker-compose.yml):
+# it uses server/queue.ts too (the builds' queue, /app/data/queue.db).
 FROM oven/bun:1.4 AS bun
 
 # The port is built with Emscripten 6.0 (docs/web/README.md of the fork).
@@ -22,6 +23,7 @@ RUN git init -q /opt/t3 \
   && rm -rf /opt/t3/.git
 ENV BT3_SOURCE=/opt/t3 BT3_COMMIT=$BT3_COMMIT BT3_DIR=/app/data/bt3
 
-WORKDIR /opt/builder
-COPY builder.ts patch.ts steps.py ./
-CMD ["bun", "builder.ts"]
+WORKDIR /opt/hypeplay
+COPY builder/builder.ts builder/patch.ts builder/steps.py builder/
+COPY server/queue.ts server/
+CMD ["bun", "builder/builder.ts"]

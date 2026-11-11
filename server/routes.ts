@@ -1,20 +1,16 @@
 /**
- * HypePlay's server, the Discord Activity (docs/2026-10-29-plugin-bt3-design.md).
+ * HypePlay's server, the Discord Activity.
  *
  *   /, entry.js, /icon.svg                 public: the entry page signs in with Discord (page/entry.html, entry.ts)
  *   /token                                 POST { code }: the Discord code for a pass (discord.ts, pass.ts)
  *   /login, /auth                          from a browser: Discord's sign-in page and back with a pass
  *   /p/<pass>/                             the home (page/index.html), framed by the entry page
  *             games                        the catalog (games.ts), each game with its state
- *             <id>/status, upload, retry   a game's state, its disc image's upload, "Tentar de novo"
- *             <id>/game/<file>             the compiled game, from its fixed list
- *             <id>/game/disc/...           the disc image in 1 MiB pieces, read straight from it
- *             <id>/game/net/ws, net/queue  online rooms (rooms.ts), one set per game
  *             cover/<key>                  a game's cover (cover.ts): the one sent, or one drawn from its serial
  *             pad, keys, played            the person's controller maps, keys and last game (people.ts)
  *             here                         POST: a game's page is still open (its path; empty, it closed): presence.ts
  *             ps2                          POST: reserve a PS2 game by its serial (library.ts)
- *             ps2/<id>/                    PATCH name, DELETE; status, upload, retry, cover, save
+ *             ps2/<id>/                    PATCH name, DELETE; status, upload, cover, save
  *             ps2/<id>/fast-build          POST: ask for its "versão rápida" (or try again); DELETE: remove it
  *             ps2/<id>/fast/<file>         the "versão rápida" (ps2-builder/), its disc, and the code it met untranslated
  *             vimm                         POST { link, title?, box? }: download a PS2 game from vimm.net into the library (with
@@ -26,7 +22,7 @@
  *             vimm/store, vimm/search?q=   the "loja": Vimm's PS2 lists (month's top, best rated) and search (a letter lists it)
  *             vimm/art/<box|snap>/<file>   a game's box art or screenshot (libretro-thumbnails); vimm/cover/<id>: one drawn
  *
- * A game's key is "bt3" for BT3's port and "ps2/<id>" for the PS2 games of the library.
+ * A game's key is "ps2/<id>", a PS2 game of the library.
  *
  * Everything runs as an opaque origin (CSP sandbox), even opened straight from the address bar. That makes every
  * fetch cross-origin, hence the CORS headers. The entry page is the exception: the Discord SDK needs a real origin.
@@ -34,7 +30,7 @@
 import type { Server, WebSocketHandler } from "bun";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bios } from "./bios";
 import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
@@ -42,8 +38,7 @@ import { createDiscs, type Discs } from "./discs";
 import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
 import { type CloudflareTurn, iceServers, STUN } from "./ice";
 import { authorizeUrl, type Discord } from "./discord";
-import { FAST_STEPS, GAMES, type Game } from "./games";
-import { BT3_SERIAL } from "./iso9660";
+import { FAST_STEPS } from "./games";
 import { ID, PS2_MAX, PS2_MIN, type Fast, type Library, type Ps2Game } from "./library";
 import { CALL, type Pass, type Passes } from "./pass";
 import type { People } from "./people";
@@ -52,13 +47,10 @@ import { gameFrom, Presence } from "./presence";
 import { CAPACITY, decodeList, encodeList, KEY_BYTES, mergeLists } from "../page/pipelines";
 import { patchTabStation } from "./ps2page";
 import { INBOX, MESSAGE_MAX, type Ps2Rooms } from "./ps2rooms";
-import { NetRooms, parseQueueParams, parseRoomParams, type QueueParams, type RoomParams } from "./rooms";
 import { Relay } from "./relay";
 import { CARD_BYTES, type Saves } from "./saves";
-import { createDiscStore, MAX_PIECE, type DiscStore, type Status } from "./upload";
+import { MAX_PIECE, type DiscStore, type Status } from "./upload";
 import type { Vimm } from "./vimm";
-
-export const PIECE = 1024 * 1024;
 
 /** The "versão rápida"'s files besides its page (ps2-builder's PUBLISHED), with their types. */
 const FAST_FILES: Record<string, string> = {
@@ -103,7 +95,7 @@ const FONTS: Record<string, string> = {
   "host-grotesk-latin-ext-wght-normal.woff2": "@fontsource-variable/host-grotesk",
 };
 
-export const HEADERS = {
+const HEADERS = {
   "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups allow-downloads; ${FRAME_ANCESTORS}`,
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, POST, PATCH, DELETE, OPTIONS",
@@ -119,8 +111,6 @@ const INTRO_MAX = 64 * 1024 ** 2;
 const isMp4 = (b: Uint8Array) => b.length > 12 && String.fromCharCode(...b.subarray(4, 8)) === "ftyp";
 
 export type NetData = { game: string } & (
-  | { kind: "room"; params: RoomParams }
-  | { kind: "queue"; params: QueueParams }
   | { kind: "relay"; room: string; role: "host" | "guest"; me: string; watch: boolean }
   /** the vimm download as it goes (vimm.ts watch): `off` once open */
   | { kind: "vimm"; off?: () => void }
@@ -139,7 +129,6 @@ export interface AppOptions {
   entryJs: string;
   passes: Passes;
   discord: Pick<Discord, "signIn">;
-  games?: Game[];
   now?: () => number;
   /** The PS2 library (library.ts) and what's kept per person; without them, the PS2 routes answer 404. */
   library?: Library;
@@ -168,23 +157,20 @@ export interface AppOptions {
   discs?: Discs;
 }
 
-/** One game of the home's catalog: BT3's port or a PS2 game of the library. */
+/** One game of the home's catalog: a PS2 game of the library. */
 export interface CatalogEntry {
   key: string;
-  kind: "port" | "recomp";
+  kind: "recomp";
   id: string;
   name: string;
   serial?: string;
   platform: string;
-  year?: number;
   tags: string[];
-  blurb?: string;
   disc?: string;
   steps: string[];
   minIso: number;
   maxIso: number;
   cover: string;
-  colors?: [string, string];
   status: Status;
   rooms: number;
   open: { code: string; host: string; since: number; busy: boolean; watchers?: number }[];
@@ -201,7 +187,6 @@ export function createApp({
   entryJs,
   passes,
   discord,
-  games = GAMES,
   now = () => Date.now(),
   library,
   saves,
@@ -218,10 +203,6 @@ export function createApp({
   vimm,
   discs = createDiscs(dir, null),
 }: AppOptions) {
-  const shelf = new Map(
-    games.map((g) => [g.id, { game: g, disc: createDiscStore(join(dir, g.id), { now, min: g.minIso, max: g.maxIso }), rooms: new NetRooms(now) }]),
-  );
-  type Shelf = NonNullable<ReturnType<typeof shelf.get>>;
   const presence = new Presence(now);
   function respond(body: ConstructorParameters<typeof Response>[0], status = 200, headers: Record<string, string> = {}) {
     return new Response(body, { status, headers: { ...HEADERS, ...headers } });
@@ -275,54 +256,7 @@ export function createApp({
     return new Response(both ?? html, { headers: { ...headers, "Content-Type": TYPES.html! } });
   }
 
-  async function discIndex({ disc }: Shelf) {
-    const d = await discs(disc.paths.iso);
-    return d && { size: d.size, piece: PIECE, d };
-  }
-
-  async function game(on: Shelf, rest: string, req: Request, server: Server<NetData> | undefined): Promise<Response | undefined> {
-    const { disc } = on;
-    // (the port plays online from its own main menu: overlay.js says so in the game's panel)
-    if (rest === "" || rest === "index.html")
-      return page(req, join(disc.paths.build, "index.html"), "../../pad.js", HEADERS, (html) => html.replace("</head>", '<meta name="hypeplay-online" content="menu">\n</head>'));
-    if (on.game.files.has(rest)) return file(join(disc.paths.build, rest));
-    if (rest === "disc/index.json") {
-      const index = await discIndex(on);
-      return index ? json({ size: index.size, piece: index.piece }) : text("Sem ISO no servidor", 404);
-    }
-    const piece = /^disc\/(\d{5})\.bin$/.exec(rest);
-    if (piece) {
-      const index = await discIndex(on);
-      const n = Number(piece[1]);
-      if (!index || n * PIECE >= index.size) return text("Não encontrado", 404);
-      const end = Math.min(index.size, (n + 1) * PIECE);
-      const blob = index.d.file.slice(n * PIECE, end);
-      // (an R2 piece streamed, not as it is: that would be a redirect to R2, http.ts' rangeResponse)
-      return respond(index.d.from === "r2" ? blob.stream() : blob, 200, {
-        "Content-Type": TYPES.bin!,
-        "Content-Length": String(end - n * PIECE),
-        "Cache-Control": "private, max-age=31536000, immutable",
-        "X-Disc-Source": index.d.from,
-      });
-    }
-    if (rest === "net/ws" || rest === "net/queue") {
-      const q = new URL(req.url).searchParams;
-      let data: NetData;
-      if (rest === "net/queue") data = { game: on.game.id, kind: "queue", params: parseQueueParams(q) };
-      else {
-        const params = parseRoomParams(q);
-        if (!params) return text("Pedido inválido", 400);
-        data = { game: on.game.id, kind: "room", params };
-      }
-      if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
-      return server.upgrade(req, { data }) ? undefined : text("Não deu para abrir a conexão", 400);
-    }
-    // the fork's match log and test statistics: not kept here
-    if (rest === "net/stat" || rest === "net/log" || rest === "telemetry") return respond(null, 204);
-    return text("Não encontrado", 404);
-  }
-
-  /** PUT <game>/upload, the same for BT3 and the PS2 games; `done` runs once the whole image is in. */
+  /** PUT ps2/<id>/upload; `done` runs once the whole image is in. */
   async function upload(disc: DiscStore, req: Request, pass: Pass, done?: () => Promise<{ ok: true } | { ok: false; message: string }>) {
     if (req.method === "GET") return json(await disc.progress());
     if (req.method !== "PUT") return text("Método não permitido", 405);
@@ -347,8 +281,7 @@ export function createApp({
   /** A PS2 game plays as soon as its disc is in and checked, once the server has the BIOS: nothing is compiled. */
   async function ps2Status(id: string, pass: Pass): Promise<Status> {
     const s = await library!.disc(id).status(pass);
-    if (s.state === "empty" || s.state === "uploading" || (s.state === "failed" && s.refused)) return s;
-    if (!(await library!.hasDisc(id))) return s;
+    if (s.state !== "ready") return s;
     return (await bios?.info())?.present ? { state: "ready" } : { state: "needs-bios" };
   }
 
@@ -377,9 +310,6 @@ export function createApp({
     };
   }
 
-  /** Where a port's sent cover is kept (beside its disc image). */
-  const portCover = (id: string) => join(dir, id, "cover.webp");
-
   /** PUT or DELETE of a game's cover, kept at `path`; `has` records whether it now has one. */
   async function coverUpload(req: Request, path: string, has: (on: boolean) => Promise<unknown>) {
     if (req.method === "DELETE") {
@@ -397,21 +327,6 @@ export function createApp({
   }
 
   async function catalog(pass: Pass, req: Request) {
-    const ports = await Promise.all(
-      [...shelf.values()].map(async ({ game: { files: _, ...g }, disc, rooms }): Promise<CatalogEntry> => {
-        const sent = Bun.file(portCover(g.id));
-        return {
-          ...g,
-          key: g.id,
-          kind: "port",
-          cover: `cover/${g.id}?v=${(await sent.exists()) ? `${sent.lastModified}-c` : coverVersion(BT3_SERIAL, g.name)}`,
-          status: await disc.status(pass),
-          rooms: rooms.size,
-          // (the game's own Dragon Net Battle rooms: their code is what a friend types in Join a Match)
-          open: rooms.lobbies(),
-        };
-      }),
-    );
     const ps2 = library ? await Promise.all((await library.list()).map((g) => ps2Entry(g, pass))) : [];
     presence.library(pass);
     social?.seen(pass);
@@ -420,7 +335,7 @@ export function createApp({
       me: pass.name,
       last: (await people?.last(pass.id)) ?? null,
       publicUrl: publicFor(req),
-      games: [...ports, ...ps2],
+      games: ps2,
       people: peopleFor(pass),
       social: social?.view(pass.id, (id) => around.has(id)) ?? null,
     };
@@ -447,9 +362,7 @@ export function createApp({
     if (req.method !== "POST") return text("Método não permitido", 405);
     const path = (await req.text()).slice(0, 300);
     const g = gameFrom(path);
-    let title: string | null = null;
-    if (g && shelf.has(g.key)) title = shelf.get(g.key)!.game.name;
-    else if (g?.key.startsWith("ps2/") && library) title = (await library.get(g.key.slice(4)))?.name ?? null;
+    const title = g ? await titleOf(g.key) : null;
     const game = g && title ? { key: g.key, title, watch: g.watch } : null;
     presence.playing(pass, game);
     social?.beat(pass, game, game ? presence.others(pass.id).filter((p) => p.game?.key === game.key).map((p) => p.id) : []);
@@ -458,7 +371,6 @@ export function createApp({
 
   /** A game's name by its key, when the catalog has it. */
   async function titleOf(key: string): Promise<string | null> {
-    if (shelf.has(key)) return shelf.get(key)!.game.name;
     return key.startsWith("ps2/") && library ? ((await library.get(key.slice(4)))?.name ?? null) : null;
   }
 
@@ -511,9 +423,6 @@ export function createApp({
       const type = imageType(new Uint8Array(await f.slice(0, 12).arrayBuffer())) ?? "image/webp";
       return respond(f, 200, { "Content-Type": type, ...immutable });
     };
-    const port = shelf.get(key);
-    if (port && key === "bt3")
-      return (await sent(portCover(key))) ?? respond(generatedCover(BT3_SERIAL, port.game.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
     const id = /^ps2\/(.+)$/.exec(key)?.[1];
     const g = id && library ? await library.get(id) : null;
     if (!g) return text("Não encontrado", 404);
@@ -697,10 +606,6 @@ export function createApp({
         return json(await ps2Status(id, pass));
       case "upload":
         return upload(disc, req, pass, () => lib.verify(id));
-      case "retry":
-        if (req.method !== "POST") return text("Método não permitido", 405);
-        await disc.retry();
-        return respond(null, 204);
       case "fast-build":
         if (req.method === "POST") return (await lib.askFast(id)) ? respond(null, 204) : text("O jogo ainda não tem a ISO", 409);
         if (req.method === "DELETE") {
@@ -853,7 +758,7 @@ export function createApp({
     if (path === "/played" && people) {
       if (req.method !== "POST") return text("Método não permitido", 405);
       const key = (await body<{ key?: unknown }>(req))?.key;
-      const known = typeof key === "string" && (shelf.has(key) || (!!library && /^ps2\//.test(key) && !!(await library.get(key.slice(4)))));
+      const known = typeof key === "string" && !!(await titleOf(key));
       if (!known) return text("Pedido inválido", 400);
       await people.played(pass.id, key as string);
       return respond(null, 204);
@@ -901,33 +806,9 @@ export function createApp({
     }
     const sony = library && /^\/ps2\/([^/]+)(?:\/(.*))?$/.exec(path);
     if (sony) return ID.test(sony[1]!) ? ps2(req, pass, sony[1]!, sony[2] ?? "", server) : text("Não encontrado", 404);
-    const g = /^\/([\w-]+)(\/.*)?$/.exec(path);
-    const on = g && shelf.get(g[1]!);
-    if (!on) return text("Não encontrado", 404);
-    const sub = g![2];
-    if (!sub) return text("Não encontrado", 404);
-    if (sub === "/game") return respond(null, 301, { Location: slashed(pathname) });
-    const rest = sub.slice(1);
-    if (rest.startsWith("game/")) return game(on, rest.slice(5), req, server);
-    const { disc } = on;
-    switch (rest) {
-      case "status":
-        return json(await disc.status(pass));
-      case "upload":
-        return upload(disc, req, pass);
-      case "cover":
-        // (the address carries the file's time: nothing to record)
-        await mkdir(join(dir, on.game.id), { recursive: true });
-        return coverUpload(req, portCover(on.game.id), async () => {});
-      case "retry":
-        if (req.method !== "POST") return text("Método não permitido", 405);
-        await disc.retry();
-        return respond(null, 204);
-    }
     return text("Não encontrado", 404);
   }
 
-  const roomsOf = (ws: { data: NetData }) => shelf.get(ws.data.game)!.rooms;
   // the PS2 games' online relay: one for the whole app, rooms by code
   const relay = new Relay();
   const websocket: WebSocketHandler<NetData> = {
@@ -936,23 +817,19 @@ export function createApp({
       if (d.kind === "vimm") {
         ws.send(JSON.stringify(vimm!.status()));
         d.off = vimm!.watch((job) => ws.send(JSON.stringify(job)));
-      } else if (d.kind === "relay") relay.open(ws, d.room, d.role, d.me, d.watch);
-      else if (d.kind === "room") roomsOf(ws).openRoom(ws, d.params);
-      else roomsOf(ws).openQueue(ws, d.params);
+      } else relay.open(ws, d.room, d.role, d.me, d.watch);
     },
     message(ws, msg) {
       if (ws.data.kind === "vimm") return;
-      if (ws.data.kind === "relay") relay.message(ws, typeof msg === "string" ? msg : new Uint8Array(msg));
-      else roomsOf(ws).message(ws, msg);
+      relay.message(ws, typeof msg === "string" ? msg : new Uint8Array(msg));
     },
-    close(ws, code) {
+    close(ws) {
       if (ws.data.kind === "vimm") ws.data.off?.();
-      else if (ws.data.kind === "relay") relay.close(ws);
-      else roomsOf(ws).close(ws, code);
+      else relay.close(ws);
     },
   };
 
-  return { handle, websocket, shelf };
+  return { handle, websocket };
 }
 
 export type App = ReturnType<typeof createApp>;

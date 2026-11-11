@@ -2,9 +2,8 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Runner } from "../builder/builder";
 import { FAST_STEPS } from "../server/games";
-import { createPs2Builder, parseMisses } from "./builder";
+import { createPs2Builder, parseMisses, type Runner } from "./builder";
 import { MARK } from "./patch";
 
 // Real folders, links and copies: slower than a unit test.

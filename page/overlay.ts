@@ -371,7 +371,6 @@ function build() {
   apply();
   for (const [el, t] of sections) pane(t).append(el);
   if (pending) showOnline(...pending);
-  else if (document.querySelector('meta[name="hypeplay-online"]')?.getAttribute("content") === "menu") portOnline();
   if (reopenWanted) showReopen();
   selectTab(tab);
   gpuCheck();
@@ -509,32 +508,6 @@ function gpuCheck() {
   document.body.append(note);
 }
 
-/**
- * BT3's port plays online in its own Dragon Net Battle (main menu). Opened from the library to join a friend's room
- * (?join=CODE) or to open one (?online=host), a note at the top shows the way there until it's closed.
- */
-function portOnline() {
-  const q = new URLSearchParams(location.search);
-  const code = (q.get("join") ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
-  const host = q.get("online") === "host";
-  const way = code
-    ? `No <b>menu principal</b> do jogo, escolha <b>Dragon Net Battle</b> → <b>Join a Match</b> e digite <span class="cp-code">${code}</span>.`
-    : `No <b>menu principal</b> do jogo, escolha <b>Dragon Net Battle</b>: <b>Host a Match</b> cria uma sala (o código aparece na biblioteca para os amigos), <b>Join a Match</b> entra com o código de um amigo.`;
-  showOnline(way);
-  if (!code && !host) return;
-  // (gone from the address: the game reloads itself into the match and back, and the note is for now only)
-  q.delete("join");
-  q.delete("online");
-  history.replaceState(null, "", `${location.pathname}${q.size ? `?${q}` : ""}${location.hash}`);
-  const note = document.createElement("div");
-  note.id = "cp-top";
-  note.setAttribute("role", "status");
-  note.innerHTML = `<p>${code ? `<b>Sala <span class="cp-code">${code}</span></b><br>` : "<b>Jogar online</b><br>"}${way}</p>
-    <button type="button" aria-label="Fechar">${ICON_CLOSE}</button>`;
-  note.querySelector("button")!.addEventListener("click", () => note.remove());
-  document.body.append(note);
-}
-
 // The page's controls (this button, ps2play.ts's bar) show while the pointer moves and hide a few seconds after.
 let sleep = 0;
 function wake() {
@@ -596,7 +569,7 @@ interface Friend { id: string; name: string; status: string; note: string; seen?
 interface Around { id: string; game?: { key: string; title: string; watch?: boolean } | null; room?: { key: string; code: string } | null }
 interface Social { id: string; friends: Friend[]; invites: { id: string; name: string; kind: string; title: string }[]; incoming: { id: string }[] }
 
-/** This page's game ("ps2/<id>", "bt3"): what an invite sent from here is for. */
+/** This page's game ("ps2/<id>"): what an invite sent from here is for. */
 const gameKey = /^(.+?)\/(?:game|fast|watch)\//.exec(where)?.[1] ?? "";
 const friendsPage = new URL("#amigos", home).href;
 const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

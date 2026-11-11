@@ -1,11 +1,8 @@
 /**
- * The disc image's upload and the game's state, from the files in the data folder (/app/data/bt3/):
+ * A PS2 game's disc image upload and its state, from the files in its folder (/app/data/ps2/<id>/):
  *
  *   upload/disc.iso.part, upload/state.json   an upload under way ({ size, received, by, at })
- *   disc.iso                                  the whole image: the builder (builder/) takes it from here
- *   retry                                     left here by "Tentar de novo"; the builder deletes it when it starts
- *   status.json                               the builder's own state, written only by it (with a heartbeat, `at`)
- *   build/                                    the compiled game, swapped in whole by the builder
+ *   disc.iso                                  the whole image (or disc.iso.r2, once moved to R2: discs.ts)
  *
  * One upload at a time, in pieces, each starting exactly where the last one ended, so a dropped connection picks up
  * from the last piece taken. Someone else may take over an upload only after it went quiet.
@@ -15,11 +12,11 @@ import { markOf } from "./discs";
 import { join } from "node:path";
 import type { Pass } from "./pass";
 
-export const MIN_ISO = 1024 ** 3;
-export const MAX_ISO = 9 * 1024 ** 3;
+const MIN_ISO = 1024 ** 3;
+const MAX_ISO = 9 * 1024 ** 3;
 /** The page sends 32 MiB; a little room above that. */
 export const MAX_PIECE = 40 * 1024 ** 2;
-/** An upload or a builder quiet for this long is taken as gone. */
+/** An upload quiet for this long is taken as gone. */
 export const QUIET_MS = 2 * 60_000;
 
 interface UploadState {
@@ -29,30 +26,11 @@ interface UploadState {
   at: number;
 }
 
-/** status.json (builder/builder.ts). */
-export interface BuilderStatus {
-  at: number;
-  state: "idle" | "building" | "ready" | "failed";
-  /** The disc.iso it worked on (its mtime), so a newer image isn't shown an older one's result. */
-  iso?: number;
-  step?: number;
-  total?: number;
-  label?: string;
-  startedAt?: number;
-  message?: string;
-  /** It turned the image down and deleted it: another one can be sent. */
-  refused?: boolean;
-}
-
 export type Status =
   | { state: "empty" }
   | { state: "uploading"; received: number; size: number; by: string; mine: boolean; stale: boolean }
-  | { state: "queued" }
-  | { state: "building"; step: number; total: number; label: string; elapsed: number }
-  | { state: "failed"; message: string; refused: boolean }
   | { state: "ready" }
-  | { state: "offline" }
-  /** (PS2 games) the disc is in; the server still needs the PS2 BIOS */
+  /** the disc is in; the server still needs the PS2 BIOS */
   | { state: "needs-bios" };
 
 export type PutResult =
@@ -75,20 +53,15 @@ export interface DiscStoreOptions {
   min?: number;
   max?: number;
   maxPiece?: number;
-  /** The file in build/ that means the game is built (BT3's index.html; the PS2 games' ps2web.html). */
-  page?: string;
   /** Whether the game is still there when a piece has arrived (the PS2 library: it may be removed meanwhile). */
   alive?: () => Promise<boolean>;
 }
 
-export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE, page = "index.html", alive }: DiscStoreOptions = {}) {
+export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN_ISO, max = MAX_ISO, maxPiece = MAX_PIECE, alive }: DiscStoreOptions = {}) {
   const paths = {
     part: join(dir, "upload", "disc.iso.part"),
     state: join(dir, "upload", "state.json"),
     iso: join(dir, "disc.iso"),
-    retry: join(dir, "retry"),
-    status: join(dir, "status.json"),
-    build: join(dir, "build"),
   };
   // One piece at a time, whoever sends it.
   let queue: Promise<unknown> = Promise.resolve();
@@ -152,51 +125,11 @@ export function createDiscStore(dir: string, { now = () => Date.now(), min = MIN
       });
     },
 
-    /** The builder's own status.json, as it wrote it. */
-    builder: () => readJsonFile<BuilderStatus>(paths.status),
-
-    /** "Tentar de novo": the builder picks it up on its next look. */
-    async retry() {
-      await mkdir(dir, { recursive: true });
-      await writeFile(paths.retry, "");
-    },
-
     async status(pass: Pass): Promise<Status> {
-      const [iso, built, builder] = await Promise.all([
-        hasIso(),
-        exists(join(paths.build, page)),
-        readJsonFile<BuilderStatus>(paths.status),
-      ]);
-      const t = now();
-      if (iso && built) return { state: "ready" };
-      if (!iso) {
-        const up = await readUpload();
-        if (up)
-          return {
-            state: "uploading",
-            received: up.received,
-            size: up.size,
-            by: up.by.name,
-            mine: up.by.id === pass.id,
-            stale: t - up.at >= QUIET_MS,
-          };
-        if (builder?.state === "failed" && builder.refused) return { state: "failed", message: builder.message ?? "", refused: true };
-        return { state: "empty" };
-      }
-      if (!builder || t - builder.at > QUIET_MS) return { state: "offline" };
-      if (builder.iso === iso.mtimeMs) {
-        if (builder.state === "building")
-          return {
-            state: "building",
-            step: builder.step ?? 1,
-            total: builder.total ?? 1,
-            label: builder.label ?? "",
-            elapsed: Math.max(0, t - (builder.startedAt ?? t)),
-          };
-        if (builder.state === "failed")
-          return { state: "failed", message: builder.message ?? "", refused: false };
-      }
-      return { state: "queued" };
+      if (await hasIso()) return { state: "ready" };
+      const up = await readUpload();
+      if (!up) return { state: "empty" };
+      return { state: "uploading", received: up.received, size: up.size, by: up.by.name, mine: up.by.id === pass.id, stale: now() - up.at >= QUIET_MS };
     },
   };
 }

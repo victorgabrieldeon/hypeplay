@@ -28,16 +28,8 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
     volumes: [*data]
 
-  # Compiles BT3 from the disc image sent through the Activity (builder/).
-  # Idle, it only looks at the volume every 5 s; a build is once per disc image, held to 2 CPUs so calls don't suffer.
-  builder:
-    build: builder
-    restart: unless-stopped
-    cpus: "2"
-    volumes: [*data]
-
   # The PS2 games' "versão rápida" (ps2-builder/): compiles, one at a time, only the games someone asked for in the
-  # library ("Compilar versão rápida"), with ps2-web-recomp. Same 2 CPUs, same volume.
+  # library ("Compilar versão rápida"), with ps2-web-recomp. Held to 2 CPUs so calls don't suffer.
   ps2-builder:
     build:
       context: .

@@ -1,6 +1,6 @@
 // Opening a game: it becomes the person's last one (the spotlight), the PS2 intro plays (intro.mp4, sent once from
 // the Servidor screen, with sound: the click is the gesture), and a click, a key, its end or its absence goes on to the
-// game. BT3 and the PS2 library.
+// game.
 //
 // Inside Discord, first "Onde jogar?": here, in the Activity, or in the browser, where games run smoother (Discord
 // runs the Activity inside its own window, with less of the machine). The browser opens the library with ?play=,

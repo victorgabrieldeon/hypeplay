@@ -62,30 +62,26 @@ export function stateOf(g, sending) {
     case 'ready': return ['ok', 'Pronto para jogar'];
     case 'empty': return ['warn', 'Precisa da ISO'];
     case 'uploading': return s.mine || s.stale ? ['warn', `Envio parado em ${Math.floor(pct(s.received, s.size))}%`] : ['busy', `Recebendo ${Math.floor(pct(s.received, s.size))}%`];
-    case 'queued': return ['busy', 'Na fila'];
-    case 'building': return ['busy', `Compilando ${s.step}/${s.total}`];
-    case 'failed': return ['bad', s.refused ? 'ISO recusada' : 'Falhou'];
-    case 'needs-bios': return ['warn', 'Falta a BIOS'];
-    default: return ['bad', 'Compilador parado'];
+    default: return ['warn', 'Falta a BIOS']; // needs-bios
   }
 }
 
 export const stateBadge = (g, sending) => { const [tone, text] = stateOf(g, sending); return `<span class="state ${tone}">${esc(text)}</span>`; };
-export const seal = (g) => g.kind === 'port' ? '<span class="seal tested">Testado</span>' : '<span class="seal experimental">Experimental</span>';
+export const seal = () => '<span class="seal experimental">Experimental</span>';
 /** Can this game take its disc image now (from this window)? */
-export const needsDisc = (g, sending) => !sending && (g.status.state === 'empty' || (g.status.state === 'failed' && g.status.refused) || (g.status.state === 'uploading' && (g.status.mine || g.status.stale)));
+export const needsDisc = (g, sending) => !sending && (g.status.state === 'empty' || (g.status.state === 'uploading' && (g.status.mine || g.status.stale)));
 const free = (g) => g.open.filter((r) => !r.busy);
 
-/** The spotlight's online button: into a friend's open room, else open one (BT3's port: its own Dragon Net Battle). */
+/** The spotlight's online button: into a friend's open room, else open one. */
 function online(g, room) {
-  if (room) return `<button class="btn second" data-play="${esc(g.key)}" data-join="${esc(room.code)}">${icon('users')}${g.kind === 'port' ? 'Entrar na sala' : 'Entrar como jogador 2'}</button>`;
+  if (room) return `<button class="btn second" data-play="${esc(g.key)}" data-join="${esc(room.code)}">${icon('users')}Entrar como jogador 2</button>`;
   return g.status.state === 'ready' ? `<button class="btn second" data-play="${esc(g.key)}" data-online>${icon('users')}Jogar online</button>` : '';
 }
 
 /** `label`: why this game is in the spotlight ("Continuar jogando", "Em destaque"), said under its name. */
 export function hero(g, sending, label) {
   const room = free(g)[0];
-  const sub = g.kind === 'port' ? g.blurb : g.by ? `Adicionado por ${g.by}. A ISO fica no servidor: é só jogar.` : '';
+  const sub = g.by ? `Adicionado por ${g.by}. A ISO fica no servidor: é só jogar.` : '';
   const play = g.status.state === 'ready'
     ? `<button class="btn" data-play="${esc(g.key)}">${icon('play')}Jogar agora</button>`
     : needsDisc(g, sending) ? `<button class="btn" data-pick="${esc(g.key)}">${icon('upload')}Enviar a ISO</button>` : '';
@@ -93,7 +89,7 @@ export function hero(g, sending, label) {
     <div class="why"><span>${esc(label)}</span>·${seal(g)}${g.status.state === 'ready' ? '' : stateBadge(g, sending)}</div>
     ${sub ? `<p>${esc(sub)}</p>` : ''}
     <div class="actions">${play}${online(g, room)}</div>
-    ${room ? `<span class="live">${esc(room.host)} ${g.kind === 'port' ? `abriu a sala <b class="code">${esc(room.code)}</b>` : 'está jogando'}</span>` : ''}`;
+    ${room ? `<span class="live">${esc(room.host)} está jogando</span>` : ''}`;
 }
 
 /**
@@ -109,12 +105,11 @@ export function arrange(games, top, sending, most = 3) {
   return [...bigs.map((g) => ({ g, big: true })), ...rest.map((g) => ({ g, big: false }))];
 }
 
-/** How far it got, for the line on the cover's seam: an upload's bytes, a build's steps. */
+/** How far it got, for the line on the cover's seam: an upload's bytes. */
 function progressOf(g, sending) {
   const s = g.status;
   if (sending?.key === g.key) return pct(sending.received + sending.inflight, sending.size);
   if (s.state === 'uploading') return pct(s.received, s.size);
-  if (s.state === 'building') return pct(s.step - 1, s.total);
   return null;
 }
 

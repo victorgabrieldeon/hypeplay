@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { openRequest } from "./open";
 
-const PUBLIC = "https://bt3.exemplo.com";
+const PUBLIC = "https://hype.exemplo.com";
 
 test("only our own pages are opened outside", () => {
   expect(openRequest({ t: "cordplay:open", path: "/p/abc.DEF-1_2/ps2/slus-21678/game/" }, PUBLIC)).toBe(`${PUBLIC}/p/abc.DEF-1_2/ps2/slus-21678/game/`);
@@ -29,16 +29,15 @@ test("player 2's page opens outside too, with its room and nothing else", () => 
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
 
-test("BT3's port opens outside too (to play smoother than in Discord), the old homebrew player doesn't", () => {
-  expect(openRequest({ t: "cordplay:open", path: "/p/abc/bt3/game/" }, PUBLIC)).toBe(PUBLIC + "/p/abc/bt3/game/");
-  for (const path of ["/p/abc/play/?g=tetra&p=GB&t=Tetra", "/p/abc/play//evil.com"])
+test("BT3's old port and the old homebrew player don't open", () => {
+  for (const path of ["/p/abc/bt3/game/", "/p/abc/?play=bt3", "/p/abc/play/?g=tetra&p=GB&t=Tetra", "/p/abc/play//evil.com"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
 
 test("the library opened straight into a game (where to play: the browser), with a friend's room or a new one", () => {
-  for (const path of ["/p/abc/?play=bt3", "/p/abc/?play=ps2%2Fslus-21678", "/p/abc/?play=bt3&join=QRST", "/p/abc/?play=ps2%2Fslus-21678&join=XC7WWC", "/p/abc/?play=ps2%2Fslus-21678&online=1"])
+  for (const path of ["/p/abc/?play=ps2%2Fslus-21678", "/p/abc/?play=ps2%2Fslus-21678&join=XC7WWC", "/p/abc/?play=ps2%2Fslus-21678&online=1"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBe(PUBLIC + path);
-  for (const path of ["/p/abc/?play=evil", "/p/abc/?play=ps2%2F..%2Fx", "/p/abc/?play=bt3&join=<x>", "/p/abc/?play=bt3&next=//evil.com"])
+  for (const path of ["/p/abc/?play=evil", "/p/abc/?play=ps2%2F..%2Fx", "/p/abc/?play=ps2%2Fslus-21678&join=<x>", "/p/abc/?play=ps2%2Fslus-21678&next=//evil.com"])
     expect(openRequest({ t: "cordplay:open", path }, PUBLIC)).toBeNull();
 });
 

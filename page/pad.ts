@@ -9,7 +9,7 @@ import { install, type Mapping, type PadLike } from "./padmap";
 
 const maps: Record<string, Mapping> = {};
 const guests = new GuestPads();
-/** Only the emulator's and the fast version's pages: BT3 and the guest's page keep their own keyboard. */
+/** Only the emulator's and the fast version's pages: the guest's page keeps its own keyboard. */
 const PS2_PAGE = /\/ps2\/[^/]+\/(game|fast)\//;
 let keys: KeyMap | null = null;
 /** The keyboard shows up as a pad once a mapped key is first pressed, like a controller's first press. */

@@ -60,7 +60,7 @@ export interface Invite {
 /** A beat later than this isn't the same sitting: the time between doesn't count. */
 export const BEAT_GAP_MS = 2 * HERE_MS;
 export const INVITE_TTL_MS = 5 * 60_000;
-export const NOTE_MAX = 80;
+const NOTE_MAX = 80;
 const MOST_FRIENDS = 300;
 const MOST_RECENT = 20;
 const MOST_INVITES = 10;
@@ -183,7 +183,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
       save();
     },
 
-    /** Status and the note under the name ("procurando alguém pro BT3"). */
+    /** Status and the note under the name ("procurando alguém pra jogar"). */
     setStatus(id: string, s: { status?: unknown; note?: unknown }): boolean {
       const p = get(id);
       if (!p || (s.status !== undefined && !STATUSES.has(s.status as Status)) || (s.note !== undefined && typeof s.note !== "string")) return false;

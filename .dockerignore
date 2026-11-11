@@ -4,6 +4,6 @@ node_modules
 data
 emulator/ps2
 emulator/ps2.tmp
-.superpowers
 **/*.test.ts
 server/testing
+server/fixtures

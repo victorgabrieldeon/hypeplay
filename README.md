@@ -176,8 +176,17 @@ emoldurar as páginas.
 Tudo fica no volume, `/app/data/`, e nada disso vai para o git nem para imagem nenhuma (`data/` está no
 `.gitignore`). Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, e `fast/` com a versão
 rápida: o pedido, `status.json`, `build.log`, `misses.txt` e `build/`) e a BIOS em `/app/data/bios/`. O que a
-compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
-controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4` (enviada pela tela Servidor).
+compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). A lista da biblioteca
+sai de um índice em memória, montado dos `game.json` na subida; reservas abandonadas e pastas sem `game.json` são
+limpas de 10 em 10 minutos. Os memory cards são `saves/<serial>/<id do Discord>.ps2`. A intro opcional é
+`/app/data/intro.mp4` (enviada pela tela Servidor).
+
+O resto do que é de cada pessoa fica no banco `/app/data/hypeplay.db` (SQLite em WAL, com `hypeplay.db-wal` e
+`hypeplay.db-shm` ao lado; copie os três juntos): mapas de controle, teclas, volume e filtro, último jogo, e o
+social (perfis, amigos e pedidos, horas por jogo, sessões recentes, com quem jogou, status). Convites ficam só em
+memória. Antes eram arquivos (`social.json`, `pads/`, `keys/`, `users/`, `prefs/`): na primeira subida com o banco
+eles são importados uma vez (a tabela `imported` marca) e ficam onde estavam, parados. Dá para apagá-los depois;
+voltar para uma versão sem o banco leria esses arquivos como estavam na importação.
 
 **Refazer do zero:** um jogo: "Remover" na biblioteca; só a versão rápida: "Apagar a versão rápida" na gaveta do jogo.
 
@@ -202,7 +211,8 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 
 - `server/`: entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), a biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
-  mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
+  mapas de controle e último jogo (`people.ts`), amigos e horas (`social.ts`), o banco SQLite dos dois (`db.ts`),
+  salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
   Range e isolamento (`http.ts`).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de

@@ -12,6 +12,11 @@
  *   saves/<id>/                 memory cards (saves.ts): outside the game's folder, so removing a game keeps them
  *
  * An id only ever comes from here (ID): routes look games up, they never build paths from addresses.
+ *
+ * game.json stays the source (the builders read the folder), but the list is read from an index in memory, made from
+ * the folders once and kept up to date by everything here that writes or removes a game. Clearing what was left
+ * behind (abandoned reservations, folders without game.json) is `sweep`, on a timer (index.ts), not on the way to the
+ * list; it also puts the index back in line with the folders, if anything changed them from outside.
  */
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -77,6 +82,11 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
   const stores = new Map<string, DiscStore>();
   /** Reservations between making their folder and writing their game.json: not orphans. */
   const reserving = new Set<string>();
+  /** Every game, by id: what's in the game.json files. */
+  const index = new Map<string, Ps2Game>();
+  let loaded: Promise<void> | null = null;
+  /** While a sweep runs: the games written or removed meanwhile (what the sweep saw of them is old). */
+  let touched: Set<string> | null = null;
 
   function paths(id: string) {
     if (!ID.test(id)) throw new Error(`not a game id: ${id}`);
@@ -97,8 +107,7 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     return n && n.length <= 80 ? n : serial;
   };
 
-  async function get(id: string): Promise<Ps2Game | null> {
-    if (!ID.test(id)) return null;
+  async function read(id: string): Promise<Ps2Game | null> {
     try {
       return JSON.parse(await readFile(paths(id).game, "utf8")) as Ps2Game;
     } catch {
@@ -106,10 +115,32 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     }
   }
 
+  /** The folders' ids (the ones that can be games). */
+  const folders = async () => (await readdir(join(dir, "ps2")).catch(() => [] as string[])).filter((i) => ID.test(i));
+
+  /** The index, made from the folders the first time it's needed (everything waits for it: none of it is lost). */
+  function ready() {
+    return (loaded ??= (async () => {
+      for (const id of await folders()) {
+        const g = await read(id);
+        if (g) index.set(id, g);
+      }
+    })());
+  }
+
+  async function get(id: string): Promise<Ps2Game | null> {
+    if (!ID.test(id)) return null;
+    await ready();
+    return index.get(id) ?? null;
+  }
+
   async function save(game: Ps2Game) {
     const p = paths(game.id);
+    await ready();
     await writeFile(`${p.game}.tmp`, JSON.stringify(game));
     await rename(`${p.game}.tmp`, p.game);
+    index.set(game.id, game);
+    touched?.add(game.id);
   }
 
   async function update(id: string, change: (g: Ps2Game) => Ps2Game): Promise<boolean> {
@@ -142,7 +173,10 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
   async function remove(id: string) {
     if (!ID.test(id)) return;
     const p = paths(id);
+    await ready();
     stores.delete(id);
+    index.delete(id);
+    touched?.add(id);
     await dropFromR2(r2, dir, p.iso).catch((err) => console.error(`R2: ${id}'s disc stays there:`, err));
     await rm(p.root, { recursive: true, force: true });
     await rm(p.work, { recursive: true, force: true });
@@ -165,19 +199,35 @@ export function createLibrary(dir: string, { now = () => Date.now(), min = PS2_M
     settle,
 
     async list(): Promise<Ps2Game[]> {
-      const ids = await readdir(join(dir, "ps2")).catch(() => [] as string[]);
-      const games: Ps2Game[] = [];
-      for (const id of ids.filter((i) => ID.test(i))) {
-        const g = await get(id);
-        if (!g) {
-          // a folder left without its game.json (a reservation that died halfway): it would block its serial
-          if (!reserving.has(id) && !(await exists(paths(id).game))) await remove(id);
-          continue;
+      await ready();
+      return [...index.values()].sort((a, b) => b.at - a.at);
+    },
+
+    /**
+     * What was left behind goes: folders without their game.json (a reservation that died halfway: it would block its
+     * serial) and reservations never sent. And the index is put back in line with the folders.
+     */
+    async sweep() {
+      await ready();
+      if (touched) return;
+      const mine = (touched = new Set());
+      try {
+        const seen = new Set(await folders());
+        for (const id of seen) {
+          if (reserving.has(id)) continue;
+          const g = await read(id);
+          if (!g) {
+            if (!reserving.has(id) && !mine.has(id) && !(await exists(paths(id).game))) await remove(id);
+            continue;
+          }
+          if (await abandoned(g)) {
+            if (!mine.has(id)) await remove(id);
+          } else if (!index.has(id) && !mine.has(id)) index.set(id, g);
         }
-        if (await abandoned(g)) await remove(id);
-        else games.push(g);
+        for (const id of [...index.keys()]) if (!seen.has(id) && !reserving.has(id) && !mine.has(id)) index.delete(id);
+      } finally {
+        touched = null;
       }
-      return games.sort((a, b) => b.at - a.at);
     },
 
     /**

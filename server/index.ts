@@ -47,6 +47,10 @@ const r2 = r2FromEnv();
 // game, or a menu read again, don't wait on R2 again.
 const discCache = r2 && discCacheBytes() > 0 ? createChunkCache({ maxBytes: discCacheBytes() }) : null;
 const library = createLibrary(dir, { r2 });
+// Reservations never sent and folders left without their game.json go now and then (library.ts), not on the list's way.
+const sweep = () => void library.sweep().catch((err) => console.error("library sweep:", err));
+sweep();
+setInterval(sweep, 10 * 60_000);
 const app = createApp({
   // (the PS2 games live in /app/data/ps2/)
   dir,

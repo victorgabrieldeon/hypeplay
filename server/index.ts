@@ -34,7 +34,8 @@ const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
 // Optional, recommended: the ids of the servers whose members get in (comma-separated); empty: any Discord account.
 const ALLOWED_GUILDS = (process.env.ALLOWED_GUILDS ?? "").split(",").map((g) => g.trim()).filter(Boolean);
 const bad = ALLOWED_GUILDS.find((g) => !/^\d{17,20}$/.test(g));
-if (bad) throw new Error(`ALLOWED_GUILDS: "${bad}" isn't a Discord server id`);
+// (a typo doesn't take the app down with a deploy: it matches no server, so it lets nobody new in, and says so)
+if (bad) log.error("ALLOWED_GUILDS: not a Discord server id, it lets nobody in", { value: bad });
 const SCOPES = scopesFor(ALLOWED_GUILDS);
 // Optional: the app's public address, for "Abrir no navegador" (inside Discord the page is behind its proxy).
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");

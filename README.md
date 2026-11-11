@@ -98,7 +98,9 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   nele, o VU1 no limite). Na gaveta do jogo, **Compilar a versão rápida** faz o serviço `ps2-builder` compilar o jogo
   com o [ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) (MIT): o código do jogo vira C++ e depois
   WebAssembly, sem emulador de CPU. Leva uns 20 a 40 minutos no servidor (o God of War: 21 minutos com 2 CPUs, até
-  1,2 GB de memória), uma vez para todo mundo, e só compila os jogos pedidos, um por vez. Pronta, ela vira o padrão:
+  1,2 GB de memória), uma vez para todo mundo, e só compila os jogos pedidos, numa fila: um por vez em cada worker,
+  primeiro quem parou num trecho sem código, depois os pedidos por ordem de chegada (mais workers, até em outras
+  máquinas, compilam mais de uma vez: veja [Workers em outra máquina](#workers-em-outra-máquina)). Pronta, ela vira o padrão:
   **Jogar agora** e **Abrir uma sala** abrem a versão rápida (o God of War vai a 60 fps), e a gaveta guarda um **Jogar
   no emulador**. O online é o mesmo do emulador: "Abrir sala" no painel do jogo, o amigo entra pela biblioteca como
   jogador 2 (WebRTC, ou pelo servidor quando não conecta). O memory card também é o mesmo (mesmo arquivo, mesmas
@@ -130,7 +132,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | --- | --- | --- |
 | `app` | `bt3.exemplo.com` → 3003 | Entrada pelo Discord, página do jogo, arquivos do jogo, pedaços da ISO, envio, salas do online (WebSocket) |
 | `builder` | — (só o volume) | Confere a ISO, extrai, compila, ajusta os caminhos (`builder/patch.ts`) e publica |
-| `ps2-builder` | — (só o volume) | A versão rápida dos jogos de PS2 pedidos (`ps2-builder/`): `port.sh` do ps2-web-recomp, um jogo por vez, 2 CPUs. `PS2_ROUNDS` e `PS2_FRAMES` (opcionais) dizem quantas partidas de teste e de quantos quadros |
+| `ps2-builder` | — (só o volume) | A versão rápida dos jogos de PS2 pedidos (`ps2-builder/`): `port.sh` do ps2-web-recomp, um jogo por vez, 2 CPUs. Pega os jogos da fila de compilações (`/app/data/queue.db`). `PS2_ROUNDS` e `PS2_FRAMES` (opcionais) dizem quantas partidas de teste e de quantos quadros |
 
 | Variável | Para quê |
 | --- | --- |
@@ -139,6 +141,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
 | `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
+| `WORKER_TOKEN` | Opcional. Deixa workers da versão rápida em outras máquinas pegarem jogos da fila: veja [Workers em outra máquina](#workers-em-outra-máquina) |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
@@ -190,6 +193,43 @@ uso (`turn.cloudflare.com` ou o seu). Se mesmo assim o jogador 2 não conectar, 
 ("O TURN não respondeu": a rede dele bloqueia tudo que não é web, ou o coturn está parado ou com portas fechadas) e a
 barra dele mostra o caminho em uso (`direto`, `TURN`, `rede local`), o ping e os fps.
 
+### Workers em outra máquina
+
+A versão rápida pesa (2 CPUs por 20 a 40 minutos por jogo) e roda na mesma VPS do app. Ela vai para outras máquinas
+com a mesma imagem do `ps2-builder`: cada uma é mais um worker da fila de compilações, e cada jogo vai para um worker
+só (nunca dois compilam o mesmo). Elas não montam o volume: falam com o app por HTTPS (`/worker/`, com um token),
+trazem o disco do R2 e publicam a versão rápida no R2, e o app serve de lá. Precisa do R2 ligado (`S3_BUCKET` e
+companhia).
+
+1. No Dokploy, em **Environment** do app, acrescente um token longo e aleatório (`openssl rand -hex 32`):
+   ```
+   WORKER_TOKEN=<token>
+   ```
+   Faça o deploy de novo. Sem ele, `/worker/` nem existe.
+2. Na outra máquina (Linux com Docker, 2 CPUs e uns 4 GB de memória por worker, ~10 GB de disco), com uma cópia do
+   repositório:
+   ```sh
+   DOCKER_BUILDKIT=0 docker build -t hypeplay-ps2-builder -f ps2-builder/Dockerfile .
+   docker run -d --restart unless-stopped --cpus 2 --name ps2-worker      -e QUEUE_URL=https://bt3.exemplo.com      -e WORKER_TOKEN=<token>      -e S3_BUCKET=… -e S3_ENDPOINT=… -e S3_ACCESS_KEY_ID=… -e S3_SECRET_ACCESS_KEY=…      -e WORKER_ID=casa-1      -v ps2-worker-data:/app/data      hypeplay-ps2-builder
+   ```
+   `QUEUE_URL` é o endereço do app (o mesmo do `PUBLIC_URL`). `WORKER_ID` é opcional: o nome que aparece nos logs e
+   na fila. O volume é só desta máquina: os arquivos da compilação (`ps2-work/`) e o disco enquanto compila.
+3. `docker logs -f ps2-worker` mostra `taking jobs from https://…` e cada jogo que ele pega. Na gaveta do jogo, o
+   progresso aparece como se fosse aqui.
+
+Mais workers, mais jogos ao mesmo tempo: na mesma máquina (outro `--name` e outro volume) ou em outras. O
+`ps2-builder` da VPS continua pegando jogos também; para tirar a compilação de lá, pare esse serviço no Dokploy.
+
+- **Mesma imagem em todos.** Uma versão rápida feita com outra página ou outro ps2-web-recomp é atualizada pelo
+  primeiro worker livre: workers com imagens diferentes ficariam atualizando os mesmos jogos um por cima do outro.
+  Ao atualizar o repositório, refaça a imagem nas outras máquinas também.
+- **Se um worker cair** no meio, o jogo volta para a fila depois de 2 minutos sem notícia e outro pega (até 3 vezes;
+  depois a gaveta mostra a falha e o **Tentar de novo**). Um erro que não é da compilação (R2 fora do ar, rede) também
+  volta para a fila, com uma pausa.
+- **Um jogo com código novo** (o que os jogadores acharam) compila só esse código no worker que já tem a tradução do
+  jogo; noutro, refaz tudo antes.
+- Os discos que ainda estão no disco da VPS (enviados antes do R2) vão para o worker pelo próprio app.
+
 ## Acesso
 
 A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopo `identify`) e o
@@ -206,7 +246,10 @@ jogo e `build.log`. Nada disso vai para o git nem para imagem nenhuma (`data/` e
 lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
 
 Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, e `fast/` com a versão
-rápida: o pedido, `status.json`, `build.log`, `misses.txt` e `build/`) e a BIOS em `/app/data/bios/`. O que a
+rápida: o pedido, `build.log`, `misses.txt` e `build/`; feita em outra máquina, ela fica no R2, em
+`ps2/<serial>/fast/<versão>/`) e a BIOS em `/app/data/bios/`. A fila de compilações é `/app/data/queue.db` (SQLite):
+cada jogo pedido, quem está compilando, e como foi. Na primeira subida com ela, os pedidos que já estavam no volume
+entram sozinhos (uma versão pronta continua pronta, sem compilar de novo). O que a
 compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
 controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4` (enviada pela tela Servidor).
 
@@ -226,7 +269,7 @@ http://localhost:3003`) e ponha o domínio do túnel no URL mapping `/` de um ap
 suba o builder apontando para a mesma pasta:
 
 ```sh
-docker build -t bt3-builder builder
+DOCKER_BUILDKIT=0 docker build -t bt3-builder -f builder/Dockerfile .
 docker run --rm -v "$PWD/data:/app/data" bt3-builder
 ```
 
@@ -242,12 +285,16 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   (`upload.ts`), salas do online em memória (`rooms.ts`, port do `room.js` do fork). Para os jogos de PS2: a
   biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
   mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
-  Range e isolamento (`http.ts`).
+  Range e isolamento (`http.ts`). A fila de compilações (`queue.ts`, SQLite: cada job vai para um worker só, com
+  prioridade, prazo e novas tentativas), o lado do volume dos jobs da versão rápida (`fastjobs.ts`) e a fila para os
+  workers de fora (`workers.ts`, `/worker/`).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).
 - `builder/`: a imagem e o laço do compilador do BT3. O `patch.ts` troca os caminhos absolutos do jogo por
-  relativos e falha alto se o fork mudar.
+  relativos e falha alto se o fork mudar. Compila só com o job `bt3` da fila, e só nesta máquina.
+- `ps2-builder/`: a imagem e o worker da versão rápida (`builder.ts`), e de onde vêm os jobs (`jobs.ts`: a fila e o
+  volume daqui, ou o `/worker/` do app e o R2).
 - `emulator/ps2-fetch.ts` e `ps2-files.json`: baixam o TabStationToo (GPL-3.0) e conferem cada arquivo por SHA-256;
   `--update` pega a versão publicada agora e regrava os hashes (depois revise `server/ps2page.ts`).
 - `server/ps2page.ts` e `page/ps2play.ts`: a página do TabStationToo no nosso design (BIOS e disco do servidor,
@@ -261,6 +308,6 @@ como o do BT3, entra assim:
 1. Uma entrada em `server/games.ts`: o `id` vira a pasta no volume (`/app/data/<id>/`) e o caminho
    (`p/<passe>/<id>/`). Também vão a ISO aceita, os tamanhos, os passos e a lista fixa de arquivos servidos.
 2. Um compilador próprio, no molde de `builder/`: lê `/app/data/<id>/disc.iso`, escreve `status.json`
-   (com o heartbeat) e publica em `build/`. Vira mais um serviço no `docker-compose.yml`, no mesmo volume.
+   (com o heartbeat), compila só com o job dele na fila (`server/queue.ts`) e publica em `build/`. Vira mais um serviço no `docker-compose.yml`, no mesmo volume.
 3. O port precisa usar só caminhos relativos (como o `patch.ts` faz no BT3). As salas do online
    (`rooms.ts`) seguem o protocolo do port do BT3: um jogo com outro protocolo precisa do próprio.

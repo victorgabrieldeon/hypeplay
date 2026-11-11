@@ -1,5 +1,5 @@
 # Production stack (Dokploy). Env: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, POSTGRES_PASSWORD; optional PUBLIC_URL, and for the online's
-# TURN COMPOSE_PROFILES=turn, TURN_URL, TURN_SECRET (README). The data (games, saves, builds) is the host's /srv/bt3-data,
+# TURN TURN_CF_KEY_ID, TURN_CF_TOKEN (README). The data (games, saves, builds) is the host's /srv/bt3-data,
 # on the system disk: the second one (/mnt/disk) is a network disk of ~250 reads/s, games stutter on it. Domain (HTTPS via Traefik): app → port 3003. Then map / to that domain in the Discord app's URL Mappings.
 # (never created when missing: without it the services don't start, rather than start empty)
 x-data: &data { type: bind, source: /srv/bt3-data, target: /app/data, bind: { create_host_path: false } }
@@ -21,13 +21,10 @@ services:
       DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
       # The app's own https address, for "Abrir no navegador" when Discord can't run a PS2 game in its window.
       PUBLIC_URL: ${PUBLIC_URL:-}
-      # The PS2 games' online, when two homes can't link direct. Preferred: Cloudflare's TURN (Realtime → TURN in its
-      # dashboard: the key's id and token), near the players wherever they are. The reserve, given only when
-      # Cloudflare's doesn't answer: the turn service below, or any coturn with --use-auth-secret.
+      # The PS2 games' online, when two homes can't link direct: Cloudflare's TURN (Realtime → TURN in its
+      # dashboard: the key's id and token), near the players wherever they are.
       TURN_CF_KEY_ID: ${TURN_CF_KEY_ID:-}
       TURN_CF_TOKEN: ${TURN_CF_TOKEN:-}
-      TURN_URL: ${TURN_URL:-}
-      TURN_SECRET: ${TURN_SECRET:-}
       # Optional: the new PS2 games' discs go to R2 once checked (server/discs.ts), key = path under /app/data
       # (ps2/<id>/disc.iso); the games already here stay. Empty: everything stays here.
       S3_BUCKET: ${S3_BUCKET:-}
@@ -112,22 +109,6 @@ services:
     # (a checkpoint on SIGTERM: the default 10 s may cut it short)
     stop_grace_period: 30s
 
-  # Optional TURN relay for the PS2 games' online, for players whose networks can't reach each other directly
-  # (README "Online: o TURN"). Off unless COMPOSE_PROFILES=turn; then also set TURN_SECRET and
-  # TURN_URL=turn:<this server's public name>:3478, and open 3478/udp, 3478/tcp and 49160-49200/udp in the firewall.
-  # It relays only to the internet: never to this machine or a private network (an open relay could reach them).
-  turn:
-    image: coturn/coturn:4.6
-    profiles: ["turn"]
-    restart: unless-stopped
-    network_mode: host
-    command: >-
-      -n --listening-port=3478 --fingerprint --use-auth-secret --static-auth-secret=${TURN_SECRET:-}
-      --realm=hypeplay --min-port=49160 --max-port=49200 --no-cli --no-tls --no-dtls --no-multicast-peers
-      --denied-peer-ip=0.0.0.0-0.255.255.255 --denied-peer-ip=10.0.0.0-10.255.255.255
-      --denied-peer-ip=100.64.0.0-100.127.255.255 --denied-peer-ip=127.0.0.0-127.255.255.255
-      --denied-peer-ip=169.254.0.0-169.254.255.255 --denied-peer-ip=172.16.0.0-172.31.255.255
-      --denied-peer-ip=192.168.0.0-192.168.255.255 --denied-peer-ip=::1 --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 
 volumes:
   postgres:

@@ -38,8 +38,7 @@ test("networks that don't meet: the TURN, and the browser only offered to who is
 test("with a TURN on the server: whether it answered this browser says what to look at", () => {
   const silent = stuckAt("linking", undefined, "browser", "silent");
   expect(silent.title).toBe("O TURN não respondeu");
-  expect(silent.text).toContain("3478");
-  expect(silent.text).toContain("49160");
+  expect(silent.text).toContain("tente outra rede");
   const answered = stuckAt("linking", undefined, "browser", "answered");
   expect(answered.title).toBe("Sem conexão com o host");
   expect(answered.text).toContain("Nem pelo TURN");

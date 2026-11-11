@@ -122,7 +122,6 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `POSTGRES_PASSWORD` | A senha do banco (o `app` monta o `DATABASE_URL` com ela). Só letras e números, porque vai dentro de uma URL: `openssl rand -hex 24`. Escolhida uma vez: o Postgres grava a senha ao criar o volume, e trocar aqui depois não troca lá |
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
-| `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Opcionais. Os discos novos e os saves no R2 (`server/discs.ts`, `server/saves.ts`); sem eles, tudo fica no disco do servidor |
 | `DISC_CACHE_MB` | Opcional (com R2). Quantos MB de pedaços dos discos do R2 o app guarda na memória: veja [Cache](#cache-dos-discos-e-dos-arquivos). Padrão 256; `0` desliga |
 | `DISC_EDGE_URL`, `DISC_EDGE_SECRET` | Opcionais (com R2), desligados. Os discos do emulador servidos por um Worker da Cloudflare perto dos jogadores: veja [Edge para os discos](#edge-para-os-discos-opcional) |
@@ -176,12 +175,11 @@ nada sai e nada muda.
 ### Ligar o TURN
 
 O vídeo do jogador 2 vai direto do navegador do host para o do convidado. Quando uma das redes não aceita conexão
-de fora (CGNAT, 4G, roteador fechado), os dois só se falam por um retransmissor, o TURN. O app oferece **um** TURN
-por vez aos navegadores: o da Cloudflare, se tiver chave; senão o coturn da máquina, se estiver ligado; senão só
-STUN (e a tela do jogador 2 diz que faltou um TURN). O relé pelo próprio servidor fica desligado (`NO_RELAY` em
-`page/online.ts`): de longe (o servidor fica no Canadá) ele passa de 300 ms.
+de fora (CGNAT, 4G, roteador fechado), os dois só se falam por um retransmissor, o TURN. O app oferece aos navegadores
+o TURN da Cloudflare, se tiver chave; senão só STUN (e a tela do jogador 2 diz que faltou um TURN). O relé pelo
+próprio servidor fica desligado (`NO_RELAY` em `page/online.ts`): de longe (o servidor fica no Canadá) ele passa de 300 ms.
 
-**Cloudflare (recomendado).** O TURN da Cloudflare é anycast: cada jogador cai no ponto de presença mais perto dele
+O TURN da Cloudflare é anycast: cada jogador cai no ponto de presença mais perto dele
 (São Paulo, Rio, Fortaleza…), uns 40 a 80 ms entre dois jogadores no Brasil, sem servidor no Brasil. 1.000 GB por
 mês de graça, depois US$ 0,05 por GB; só conta o que passa pelo TURN.
 
@@ -194,32 +192,11 @@ mês de graça, depois US$ 0,05 por GB; só conta o que passa pelo TURN.
    ```
    O token fica só aí: nunca no git, em chat ou em log. Se se perder, apague a chave e crie outra.
 3. Faça o deploy de novo. O app pede à Cloudflare uma credencial de 12 h, uma para todos os jogadores, e renova uma
-   hora antes de vencer. Se a Cloudflare não responder, o jogo segue com o que mais houver e tenta de novo em 30 s.
+   hora antes de vencer. Se a Cloudflare não responder, o jogo segue só com STUN e tenta de novo em 30 s.
 
-**Coturn na máquina (reserva).** O compose já traz um (serviço `turn`), desligado até ser pedido. No Dokploy:
-
-1. Em **Environment**, acrescente:
-   ```
-   COMPOSE_PROFILES=turn
-   TURN_SECRET=<uma senha longa e aleatória>
-   TURN_URL=turn:<nome do servidor>:3478
-   ```
-   O `<nome do servidor>` precisa apontar **direto** para o IP da máquina. Se o domínio do app passa pelo proxy da
-   Cloudflare (nuvem laranja), use o IP ou um subdomínio "DNS only". O app oferece o TURN por UDP e por TCP.
-2. No firewall da máquina (e no painel do provedor, se ele tiver um), abra **3478/udp**, **3478/tcp** e
-   **49160-49200/udp**.
-3. Faça o deploy de novo. O `turn` sobe junto, e o app passa o TURN aos navegadores (credencial de 12 h assinada
-   com o `TURN_SECRET`).
-
-Em nuvens que põem a máquina atrás de NAT (AWS, Google Cloud, Oracle), o coturn também precisa de
-`--external-ip=<IP público>/<IP privado>` no `command` do serviço `turn`.
-
-O coturn só repassa para a internet: nunca para a própria máquina nem para redes privadas.
-
-**Conferir:** `GET /p/<passe>/ps2/<jogo>/ice` devolve a lista que vai aos navegadores: o segundo item é o TURN em
-uso (`turn.cloudflare.com` ou o seu). Se mesmo assim o jogador 2 não conectar, a tela dele diz se o TURN respondeu
-("O TURN não respondeu": a rede dele bloqueia tudo que não é web, ou o coturn está parado ou com portas fechadas) e a
-barra dele mostra o caminho em uso (`direto`, `TURN`, `rede local`), o ping e os fps.
+**Conferir:** `GET /p/<passe>/ps2/<jogo>/ice` devolve a lista que vai aos navegadores: o segundo item é o TURN da
+Cloudflare (`turn.cloudflare.com`). Se mesmo assim o jogador 2 não conectar, a tela dele diz se o TURN respondeu
+("O TURN não respondeu": a rede dele bloqueia tudo que não é web) e a barra dele mostra o caminho em uso (`direto`, `TURN`, `rede local`), o ping e os fps.
 
 ### Cache dos discos e dos arquivos
 

@@ -6,7 +6,7 @@
  * at the same time share the walk under way), then makes each person's view from it and sends each socket its
  * differences.
  * A request that changes something (any method but GET, except an upload's pieces and a game's beats, routes.ts) and a
- * vimm.net download changing step `nudge` it: the walk is redone and the push comes within SOON_MS. What changes by itself (the builders' status.json, an upload gone quiet, an
+ * vimm.net download changing step `nudge` it: the walk is redone and the push comes within SOON_MS. What changes by itself (the builds in the queue, queue.ts; an upload gone quiet, an
  * invite expiring, someone's page no longer beating) shows on the next tick.
  *
  * The page keeps the poll for when the socket is down (Discord's proxy may cut it): `games` answers 304 when the view is

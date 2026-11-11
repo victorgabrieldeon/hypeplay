@@ -2,8 +2,11 @@ import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { S3Client } from "bun";
 import { FAST_STEPS } from "../server/games";
-import { createPs2Builder, parseMisses, type Ps2BuilderOptions, type Runner } from "./builder";
+import { createQueue, PRIORITY, type EnqueueOptions } from "../server/queue";
+import { createPs2Builder, parseMisses, type FastStatus, type Ps2BuilderOptions, type Runner } from "./builder";
+import { localJobs } from "./jobs";
 import { MARK } from "./patch";
 
 // Real folders, links and copies: slower than a unit test.
@@ -48,7 +51,7 @@ function fakeTools(fake: Fake = {}) {
   return { seen, run };
 }
 
-async function setup(tools: ReturnType<typeof fakeTools>, builds?: Ps2BuilderOptions["builds"]) {
+async function setup(tools: ReturnType<typeof fakeTools>, { r2 = null as S3Client | null, builds = undefined as Ps2BuilderOptions["builds"] } = {}) {
   const root = await mkdtemp(join(tmpdir(), "hypeplay-ps2b-"));
   dirs.push(root);
   const data = join(root, "data");
@@ -56,22 +59,35 @@ async function setup(tools: ReturnType<typeof fakeTools>, builds?: Ps2BuilderOpt
   await mkdir(join(repo, "web"), { recursive: true });
   await writeFile(join(repo, "web", "shell.html"), await readFile(fixture));
   let clock = 1_000_000;
+  const now = () => (clock += 1000);
+  const queue = createQueue(":memory:", { now });
+  const jobs = localJobs({ data, queue, r2, worker: "test" });
   // (another builder over the same folders: the next image, with its own page and recompiler)
-  const make = (commit = "") => createPs2Builder({ data, repo, run: tools.run, commit, now: () => (clock += 1000), builds });
+  const make = (commit = "") => {
+    const b = createPs2Builder({ work: join(data, "ps2-work"), repo, run: tools.run, commit, now, announce: () => {}, builds });
+    return { tick: () => b.next(jobs) };
+  };
   const builder = make();
   const fast = (id: string) => join(data, "ps2", id, "fast");
-  const status = async (id: string) => JSON.parse(await readFile(join(fast(id), "status.json"), "utf8"));
-  async function game(id: string, { ask = true } = {}) {
+  const status = (id: string) => queue.get(`ps2/${id}`)!.status as unknown as FastStatus;
+  /** As library.ts asks: "Compilar versão rápida", "Tentar de novo", code met. */
+  const ask = (id: string, o: EnqueueOptions = {}) => queue.enqueue(`ps2/${id}`, "ps2", o);
+  async function game(id: string, { ask: asked = true } = {}) {
     const dir = join(data, "ps2", id);
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "game.json"), JSON.stringify({ id, serial: id.toUpperCase(), name: id, by: { id: "42", name: "Ana" }, at: 1, cover: false }));
     await writeFile(join(dir, "disc.iso"), "iso");
-    if (ask) {
+    if (asked) {
       await mkdir(fast(id), { recursive: true });
       await writeFile(join(fast(id), "request"), "");
+      ask(id);
     }
   }
-  return { data, repo, builder, make, status, game, fast };
+  const miss = async (id: string, text: string) => {
+    await writeFile(join(fast(id), "misses.txt"), text);
+    ask(id, { priority: PRIORITY.miss, revive: false });
+  };
+  return { data, repo, builder, make, status, game, fast, queue, ask, miss, jobs, advance: (ms: number) => (clock += ms) };
 }
 
 test("a game nobody asked a fast version of is never built", async () => {
@@ -102,8 +118,8 @@ test("asked: port.sh builds it, the page is published whole, and the shell was p
   expect(tools.seen.length).toBe(1);
 });
 
-test("the steps reach status.json while it builds", async () => {
-  const seen: number[] = [];
+test("the steps reach the queue while it builds", async () => {
+  const seen: (number | undefined)[] = [];
   let st: ReturnType<typeof setup> extends Promise<infer T> ? T : never;
   const tools = fakeTools({ during: async (id) => void seen.push((await st.status(id)).step) });
   st = await setup(tools);
@@ -113,61 +129,89 @@ test("the steps reach status.json while it builds", async () => {
   expect(seen[0]).toBeLessThanOrEqual(FAST_STEPS.length);
 });
 
-test("a failure says why and waits for Tentar de novo", async () => {
+test("a failure says why and waits for Tentar de novo (code met meanwhile doesn't wake it)", async () => {
   const tools = fakeTools({ fail: { "scus-97399": { code: 1, output: "boom", explore: "[sys] unhandled syscall 0x77\n" } } });
-  const { builder, game, status, fast } = await setup(tools);
+  const { builder, game, status, queue, ask, miss } = await setup(tools);
   await game("scus-97399");
   await builder.tick();
   const s = await status("scus-97399");
   expect(s).toMatchObject({ state: "failed", message: "boom", reason: "[sys] unhandled syscall 0x77" });
-  await builder.tick();
+  expect(queue.get("ps2/scus-97399")!.state).toBe("failed");
+  await miss("scus-97399", "0027959C\n");
+  expect(await builder.tick()).toBe(false);
   expect(tools.seen.length).toBe(1);
-  await writeFile(join(fast("scus-97399"), "retry"), "");
+  ask("scus-97399", { retry: true });
   await builder.tick();
   expect(tools.seen.length).toBe(2);
-  expect(await exists(join(fast("scus-97399"), "retry"))).toBe(false);
+  expect(queue.get("ps2/scus-97399")!.retry).toBe(false);
 });
 
 test("code the players met is added and built in, without the test runs", async () => {
   const tools = fakeTools();
-  const { builder, game, status, fast, data } = await setup(tools);
+  const { builder, game, status, fast, data, miss } = await setup(tools);
   await game("scus-97399");
   await builder.tick();
   // (one known already, one out of range, one fine)
   await writeFile(join(data, "ps2-work", "scus-97399", "game", "entries.txt"), "12a4c0\n");
-  await writeFile(join(fast("scus-97399"), "misses.txt"), "0012A4C0\n00000010\n0027959C\n");
+  await miss("scus-97399", "0012A4C0\n00000010\n0027959C\n");
   await builder.tick();
   expect(tools.seen[1]).toEqual(["bash", "scripts/port.sh", "scus-97399", join(data, "ps2", "scus-97399", "disc.iso"), "--no-explore"]);
   expect(await readFile(join(data, "ps2-work", "scus-97399", "game", "entries.txt"), "utf8")).toBe("12a4c0\n27959c\n");
   expect((await status("scus-97399")).state).toBe("ready");
   expect(await readFile(join(fast("scus-97399"), "build", "ps2web.html"), "utf8")).toEndWith(" 2");
-  // learned: nothing new to build
+  // learned: nothing new to build (asked again, it's done without building)
   await builder.tick();
+  await miss("scus-97399", "0012A4C0\n0027959C\n");
+  expect(await builder.tick()).toBe(true);
   expect(tools.seen.length).toBe(2);
+});
+
+test("code met on a machine without the game's translation: everything again, then that code in", async () => {
+  const tools = fakeTools();
+  const { builder, game, data, miss } = await setup(tools);
+  await game("scus-97399");
+  await builder.tick();
+  // (another worker's build: this one has no ps2-work for it)
+  await rm(join(data, "ps2-work", "scus-97399"), { recursive: true, force: true });
+  await miss("scus-97399", "0027959C\n");
+  await builder.tick();
+  expect(tools.seen.slice(1).map((c) => c.slice(4))).toEqual([["--rounds", "4", "--frames", "3600"], ["--no-explore"]]);
+  expect(await readFile(join(data, "ps2-work", "scus-97399", "game", "entries.txt"), "utf8")).toBe("27959c\n");
 });
 
 test("removed while it builds: nothing published, its files freed", async () => {
   let fast!: (id: string) => string;
+  let st!: Awaited<ReturnType<typeof setup>>;
   // (as the app's "Apagar a versão rápida" does it: library.removeFast, retrying while the log is being written)
-  const tools = fakeTools({ during: async (id) => rm(fast(id), { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }) });
-  const st = await setup(tools);
+  const tools = fakeTools({
+    during: async (id) => {
+      st.queue.drop(`ps2/${id}`);
+      await rm(fast(id), { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    },
+  });
+  st = await setup(tools);
   fast = st.fast;
   await st.game("scus-97399");
   await st.builder.tick();
   expect(await exists(fast("scus-97399"))).toBe(false);
   expect(await exists(join(st.data, "ps2-work", "scus-97399"))).toBe(false);
+  expect(st.queue.get("ps2/scus-97399")).toBeNull();
 });
 
-test("oldest request first, one at a time", async () => {
+test("oldest request first, one at a time; a player stopped on missing code goes ahead", async () => {
   const tools = fakeTools();
-  const { builder, game } = await setup(tools);
+  const { builder, game, miss } = await setup(tools);
   await game("slus-20001");
-  await Bun.sleep(20);
+  await builder.tick();
+  await game("slus-20002");
   await game("scus-97399");
+  await miss("slus-20001", "0027959C\n");
   await builder.tick();
-  expect(tools.seen.map((c) => c[2])).toEqual(["slus-20001"]);
+  expect(tools.seen.map((c) => c[2])).toEqual(["slus-20001", "slus-20001"]);
   await builder.tick();
-  expect(tools.seen.map((c) => c[2])).toEqual(["slus-20001", "scus-97399"]);
+  await builder.tick();
+  expect(tools.seen.map((c) => c[2])).toEqual(["slus-20001", "slus-20001", "slus-20002", "scus-97399"]);
+  expect(await builder.tick()).toBe(false);
 });
 
 test("misses: only word-aligned pcs in main memory, once each", () => {
@@ -213,10 +257,10 @@ test("while it's brought up to date it says so, and without its files the page c
 
 test("Tentar de novo over a build redoes its code too (what failed may have been learning)", async () => {
   const tools = fakeTools();
-  const { builder, game, fast } = await setup(tools);
+  const { builder, game, ask } = await setup(tools);
   await game("scus-97399");
   await builder.tick();
-  await writeFile(join(fast("scus-97399"), "retry"), "");
+  ask("scus-97399", { retry: true });
   await builder.tick();
   expect(tools.seen[1]).toContain("--no-explore");
 });
@@ -227,26 +271,66 @@ test("a game whose disc is in R2: brought here for port.sh, gone again after", a
   const r2 = { file: (key: string) => (asked.push(key), new Blob(["iso from r2"])) } as unknown as import("bun").S3Client;
   let during = "";
   const tools = fakeTools({ during: async (id) => void (during = await readFile(join(root, "ps2", id, "disc.iso"), "utf8")) });
-  const { data, repo, game } = await setup(tools);
+  const { data, builder, game } = await setup(tools, { r2 });
   const root = data;
   await game("slus-20001");
   const iso = join(data, "ps2", "slus-20001", "disc.iso");
   await rm(iso);
   await writeFile(`${iso}.r2`, "10");
-  await createPs2Builder({ data, repo, run: tools.run, r2 }).tick();
+  await builder.tick();
   expect(asked).toEqual(["ps2/slus-20001/disc.iso"]);
   expect(during).toBe("iso from r2");
   expect(await exists(iso)).toBe(false);
   expect(await exists(`${iso}.r2`)).toBe(true);
 });
 
+test("an error that isn't the build's (R2 down) is tried again after a pause, then fails", async () => {
+  let down = 2;
+  const r2 = {
+    file: () => {
+      if (down-- > 0) throw new Error("R2 down");
+      return new Blob(["iso from r2"]);
+    },
+  } as unknown as S3Client;
+  const tools = fakeTools();
+  const { builder, game, data, queue, status, advance } = await setup(tools, { r2 });
+  await game("slus-20001");
+  const iso = join(data, "ps2", "slus-20001", "disc.iso");
+  await rm(iso);
+  await writeFile(`${iso}.r2`, "10");
+  await builder.tick();
+  expect(queue.get("ps2/slus-20001")).toMatchObject({ state: "queued", attempts: 1 });
+  // (held back a little)
+  expect(await builder.tick()).toBe(false);
+  advance(60_000);
+  await builder.tick();
+  expect(queue.get("ps2/slus-20001")).toMatchObject({ state: "queued", attempts: 2 });
+  advance(120_000);
+  await builder.tick();
+  expect(status("slus-20001").state).toBe("ready");
+  expect(tools.seen.length).toBe(1);
+});
+
+test("a worker that died mid-build: its job goes back in line once its lease is gone", async () => {
+  const tools = fakeTools();
+  const { builder, game, queue, advance } = await setup(tools);
+  await game("slus-20001");
+  // (claimed by a worker that never comes back)
+  expect(queue.claim("gone", { kinds: ["ps2"] })!.key).toBe("ps2/slus-20001");
+  expect(await builder.tick()).toBe(false);
+  advance(3 * 60_000);
+  await builder.tick();
+  expect(queue.get("ps2/slus-20001")!.state).toBe("done");
+  expect(tools.seen.length).toBe(1);
+});
+
 test("each build's seconds go to the metrics, with its kind and result", async () => {
   const took: [number, Record<string, unknown>][] = [];
   const builds = { record: (v: number, a?: Record<string, string | number | boolean>) => void took.push([v, a ?? {}]) };
-  const ok = await setup(fakeTools(), builds);
+  const ok = await setup(fakeTools(), { builds });
   await ok.game("scus-97399");
   await ok.builder.tick();
-  const bad = await setup(fakeTools({ fail: { "scus-97399": { code: 1, output: "boom" } } }), builds);
+  const bad = await setup(fakeTools({ fail: { "scus-97399": { code: 1, output: "boom" } } }), { builds });
   await bad.game("scus-97399");
   await bad.builder.tick();
   expect(took.map(([, a]) => a)).toEqual([

@@ -3,10 +3,10 @@
  * kept per person (people.ts) and the friends, hours and status of everyone (social.ts). The saves and the discs stay
  * files in the data folder.
  *
- * Before it, in the data folder: for a few hours a SQLite file (hypeplay.db, these same tables), and before that JSON
- * files (social.json, pads/, keys/, users/, prefs/). Each is imported once and left where it is: hypeplay.db by
- * `importOld`, at the start, the JSON files the first time their module starts (people.ts, social.ts). `imported`
- * says what's done, so a deleted key never comes back from its old file.
+ * Before it, in the data folder: JSON files (social.json, pads/, keys/, users/, prefs/), and where the SQLite version
+ * that passed through main ran, its file (hypeplay.db, these same tables, those files already in). Each is imported
+ * once and left where it is: hypeplay.db by `importOld`, at the start; the JSON files the first time their module
+ * starts (people.ts, social.ts). `imported` says what's done, so a deleted key never comes back from its old file.
  */
 import { Database } from "bun:sqlite";
 import type { SQL } from "bun";
@@ -72,7 +72,7 @@ const OLD_TABLES: [table: string, order: string][] = [
 ];
 
 /**
- * The SQLite file the server kept for a few hours (<dir>/hypeplay.db), once, whole, in one transaction: what's there
+ * The SQLite file of the version before this one (<dir>/hypeplay.db), when it ran here: once, whole, in one transaction: what's there
  * is newer than the JSON files, and its `imported` comes along, so those aren't imported again over it. Read from a
  * copy (with its -wal: what's only there comes too), so nothing beside it changes, not even a -shm made. Without the
  * file, nothing (and nothing is marked: it may still come, restored from a backup); once in, it's never opened again.

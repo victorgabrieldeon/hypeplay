@@ -31,12 +31,12 @@
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { rename, rm, writeFile } from "node:fs/promises";
+import { rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Bios } from "./bios";
 import { COVER_MAX, coverVersion, generatedCover, imageType, normalizeCover } from "./cover";
 import { createDiscs, type Discs } from "./discs";
-import { FRAME_ANCESTORS, injectPad, ISOLATED, rangeResponse } from "./http";
+import { cacheFor, FRAME_ANCESTORS, IMMUTABLE, injectPad, ISOLATED, rangeResponse, versionOf, withVersions } from "./http";
 import { type CloudflareTurn, iceServers, STUN } from "./ice";
 import { authorizeUrl, type Discord } from "./discord";
 import { FAST_STEPS } from "./games";
@@ -210,6 +210,8 @@ export function createApp({
   discs = createDiscs(dir, null),
 }: AppOptions) {
   const presence = new Presence(now);
+  // (each bundled script by its version: the pages ask for <name>.js?v=<it>, kept immutable; http.ts' withVersions)
+  const versions: Record<string, string> = Object.fromEntries(Object.entries({ ...scripts, "entry.js": entryJs }).map(([n, s]) => [n, versionOf(s)]));
   const feed = createHomeFeed({
     view: homeView,
     now,
@@ -271,7 +273,7 @@ export function createApp({
       warned = true;
       console.warn(`${path}: no </head>, served without pad.js and overlay.js`);
     }
-    return new Response(both ?? html, { headers: { ...headers, "Content-Type": TYPES.html! } });
+    return new Response(withVersions(both ?? html, versions), { headers: { ...headers, "Content-Type": TYPES.html! } });
   }
 
   /** PUT ps2/<id>/upload; `done` runs once the whole image is in. */
@@ -453,7 +455,8 @@ export function createApp({
   }
 
   async function cover(key: string): Promise<Response> {
-    const immutable = { "Cache-Control": "private, max-age=31536000, immutable" };
+    // (its address carries its version: catalog's coverAt)
+    const immutable = IMMUTABLE;
     /** A sent cover, with its own type (WebP once sharp made it one; as sent where sharp couldn't load). */
     const sent = async (path: string) => {
       const f = Bun.file(path);
@@ -465,6 +468,24 @@ export function createApp({
     const g = id && library ? await library.get(id) : null;
     if (!g) return text("Não encontrado", 404);
     return (g.cover && (await sent(library!.paths(g.id).cover))) || respond(generatedCover(g.serial, g.name), 200, { "Content-Type": TYPES.svg!, ...immutable });
+  }
+
+  let engineId: Promise<string> | undefined;
+  /** TabStationToo's build id, the ?v= its page puts on app.js and app.js on the files it loads ("" without one). */
+  function engineBuild(): Promise<string> {
+    return (engineId ??= Bun.file(join(ps2Engine, "index.html"))
+      .text()
+      .then((html) => /\bapp\.js\?v=(\w+)/.exec(html)?.[1] ?? "", () => "")
+      .then((id) => {
+        if (!id) engineId = undefined;
+        return id;
+      }));
+  }
+
+  /** The "versão rápida"'s version: its files' times and sizes (a build is swapped in whole), or undefined without them. */
+  async function fastVersion(build: string): Promise<string | undefined> {
+    const all = await Promise.all(Object.keys(FAST_FILES).map((f) => stat(join(build, f)).then((s) => `${f}:${s.mtimeMs}:${s.size}`, () => null)));
+    return all.every(Boolean) ? versionOf(all.join("|")) : undefined;
   }
 
   /** ps2/<id>/game/…: TabStationToo with the game's disc, its online rooms. All isolated (http.ts). */
@@ -482,11 +503,13 @@ export function createApp({
       if (!(await f.exists())) return notFound();
       // (the disc reader, with our block cache at its end: page/disccache-worker.ts)
       const cache = rest === "disc-worker.js" ? scripts["disccache.js"] : undefined;
-      return isolated(cache ? `${await f.text()}\n${cache}` : f, 200, typeOf(rest));
+      // (what app.js asks with its build's ?v= is that build's: immutable; disc-worker.js also holds ours, so it isn't)
+      const keep = cache ? {} : cacheFor(req, await engineBuild());
+      return new Response(cache ? `${await f.text()}\n${cache}` : f, { headers: { ...ISOLATED, "Content-Type": typeOf(rest), ...keep } });
     }
     if (rest === "disc.iso") {
       const d = await discs(p.iso);
-      return d ? rangeResponse(req, d.file, { ...ISOLATED, "Content-Type": TYPES.bin!, "X-Disc-Source": d.from }, d.size) : notFound();
+      return d ? rangeResponse(req, d, { ...ISOLATED, "Content-Type": TYPES.bin!, "X-Disc-Source": d.from }) : notFound();
     }
     if (rest === "pipelines") return pipelines(req, join(p.root, "pipelines.bin"));
     return notFound();
@@ -503,23 +526,29 @@ export function createApp({
       new Response(body, { status, headers: { ...ISOLATED, "Content-Type": "text/plain; charset=utf-8", ...h } });
     if (rest === "" || rest === "index.html") {
       const name = ((await library!.get(id))?.name ?? id).replace(/[&<>"]/g, "");
+      const v = await fastVersion(build);
       // (its online and its disc kept in the browser: fastplay.js, before the pad.js and overlay.js page() adds and before
-      // the page's own scripts, whose fetch it wraps; the online waits for the page, by then both ran)
+      // the page's own scripts, whose fetch it wraps; the online waits for the page, by then both ran. ps2web.js with
+      // its version: the page (ps2-builder/patch.ts) gives the .wasm and .data the same one)
       return page(req, join(build, "ps2web.html"), "../../../pad.js", ISOLATED, (html) =>
-        html.replace("<title>ps2-web-recomp</title>", `<title>${name} · HypePlay</title>`).replace(/<\/head>/i, '<script src="../../../fastplay.js"></script>$&'),
+        html
+          .replace("<title>ps2-web-recomp</title>", `<title>${name} · HypePlay</title>`)
+          .replace(/<\/head>/i, '<script src="../../../fastplay.js"></script>$&')
+          .replace(/(\bsrc=["']?)ps2web\.js(?=["'\s>])/, (_, src: string) => (v ? `${src}ps2web.js?v=${v}` : `${src}ps2web.js`)),
       );
     }
     const type = FAST_FILES[rest];
     if (type) {
+      const keep = { ...cacheFor(req, await fastVersion(build)), Vary: "Accept-Encoding" };
       // (the build keeps a gzip copy of each: a third of the 15 MB of the engine through the Discord proxy)
       const gz = /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") ? Bun.file(join(build, `${rest}.gz`)) : null;
-      if (gz && (await gz.exists())) return isolated(gz, 200, { "Content-Type": type, "Content-Encoding": "gzip", "Cache-Control": "no-cache" });
+      if (gz && (await gz.exists())) return isolated(gz, 200, { "Content-Type": type, "Content-Encoding": "gzip", ...keep });
       const f = Bun.file(join(build, rest));
-      return (await f.exists()) ? isolated(f, 200, { "Content-Type": type, "Cache-Control": "no-cache" }) : isolated("Não encontrado", 404);
+      return (await f.exists()) ? isolated(f, 200, { "Content-Type": type, ...keep }) : isolated("Não encontrado", 404);
     }
     if (rest === "disc.iso") {
       const d = await discs(p.iso);
-      return d ? rangeResponse(req, d.file, { ...ISOLATED, "Content-Type": TYPES.bin!, "X-Disc-Source": d.from }, d.size) : isolated("Não encontrado", 404);
+      return d ? rangeResponse(req, d, { ...ISOLATED, "Content-Type": TYPES.bin!, "X-Disc-Source": d.from }) : isolated("Não encontrado", 404);
     }
     if (rest === "miss") {
       if (req.method !== "POST") return isolated("Método não permitido", 405);
@@ -735,8 +764,8 @@ export function createApp({
     const { pathname } = new URL(req.url);
     if (req.method === "OPTIONS") return respond(null, 204);
     if (pathname === "/icon.svg") return file(join(pageDir, "icon.svg"));
-    if (pathname === "/") return new Response(Bun.file(join(pageDir, "entry.html")), { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.html! } });
-    if (pathname === "/entry.js") return new Response(entryJs, { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.js! } });
+    if (pathname === "/") return new Response(withVersions(await Bun.file(join(pageDir, "entry.html")).text(), versions), { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.html! } });
+    if (pathname === "/entry.js") return new Response(entryJs, { headers: { ...ENTRY_HEADERS, "Content-Type": TYPES.js!, ...cacheFor(req, versions["entry.js"]) } });
     if (pathname === "/token") return token(req);
     if (pathname === "/login") return login();
     if (pathname === "/auth") return auth(req);
@@ -746,7 +775,7 @@ export function createApp({
     if (!pass) return text("Acesso vencido: feche e abra a atividade de novo.", 403);
     const path = m[2];
     if (path === undefined) return respond(null, 301, { Location: slashed(pathname) });
-    if (path === "/") return file(join(pageDir, "index.html"));
+    if (path === "/") return respond(withVersions(await Bun.file(join(pageDir, "index.html")).text(), versions), 200, { "Content-Type": TYPES.html! });
     if (path === "/games") return catalog(pass, req);
     if (path === "/home/ws") {
       if (req.headers.get("upgrade")?.toLowerCase() !== "websocket" || !server) return text("Só WebSocket", 426);
@@ -776,7 +805,7 @@ export function createApp({
     const own = /^\/home\/([\w-]+\.js)$/.exec(path)?.[1];
     if (own && HOME_FILES.has(own)) return file(join(pageDir, "home", own));
     const script = /^\/([\w-]+\.js)$/.exec(path)?.[1];
-    if (script && Object.hasOwn(scripts, script)) return respond(scripts[script]!, 200, { "Content-Type": TYPES.js! });
+    if (script && Object.hasOwn(scripts, script)) return respond(scripts[script]!, 200, { "Content-Type": TYPES.js!, ...cacheFor(req, versions[script]) });
     const font = /^\/fonts\/([\w-]+\.woff2)$/.exec(path)?.[1];
     if (font && Object.hasOwn(FONTS, font))
       return file(join(import.meta.dir, "..", "node_modules", FONTS[font]!, "files", font), TYPES.woff2, { "Cache-Control": "private, max-age=31536000, immutable" });

@@ -2,12 +2,15 @@
 // emulator page's (ps2play.ts) in the game's panel (overlay.js). stream.ts opens the room (../room, the same rooms as
 // the emulator's) and sends the page's canvas and sound; the guest's pad reaches the game through pad.js as one more
 // gamepad, which the page reads as player 2. Opened from the library's "Abrir uma sala" (?online=host), it opens one.
-// And its disc through the block cache (fastdisc.ts), installed at once: the page's own scripts come after this one.
+// And its disc through the block cache (fastdisc.ts), and its .wasm and .data kept on the browser's disk (fastcache.ts),
+// both installed at once: the page's own scripts, and the ps2web.js it loads, come after this one.
+import { installFastCache } from "./fastcache";
 import { installFastDisc } from "./fastdisc";
 import type { OverlayApi } from "./overlay";
 import { roomButton } from "./stream";
 
 installFastDisc();
+installFastCache();
 
 async function main() {
   if (document.readyState === "loading") await new Promise((ok) => document.addEventListener("DOMContentLoaded", ok, { once: true }));

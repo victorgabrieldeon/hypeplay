@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { createBios } from "./bios";
+import { createChunkCache, discCacheBytes } from "./chunkcache";
 import { createDiscs, r2FromEnv } from "./discs";
 import { createDiscord } from "./discord";
 import { createLibrary } from "./library";
@@ -41,6 +42,9 @@ async function bundle(entry: string, define: Record<string, string> = {}) {
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 // R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
 const r2 = r2FromEnv();
+// The R2 discs' pieces kept in memory (chunkcache.ts), DISC_CACHE_MB megabytes (256; 0: none): two people in the same
+// game, or a menu read again, don't wait on R2 again.
+const discCache = r2 && discCacheBytes() > 0 ? createChunkCache({ maxBytes: discCacheBytes() }) : null;
 const library = createLibrary(dir, { r2 });
 const app = createApp({
   // (the PS2 games live in /app/data/ps2/)
@@ -56,7 +60,7 @@ const app = createApp({
   clientId: DISCORD_CLIENT_ID,
   library,
   vimm: createVimm(dir, library),
-  discs: createDiscs(dir, r2),
+  discs: createDiscs(dir, r2, discCache),
   saves: createSaves(dir, r2),
   people: createPeople(dir),
   social: createSocial(dir),

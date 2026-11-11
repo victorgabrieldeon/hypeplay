@@ -19,11 +19,17 @@ export const ISOLATED = {
   "Cache-Control": "no-cache",
 };
 
+/** Bytes read by range (a disc, discs.ts): `read(start, end)` gives [start, end). */
+export interface Ranged {
+  size: number;
+  read(start: number, end: number): Blob | ReadableStream<Uint8Array>;
+}
+
 /**
  * A file, whole or by one `Range: bytes=…`; anything else in Range (several, malformed, outside) is 416. `size` given
- * for an R2 file (discs.ts), whose own size isn't known until asked.
+ * for an R2 file (discs.ts), whose own size isn't known until asked; a disc (Ranged) brings its own.
  */
-export function rangeResponse(req: Request, file: Blob, headers: Record<string, string>, size = file.size): Response {
+export function rangeResponse(req: Request, file: Blob | Ranged, headers: Record<string, string>, size = file.size): Response {
   const base = { ...headers, "Accept-Ranges": "bytes" };
   const range = req.headers.get("range");
   let start = 0;
@@ -50,10 +56,41 @@ export function rangeResponse(req: Request, file: Blob, headers: Record<string, 
     "Content-Length": String(length),
     ...(partial ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {}),
   };
-  const part = partial ? file.slice(start, end + 1) : file;
-  // (an R2 file as it is would answer with a redirect to R2: Discord's proxy and the isolation headers don't allow it)
-  const body = req.method === "HEAD" ? null : "presign" in part ? part.stream() : part;
+  let body: Blob | ReadableStream<Uint8Array> | null = null;
+  if (req.method !== "HEAD") {
+    if (!(file instanceof Blob)) body = file.read(start, end + 1);
+    else {
+      const part = partial ? file.slice(start, end + 1) : file;
+      // (an R2 file as it is would answer with a redirect to R2: Discord's proxy and the isolation headers don't allow it)
+      body = "presign" in part ? part.stream() : part;
+    }
+  }
   return new Response(body, { status: partial ? 206 : 200, headers: out });
+}
+
+/**
+ * Kept by the browser (and any cache on the way) for a year, never asked again: only for an address that changes with
+ * what it holds (a `?v=` of its version). The addresses carry the pass (/p/<pass>/), new at each sign-in: the
+ * browser's own cache only lasts a pass; across them, Cache Storage (page/fastplay.ts, page/disccache.ts).
+ */
+export const IMMUTABLE = { "Cache-Control": "public, max-age=31536000, immutable" };
+
+/** A short version of some content, for its address (`?v=`). */
+export const versionOf = (content: string | Uint8Array) => new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, 12);
+
+/** Immutable when the address asks for this very version (`?v=`); otherwise asked again each time (an old page's). */
+export function cacheFor(req: Request, version: string | undefined): Record<string, string> {
+  return version && new URL(req.url).searchParams.get("v") === version ? IMMUTABLE : { "Cache-Control": "no-cache" };
+}
+
+/**
+ * The page with `?v=<version>` on its `src`/`href` to the scripts in `versions` (by name: pad.js, ../../../ps2play.js),
+ * so each can be kept immutable and a new one is a new address.
+ */
+export function withVersions(html: string, versions: Record<string, string>): string {
+  return html.replace(/\b((?:src|href)=["'](?:\.{1,2}\/)*)([\w-]+\.js)(["'])/g, (all, before: string, name: string, after: string) =>
+    Object.hasOwn(versions, name) ? `${before}${name}?v=${versions[name]}${after}` : all,
+  );
 }
 
 /** The page with `<script src>` just before its </head>, or null when it has none. */

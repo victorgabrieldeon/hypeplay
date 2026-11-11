@@ -36,7 +36,7 @@ const FRAME_ANCESTORS = "frame-ancestors https://discord.com https://*.discord.c
 
 test("the entry page, its script and the icon are public, framed only by Discord, not sandboxed (the SDK needs an origin)", async () => {
   const entry = await get("/");
-  expect(await entry.text()).toContain('src="entry.js"');
+  expect(await entry.text()).toMatch(/src="entry\.js\?v=\w{12}"/);
   expect(entry.headers.get("content-security-policy")).toBe(FRAME_ANCESTORS);
   const js = await get("/entry.js");
   expect(await js.text()).toBe("/* entry */");

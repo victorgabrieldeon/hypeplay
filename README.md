@@ -119,6 +119,8 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `PUBLIC_URL` | Recomendado. O endereço `https://` do app: "Abrir no navegador" (o Discord não roda os jogos de PS2 nem o vídeo do jogador 2 na janela dele) e **entrar pelo navegador** (botão "Entrar com o Discord" na página inicial). Para entrar pelo navegador, cadastre `<PUBLIC_URL>/auth` em OAuth2 → Redirects no Discord Developer Portal |
 | `TURN_CF_KEY_ID`, `TURN_CF_TOKEN` | Recomendados. O TURN da Cloudflare para o online dos jogos de PS2, perto dos jogadores onde quer que estejam: veja [Ligar o TURN](#ligar-o-turn) |
 | `COMPOSE_PROFILES`, `TURN_URL`, `TURN_SECRET` | Opcionais. Um coturn na própria máquina, a reserva quando o da Cloudflare não responde: veja [Ligar o TURN](#ligar-o-turn) |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Opcionais. Os discos novos e os saves no R2 (`server/discs.ts`, `server/saves.ts`); sem eles, tudo fica no disco do servidor |
+| `DISC_CACHE_MB` | Opcional (com R2). Quantos MB de pedaços dos discos do R2 o app guarda na memória: veja [Cache](#cache-dos-discos-e-dos-arquivos). Padrão 256; `0` desliga |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
@@ -170,6 +172,30 @@ uso (`turn.cloudflare.com` ou o seu). Se mesmo assim o jogador 2 não conectar, 
 ("O TURN não respondeu": a rede dele bloqueia tudo que não é web, ou o coturn está parado ou com portas fechadas) e a
 barra dele mostra o caminho em uso (`direto`, `TURN`, `rede local`), o ping e os fps.
 
+### Cache dos discos e dos arquivos
+
+O servidor fica no Canadá e os jogadores, no Brasil, entrando pelo proxy do Discord: o que custa é a ida e volta por
+pedaço que falta (medido em nov/2026: um GET no R2 de dentro da VPS leva 85–140 ms; 1 MB pelo proxy, 280–530 ms).
+Três caches, do servidor ao navegador:
+
+- **Pedaços dos discos na memória do app** (`server/chunkcache.ts`): dos discos que estão no R2, em pedaços de 1 MiB
+  alinhados no disco, os menos usados saindo primeiro passado `DISC_CACHE_MB`. Duas pessoas no mesmo jogo, ou um menu
+  lido de novo, não repetem o GET no R2; dois pedidos do mesmo pedaço ao mesmo tempo viram um GET só. Um pedido de
+  vários pedaços busca cada um em paralelo e já manda o primeiro enquanto os outros chegam. A chave leva o tamanho e a
+  hora da marca (`disc.iso.r2`): um disco enviado de novo com o mesmo nome é outro. Os discos no disco do servidor não
+  passam por ele (o sistema já guarda o arquivo).
+- **No navegador, por endereço com versão:** os scripts do app (`pad.js?v=…`, `entry.js?v=…`), os arquivos do
+  TabStationToo que ele mesmo pede com `?v=<build>`, o `ps2web.js/.wasm/.data` da versão rápida (`?v=` das datas e
+  tamanhos do build, posto pelo servidor na página) e as capas vão com
+  `Cache-Control: public, max-age=31536000, immutable`, mas só quando o `?v=` pedido é o atual; um endereço velho ou
+  sem versão volta com `no-cache`. O `disc-worker.js` do motor nunca (leva o nosso `disccache.js` no fim, que muda sem o
+  build mudar). Como todo endereço leva o passe (`/p/<passe>/`, novo a cada entrada), esse cache vale por um passe.
+- **No disco do navegador, entre uma entrada e outra:** os blocos do disco (`page/disccache.ts`, Cache Storage) e,
+  na versão rápida, o `ps2web.wasm` e o `ps2web.data` (~15 MB; `page/fastcache.ts`, Cache Storage `hypeplay-fast`), pela
+  versão e sem o passe: abrir o jogo de novo não baixa o motor de novo. Sem Cache Storage (origem opaca, armazenamento
+  bloqueado ou cheio), tudo vem da rede como antes. Uma versão nova apaga a anterior do mesmo jogo.
+
+## Acesso
 ## Acesso
 
 A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopo `identify`) e o
@@ -210,8 +236,9 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 
 - `server/`: entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
   (`upload.ts`), a biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
-  mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
-  Range e isolamento (`http.ts`). A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`).
+  mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`), as respostas com
+  Range, isolamento e versão (`http.ts`), os discos no R2 (`discs.ts`) e os pedaços deles na memória (`chunkcache.ts`).
+  A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`).
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).

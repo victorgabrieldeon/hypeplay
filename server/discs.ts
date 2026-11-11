@@ -1,6 +1,7 @@
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { S3Client } from "bun";
+import type { ChunkCache } from "./chunkcache";
 
 /**
  * The PS2 library's discs in R2. A game sent (or downloaded from vimm) is checked on this disk, then moved to R2: its
@@ -13,6 +14,11 @@ export interface Disc {
   size: number;
   file: Blob;
   from: "r2" | "local";
+  /**
+   * Bytes [start, end): a slice of the local file; from R2, streamed (as it is, an R2 file would answer with a redirect
+   * to R2, which Discord's proxy and the isolation headers don't allow) and through the memory cache when there's one.
+   */
+  read(start: number, end: number): Blob | ReadableStream<Uint8Array>;
 }
 export type Discs = (path: string) => Promise<Disc | null>;
 
@@ -33,13 +39,26 @@ export async function markedSize(iso: string): Promise<number | null> {
   return Number.isSafeInteger(size) && size > 0 ? size : null;
 }
 
-/** Where a disc is read from: the local file when it's here, R2 when its mark says so. */
-export function createDiscs(dir: string, client: S3Client | null = null): Discs {
+/**
+ * Where a disc is read from: the local file when it's here, R2 when its mark says so. `cache`: R2's pieces kept in
+ * memory (chunkcache.ts), by key, size and the mark's time, so a disc sent again under the same name is a new one.
+ */
+export function createDiscs(dir: string, client: S3Client | null = null, cache: ChunkCache | null = null): Discs {
   return async (path) => {
     const f = Bun.file(path);
-    if (await f.exists()) return { size: f.size, file: f, from: "local" };
+    if (await f.exists()) return { size: f.size, file: f, from: "local", read: (start, end) => f.slice(start, end) };
     const size = client && (await markedSize(path));
-    return size ? { size, file: client.file(relative(dir, path)), from: "r2" } : null;
+    if (!size) return null;
+    const key = relative(dir, path);
+    const file = client.file(key);
+    const load = async (start: number, end: number) => new Uint8Array(await file.slice(start, end).arrayBuffer());
+    const version = `${key}:${size}:${Bun.file(markOf(path)).lastModified}`;
+    return {
+      size,
+      file,
+      from: "r2",
+      read: (start, end) => (cache ? cache.read(version, size, start, end, load) : file.slice(start, end).stream()),
+    };
   };
 }
 

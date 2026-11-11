@@ -33,9 +33,7 @@ const DISCORD_CLIENT_ID = env("DISCORD_CLIENT_ID");
 const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
 // Optional: the app's public address, for "Abrir no navegador" (inside Discord the page is behind its proxy).
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
-// Optional: a TURN relay for the PS2 games' online (coturn with --use-auth-secret).
-const TURN = process.env.TURN_URL && process.env.TURN_SECRET ? { url: process.env.TURN_URL, secret: process.env.TURN_SECRET } : undefined;
-// Optional, preferred: Cloudflare's TURN (Realtime → TURN in its dashboard), near the players wherever they are.
+// Optional: Cloudflare's TURN (Realtime → TURN in its dashboard), near the players wherever they are.
 const CLOUDFLARE = process.env.TURN_CF_KEY_ID && process.env.TURN_CF_TOKEN ? cloudflareTurn({ keyId: process.env.TURN_CF_KEY_ID, token: process.env.TURN_CF_TOKEN }) : undefined;
 
 const pageDir = join(import.meta.dir, "..", "page");
@@ -107,7 +105,6 @@ const app = createApp({
   ps2Rooms,
   bios: createBios(dir),
   publicUrl: PUBLIC_URL,
-  turn: TURN,
   cloudflare: CLOUDFLARE,
   scripts: {
     "iso.js": await bundle("iso.ts"),

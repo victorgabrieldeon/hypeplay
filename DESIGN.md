@@ -86,6 +86,13 @@ esquerdo do banner (que escurece a arte para o texto). Nada de degradê em texto
 - **Barra do topo** (72 px): só a busca da biblioteca (some na Loja e nos Amigos) e, à direita, o sino (só com amigos;
   ponto coral quando há convite ou pedido) e você. Nenhum botão repete uma seção da coluna.
 - Abaixo de 860 px a coluna lateral vem antes, sem fixar, com as seções em uma linha que rola.
+- **Amigos** (`#amigos`, friends.js): título com a busca na lista (Ctrl K) e **Adicionar amigo** (busca por nome numa
+  janela); quatro números (amigos, online agora, horas da galera, jogos em comum); a lista com abas em pílula (Todos,
+  Online, Offline, Solicitações) e ordem (última atividade ou nome), cada amigo com o ponto de status no avatar, o que
+  está fazendo, as capas dos últimos jogos (+N), Entrar/Assistir quando tem sala, convidar e o perfil (⋯); "Jogos em
+  comum" em capas. À direita: você (status, jogos, amigos, tempo jogado, recado), a atividade dos amigos (com ▶ para
+  jogar), as conquistas da galera e sugestões de amizade (amigos de amigos e quem jogou com você). Tudo vem de
+  `social.ts` `view`; um bloco sem dado não aparece.
 - **Botão primário:** 42 px, coral, texto preto 700, `--r-sm`; hover `--primary-hi`. **Secundário:** sem fundo,
   contorno `--line-hi`. **Discreto:** só texto `--soft`. **Perigo:** como o secundário, texto `--danger`.
 - **Gaveta:** à direita (420 px), `--side`; no topo o pôster da capa (clique troca a capa), embaixo nome, dados,

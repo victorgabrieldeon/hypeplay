@@ -1,6 +1,7 @@
 import { SQL } from "bun";
 import { join } from "node:path";
 import { telemetryFromEnv } from "./otlp";
+import { createBackups } from "./backup";
 import { createBios } from "./bios";
 import { createChunkCache, discCacheBytes } from "./chunkcache";
 import { importOld, migrate } from "./db";
@@ -123,6 +124,11 @@ const app = createApp({
 // /health, the limits per person and the metrics around the routes; drain() on SIGTERM (ops.ts).
 const ops = createOps({ app, passes, telemetry, ps2Rooms });
 
+// With R2, once a day, what's only here goes there: the database, the queue, the games' small files (backup.ts).
+// BACKUP=0: none. A backup that fails never stops the app.
+const backups = r2 && process.env.BACKUP !== "0" ? createBackups({ dir, sql, r2, telemetry, draining: () => ops.draining }) : null;
+void backups?.start();
+
 const server = Bun.serve<NetData>({
   port: PORT,
   // (above the online rooms' long-poll, ps2rooms.ts WAIT_MS; Bun's default 10 s would cut it)
@@ -139,6 +145,7 @@ log.info("cordplay listening", { port: PORT, otlp: telemetry.enabled });
  */
 async function shutdown(signal: string) {
   log.info("shutdown", { signal });
+  backups?.stop();
   try {
     await ops.drain(server);
     await social.settle();

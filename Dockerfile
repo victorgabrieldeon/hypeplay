@@ -11,5 +11,7 @@ COPY emulator/ps2-fetch.ts emulator/ps2-files.json ./emulator/
 RUN bun emulator/ps2-fetch.ts
 COPY server ./server
 COPY page ./page
+# (scripts/restore.ts runs in this image: README "Backup automático")
+COPY scripts ./scripts
 EXPOSE 3003
 CMD ["bun", "server/index.ts"]

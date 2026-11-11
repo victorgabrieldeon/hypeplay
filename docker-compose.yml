@@ -39,6 +39,8 @@ services:
       # (with R2) optional, off: the discs served by edge/worker.ts near the players (README "Edge para os discos")
       DISC_EDGE_URL: ${DISC_EDGE_URL:-}
       DISC_EDGE_SECRET: ${DISC_EDGE_SECRET:-}
+      # (with R2) the daily backup to R2's backup/ (server/backup.ts, README "Backup automático"): on; 0 turns it off
+      BACKUP: ${BACKUP:-}
       # Optional: ps2-builder workers on other machines take jobs from the builds' queue through /worker/ with this
       # token (README "Workers em outra máquina"). Empty: only the builders here, which open /app/data/queue.db.
       WORKER_TOKEN: ${WORKER_TOKEN:-}

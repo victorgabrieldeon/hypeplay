@@ -140,6 +140,12 @@ export class Ps2Rooms {
     return r.guests.has(me) ? "player" : r.watchers.has(me) ? "watch" : null;
   }
 
+  /** Rooms open now (the metrics, ops.ts). */
+  get size(): number {
+    this.sweep();
+    return this.rooms.size;
+  }
+
   list(game: string): RoomInfo[] {
     this.sweep();
     return [...this.rooms].filter(([, r]) => r.game === game).map(([code, r]) => this.info(code, r));

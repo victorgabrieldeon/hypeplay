@@ -6,6 +6,8 @@
  * sharp (a native module) is loaded on the first cover sent, not at startup: the server never depends on it to run.
  * Where it can't load at all (no native build for the machine, a path too long for Windows), a cover goes as sent.
  */
+import { log } from "./log";
+
 export const COVER_MAX = 5 * 1024 ** 2;
 /** The drawing's version: covers are kept a year by address, so a new drawing needs new addresses. */
 export const COVER_ART = 2;
@@ -32,7 +34,7 @@ export async function normalizeCover(
   try {
     sharp = (await load()).default;
   } catch (err) {
-    console.warn("covers go as sent: sharp didn't load", err instanceof Error ? err.message.split("\n")[0] : err);
+    log.warn("covers go as sent: sharp didn't load", { error: err instanceof Error ? err.message.split("\n")[0] : String(err) });
     return imageType(body) ? { ok: true, image: body } : wrong;
   }
   try {

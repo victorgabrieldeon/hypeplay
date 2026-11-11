@@ -11,11 +11,13 @@ import { createOps } from "./ops";
 import { createPasses } from "./pass";
 import { createPeople } from "./people";
 import { Ps2Rooms } from "./ps2rooms";
+import { createQueue } from "./queue";
 import { cloudflareTurn } from "./ice";
 import { createApp, type NetData } from "./routes";
 import { createSaves } from "./saves";
 import { createSocial } from "./social";
 import { createVimm } from "./vimm";
+import { createWorkerApi } from "./workers";
 
 const env = (name: string) => {
   const value = process.env[name];
@@ -53,7 +55,16 @@ const r2 = r2FromEnv();
 // The R2 discs' pieces kept in memory (chunkcache.ts), DISC_CACHE_MB megabytes (256; 0: none): two people in the same
 // game, or a menu read again, don't wait on R2 again.
 const discCache = r2 && discCacheBytes() > 0 ? createChunkCache({ maxBytes: discCacheBytes() }) : null;
-const library = createLibrary(dir, { r2 });
+// The builds' queue (queue.ts): its own file next to the data, shared with the builders on this machine.
+const queue = createQueue(join(dir, "queue.db"));
+const library = createLibrary(dir, { r2, queue });
+// (the "versão rápida" asked before the queue: in it, once)
+const adopted = await library.importFast();
+if (adopted) log.info("queue: fast builds from the volume", { adopted });
+// Optional: workers on other machines (ps2-builder with QUEUE_URL) take jobs through /worker/ (workers.ts). Their builds
+// go to R2 and are served from there: without R2 here, they'd be ready and never found.
+if (process.env.WORKER_TOKEN && !r2) throw new Error("WORKER_TOKEN without S3_BUCKET: workers elsewhere publish their builds in R2");
+const workers = process.env.WORKER_TOKEN ? createWorkerApi({ dir, queue, r2, token: process.env.WORKER_TOKEN }) : null;
 const social = createSocial(dir);
 const ps2Rooms = new Ps2Rooms();
 // The client secret signs the passes too: resetting it in the portal also ends every open session.
@@ -107,7 +118,7 @@ const server = Bun.serve<NetData>({
   port: PORT,
   // (above the online rooms' long-poll, ps2rooms.ts WAIT_MS; Bun's default 10 s would cut it)
   idleTimeout: 30,
-  fetch: (req, server) => ops.handle(req, server),
+  fetch: (req, server) => workers?.handle(req) ?? ops.handle(req, server),
   websocket: ops.websocket,
 });
 

@@ -79,7 +79,9 @@ nada (ver [Jogos de PS2](#jogos-de-ps2)). Depois disso o jogo fica na biblioteca
   nele, o VU1 no limite). Na gaveta do jogo, **Compilar a versão rápida** faz o serviço `ps2-builder` compilar o jogo
   com o [ps2-web-recomp](https://github.com/snuri00/ps2-web-recomp) (MIT): o código do jogo vira C++ e depois
   WebAssembly, sem emulador de CPU. Leva uns 20 a 40 minutos no servidor (o God of War: 21 minutos com 2 CPUs, até
-  1,2 GB de memória), uma vez para todo mundo, e só compila os jogos pedidos, um por vez. Pronta, ela vira o padrão:
+  1,2 GB de memória), uma vez para todo mundo, e só compila os jogos pedidos, numa fila: um por vez em cada worker,
+  primeiro quem parou num trecho sem código, depois os pedidos por ordem de chegada (mais workers, até em outras
+  máquinas, compilam mais de uma vez: veja [Workers em outra máquina](#workers-em-outra-máquina)). Pronta, ela vira o padrão:
   **Jogar agora** e **Abrir uma sala** abrem a versão rápida (o God of War vai a 60 fps), e a gaveta guarda um **Jogar
   no emulador**. O online é o mesmo do emulador: "Abrir sala" no painel do jogo, o amigo entra pela biblioteca como
   jogador 2 (WebRTC, ou pelo servidor quando não conecta). O memory card também é o mesmo (mesmo arquivo, mesmas
@@ -110,7 +112,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | Serviço | Domínio | O que faz |
 | --- | --- | --- |
 | `app` | `bt3.exemplo.com` → 3003 | Entrada pelo Discord, a biblioteca, as páginas dos jogos, o envio da ISO, o online (WebSocket) |
-| `ps2-builder` | — (só o volume) | A versão rápida dos jogos de PS2 pedidos (`ps2-builder/`): `port.sh` do ps2-web-recomp, um jogo por vez, 2 CPUs. `PS2_ROUNDS` e `PS2_FRAMES` (opcionais) dizem quantas partidas de teste e de quantos quadros |
+| `ps2-builder` | — (só o volume) | A versão rápida dos jogos de PS2 pedidos (`ps2-builder/`): `port.sh` do ps2-web-recomp, um jogo por vez, 2 CPUs. Pega os jogos da fila de compilações (`/app/data/queue.db`). `PS2_ROUNDS` e `PS2_FRAMES` (opcionais) dizem quantas partidas de teste e de quantos quadros |
 
 | Variável | Para quê |
 | --- | --- |
@@ -122,6 +124,7 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 | `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Opcionais. Os discos novos e os saves no R2 (`server/discs.ts`, `server/saves.ts`); sem eles, tudo fica no disco do servidor |
 | `DISC_CACHE_MB` | Opcional (com R2). Quantos MB de pedaços dos discos do R2 o app guarda na memória: veja [Cache](#cache-dos-discos-e-dos-arquivos). Padrão 256; `0` desliga |
 | `DISC_EDGE_URL`, `DISC_EDGE_SECRET` | Opcionais (com R2), desligados. Os discos do emulador servidos por um Worker da Cloudflare perto dos jogadores: veja [Edge para os discos](#edge-para-os-discos-opcional) |
+| `WORKER_TOKEN` | Opcional. Deixa workers da versão rápida em outras máquinas pegarem jogos da fila: veja [Workers em outra máquina](#workers-em-outra-máquina) |
 
 Sem `DISCORD_CLIENT_ID` ou `DISCORD_CLIENT_SECRET` o servidor não sobe.
 
@@ -274,6 +277,50 @@ lê o disco de lá (`page/ps2play.ts`, `page/edgedisc.ts`). O caminho termina ig
 servidor; ligar o edge nela é ensinar o `fastdisc.ts` a buscar a rede no endereço do edge. Para desligar, tire as duas
 variáveis.
 
+### Workers em outra máquina
+
+A versão rápida pesa (2 CPUs por 20 a 40 minutos por jogo) e roda na mesma VPS do app. Ela vai para outras máquinas
+com a mesma imagem do `ps2-builder`: cada uma é mais um worker da fila de compilações, e cada jogo vai para um worker
+só (nunca dois compilam o mesmo). Elas não montam o volume: falam com o app por HTTPS (`/worker/`, com um token),
+trazem o disco do R2 e publicam a versão rápida no R2, e o app serve de lá (cada carregamento passa pela VPS, sem
+cache). Precisa do R2 ligado no app (`S3_BUCKET` e companhia; com `WORKER_TOKEN` e sem R2 o app não sobe) e, nos
+workers, as mesmas credenciais do **mesmo bucket**.
+
+1. No Dokploy, em **Environment** do app, acrescente um token longo e aleatório (`openssl rand -hex 32`):
+   ```
+   WORKER_TOKEN=<token>
+   ```
+   Faça o deploy de novo. Sem ele, `/worker/` nem existe.
+2. Na outra máquina (Linux com Docker, 2 CPUs e uns 4 GB de memória por worker, ~10 GB de disco), com uma cópia do
+   repositório:
+   ```sh
+   docker build -t hypeplay-ps2-builder -f ps2-builder/Dockerfile .
+   docker run -d --restart unless-stopped --cpus 2 --name ps2-worker \
+     -e QUEUE_URL=https://bt3.exemplo.com \
+     -e WORKER_TOKEN=<token> \
+     -e S3_BUCKET=… -e S3_ENDPOINT=… -e S3_ACCESS_KEY_ID=… -e S3_SECRET_ACCESS_KEY=… \
+     -e WORKER_ID=casa-1 \
+     -v ps2-worker-data:/app/data \
+     hypeplay-ps2-builder
+   ```
+   `QUEUE_URL` é o endereço do app (o mesmo do `PUBLIC_URL`). `WORKER_ID` é opcional: o nome que aparece nos logs e
+   na fila. O volume é só desta máquina: os arquivos da compilação (`ps2-work/`) e o disco enquanto compila.
+3. `docker logs -f ps2-worker` mostra `taking jobs from https://…` e cada jogo que ele pega. Na gaveta do jogo, o
+   progresso aparece como se fosse aqui.
+
+Mais workers, mais jogos ao mesmo tempo: na mesma máquina (outro `--name` e outro volume) ou em outras. O
+`ps2-builder` da VPS continua pegando jogos também; para tirar a compilação de lá, pare esse serviço no Dokploy.
+
+- **Mesma imagem em todos.** Uma versão rápida feita com outra página ou outro ps2-web-recomp é atualizada pelo
+  primeiro worker livre: workers com imagens diferentes ficariam atualizando os mesmos jogos um por cima do outro.
+  Ao atualizar o repositório, refaça a imagem nas outras máquinas também.
+- **Se um worker cair** no meio, o jogo volta para a fila depois de 2 minutos sem notícia e outro pega (até 3 vezes;
+  depois a gaveta mostra a falha e o **Tentar de novo**). Um erro que não é da compilação (R2 fora do ar, rede) também
+  volta para a fila, com uma pausa.
+- **Um jogo com código novo** (o que os jogadores acharam) compila só esse código no worker que já tem a tradução do
+  jogo; noutro, refaz tudo antes.
+- Os discos que ainda estão no disco da VPS (enviados antes do R2) vão para o worker pelo próprio app.
+
 ## Acesso
 
 A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopo `identify`) e o
@@ -287,7 +334,10 @@ emoldurar as páginas.
 
 Tudo fica no volume, `/app/data/`, e nada disso vai para o git nem para imagem nenhuma (`data/` está no
 `.gitignore`). Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, e `fast/` com a versão
-rápida: o pedido, `status.json`, `build.log`, `misses.txt` e `build/`) e a BIOS em `/app/data/bios/`. O que a
+rápida: o pedido, `build.log`, `misses.txt` e `build/`; feita em outra máquina, ela fica no R2, em
+`ps2/<serial>/fast/<versão>/`) e a BIOS em `/app/data/bios/`. A fila de compilações é `/app/data/queue.db` (SQLite,
+um arquivo dela, fora do `hypeplay.db`): cada jogo pedido, quem está compilando, e como foi. Na primeira subida com
+ela, os pedidos que já estavam no volume entram sozinhos (uma versão pronta continua pronta, sem compilar de novo). O que a
 compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). A lista da biblioteca
 sai de um índice em memória, montado dos `game.json` na subida; reservas abandonadas e pastas sem `game.json` são
 limpas de 10 em 10 minutos. Os memory cards são `saves/<serial>/<id do Discord>.ps2`. A intro opcional é
@@ -326,7 +376,9 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   mapas de controle e último jogo (`people.ts`), amigos e horas (`social.ts`), o banco SQLite dos dois (`db.ts`),
   salas e ICE do online (`ps2rooms.ts`, `ice.ts`), as respostas com
   Range, isolamento e versão (`http.ts`), os discos no R2 (`discs.ts`) e os pedaços deles na memória (`chunkcache.ts`).
-  A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`).
+  A home ao vivo (`homefeed.ts`) e quem está por perto (`presence.ts`). A fila de compilações (`queue.ts`, SQLite:
+  cada job vai para um worker só, com prioridade, prazo e novas tentativas), o lado do volume dos jobs da versão rápida
+  (`fastjobs.ts`) e a fila para os workers de fora (`workers.ts`, `/worker/`).
 - `edge/`: o Worker opcional que serve os discos do R2 perto dos jogadores (`worker.ts`, `wrangler.toml`), com o
   token de `server/edgetoken.ts`. Nada aqui o publica.
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
@@ -337,8 +389,9 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   também).
 - `.github/workflows/ci.yml`: em cada PR e push, `bun test`, `bun run typecheck` e o build das duas imagens (sem
   segredos, sem deploy: o Dokploy faz o deploy do `main` sozinho).
-- `ps2-builder/`: a imagem e o laço da versão rápida (ps2-web-recomp). O `patch.ts` ajusta a página dele e falha
-  alto se o recompilador mudar.
+- `ps2-builder/`: a imagem e o worker da versão rápida (ps2-web-recomp, `builder.ts`), e de onde vêm os jobs
+  (`jobs.ts`: a fila e o volume daqui, ou o `/worker/` do app e o R2). O `patch.ts` ajusta a página dele e falha alto
+  se o recompilador mudar.
 - `emulator/ps2-fetch.ts` e `ps2-files.json`: baixam o TabStationToo (GPL-3.0) e conferem cada arquivo por SHA-256;
   `--update` pega a versão publicada agora e regrava os hashes (depois revise `server/ps2page.ts`).
 - `server/ps2page.ts` e `page/ps2play.ts`: a página do TabStationToo no nosso design (BIOS e disco do servidor,

@@ -39,6 +39,9 @@ services:
       # (with R2) optional, off: the discs served by edge/worker.ts near the players (README "Edge para os discos")
       DISC_EDGE_URL: ${DISC_EDGE_URL:-}
       DISC_EDGE_SECRET: ${DISC_EDGE_SECRET:-}
+      # Optional: ps2-builder workers on other machines take jobs from the builds' queue through /worker/ with this
+      # token (README "Workers em outra máquina"). Empty: only the builders here, which open /app/data/queue.db.
+      WORKER_TOKEN: ${WORKER_TOKEN:-}
       # The JSON log's level: debug, info (default), warn, error.
       LOG_LEVEL: ${LOG_LEVEL:-}
     volumes: [*data]
@@ -55,7 +58,9 @@ services:
     stop_grace_period: 20s
 
   # The PS2 games' "versão rápida" (ps2-builder/): compiles, one at a time, only the games someone asked for in the
-  # library ("Compilar versão rápida"), with ps2-web-recomp. Held to 2 CPUs so calls don't suffer.
+  # library ("Compilar versão rápida"), with ps2-web-recomp. Held to 2 CPUs so calls don't suffer. A worker of the
+  # builds' queue (/app/data/queue.db, server/queue.ts): more of them (here, or elsewhere through WORKER_TOKEN) build
+  # more at once.
   ps2-builder:
     build:
       context: .

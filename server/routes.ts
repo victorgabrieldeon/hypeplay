@@ -257,11 +257,13 @@ export function createApp({
   let warned = false;
   /**
    * A game's page with pad.js (the mapped controller) and overlay.js (volume, screen filter) slipped in; `pad` is the
-   * relative address of pad.js, overlay.js sits next to it. Without a </head>, the page as it is.
+   * relative address of pad.js, overlay.js sits next to it. Without a </head>, the page as it is. `source`: its file, or
+   * its bytes already found (a "versão rápida" built elsewhere, in R2).
    */
-  async function page(req: Request, path: string, pad: string, headers: Record<string, string>, adjust: (html: string) => string = (h) => h) {
-    const f = Bun.file(path);
-    if (!(await f.exists())) return text("Não encontrado", 404);
+  async function page(req: Request, source: string | Blob, pad: string, headers: Record<string, string>, adjust: (html: string) => string = (h) => h) {
+    const path = typeof source === "string" ? source : "a build in R2";
+    const f = typeof source === "string" ? Bun.file(source) : source;
+    if (typeof source === "string" && !(await Bun.file(source).exists())) return text("Não encontrado", 404);
     let html: string;
     try {
       html = adjust(await f.text());
@@ -500,10 +502,16 @@ export function createApp({
       }));
   }
 
-  /** The "versão rápida"'s version: its files' times and sizes (a build is swapped in whole), or undefined without them. */
-  async function fastVersion(build: string): Promise<string | undefined> {
+  /**
+   * The "versão rápida"'s version: its files' times and sizes (a build is swapped in whole), or a build in R2's own
+   * prefix (new for each build); undefined without either.
+   */
+  async function fastVersion(id: string): Promise<string | undefined> {
+    const build = join(library!.paths(id).fast, "build");
     const all = await Promise.all(Object.keys(FAST_FILES).map((f) => stat(join(build, f)).then((s) => `${f}:${s.mtimeMs}:${s.size}`, () => null)));
-    return all.every(Boolean) ? versionOf(all.join("|")) : undefined;
+    if (all.every(Boolean)) return versionOf(all.join("|"));
+    const r2 = library!.fastR2(id);
+    return r2 ? versionOf(r2.prefix) : undefined;
   }
 
   /** ps2/<id>/game/…: TabStationToo with the game's disc, its online rooms. All isolated (http.ts). */
@@ -540,16 +548,20 @@ export function createApp({
    */
   async function ps2Fast(req: Request, id: string, rest: string): Promise<Response> {
     const p = library!.paths(id);
-    const build = join(p.fast, "build");
+    // (its build here, or in R2 when a worker elsewhere made it: streamed, as a disc piece is)
+    const built = (name: string) => library!.fastFile(id, name);
+    const body = (b: { file: Blob; from: string }) => (b.from === "r2" ? b.file.stream() : b.file);
     const isolated = (body: ConstructorParameters<typeof Response>[0], status: number, h: Record<string, string> = {}) =>
       new Response(body, { status, headers: { ...ISOLATED, "Content-Type": "text/plain; charset=utf-8", ...h } });
     if (rest === "" || rest === "index.html") {
       const name = ((await library!.get(id))?.name ?? id).replace(/[&<>"]/g, "");
-      const v = await fastVersion(build);
+      const start = await built("ps2web.html");
+      if (!start) return isolated("Não encontrado", 404);
+      const v = await fastVersion(id);
       // (its online and its disc kept in the browser: fastplay.js, before the pad.js and overlay.js page() adds and before
       // the page's own scripts, whose fetch it wraps; the online waits for the page, by then both ran. ps2web.js with
       // its version: the page (ps2-builder/patch.ts) gives the .wasm and .data the same one)
-      return page(req, join(build, "ps2web.html"), "../../../pad.js", ISOLATED, (html) =>
+      return page(req, start.file, "../../../pad.js", ISOLATED, (html) =>
         html
           .replace("<title>ps2-web-recomp</title>", `<title>${name} · HypePlay</title>`)
           .replace(/<\/head>/i, '<script src="../../../fastplay.js"></script>$&')
@@ -558,12 +570,12 @@ export function createApp({
     }
     const type = FAST_FILES[rest];
     if (type) {
-      const keep = { ...cacheFor(req, await fastVersion(build)), Vary: "Accept-Encoding" };
+      const keep = { ...cacheFor(req, await fastVersion(id)), Vary: "Accept-Encoding" };
       // (the build keeps a gzip copy of each: a third of the 15 MB of the engine through the Discord proxy)
-      const gz = /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") ? Bun.file(join(build, `${rest}.gz`)) : null;
-      if (gz && (await gz.exists())) return isolated(gz, 200, { "Content-Type": type, "Content-Encoding": "gzip", ...keep });
-      const f = Bun.file(join(build, rest));
-      return (await f.exists()) ? isolated(f, 200, { "Content-Type": type, ...keep }) : isolated("Não encontrado", 404);
+      const gz = /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "") ? await built(`${rest}.gz`) : null;
+      if (gz) return isolated(body(gz), 200, { "Content-Type": type, "Content-Encoding": "gzip", ...keep });
+      const f = await built(rest);
+      return f ? isolated(body(f), 200, { "Content-Type": type, ...keep }) : isolated("Não encontrado", 404);
     }
     if (rest === "disc.iso") {
       const d = await discs(p.iso);

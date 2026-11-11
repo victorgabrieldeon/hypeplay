@@ -99,7 +99,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
   /** each one's last beat, for the time since it */
   const beats = new Map<string, { key: string; at: number }>();
   const invites = new Map<string, Invite[]>();
-  /** when each one's "seen" was last written (the poll comes every 2 s: once a minute is enough) */
+  /** when each one's "seen" was last written (the home looks every 2 s, pushed or polled: once a minute is enough) */
   const kept = new Map<string, number>();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let writing: Promise<void> = Promise.resolve();
@@ -136,7 +136,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
   return {
     flush,
 
-    /** The home opened (its poll): their profile, with the name the pass has now. */
+    /** The home open (each of its looks, homefeed.ts or the poll): their profile, with the name the pass has now. */
     seen(pass: { id: string; name: string }) {
       if (!USER.test(pass.id)) return;
       const t = now();
@@ -253,7 +253,7 @@ export function createSocial(dir: string, now: () => number = () => Date.now()) 
     },
 
     /**
-     * For the home's poll: my status, my friends (each with whether they're online: `online(id)`, presence.ts), the
+     * For the home (its feed and its poll): my status, my friends (each with whether they're online: `online(id)`, presence.ts), the
      * requests both ways, my invites and what my friends played lately.
      */
     view(me: string, online: (id: string) => boolean) {

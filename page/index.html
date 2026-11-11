@@ -6,7 +6,8 @@
 <title>HypePlay</title>
 <!--
   HypePlay's home (server/routes.ts serves it at /p/<pass>/, framed by page/entry.html): the library, each game's
-  drawer, adding a game, the controller screen and the intro. home/app.js reads `games` every 2 s. Runs as an opaque
+  drawer, adding a game, the controller screen and the intro. home/app.js follows home/ws (home/feed.js), reading
+  `games` every 2 s only while it's down. Runs as an opaque
   origin: every address here is relative, and nothing is kept in this browser. Tokens: DESIGN.md.
 -->
 <style>

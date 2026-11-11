@@ -42,28 +42,14 @@ test("the same serial twice, even at the same time, is one game", async () => {
   expect(await readdir(join(dir, "ps2"))).toEqual(["sles-12345"]);
 });
 
-test("without BT3's port, BT3's disc is a PS2 game like any other", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "cordplay-library-"));
-  dirs.push(dir);
-  const library = createLibrary(dir, { min: 10, max: 10 * 1024 * 1024, port: false });
-  const r = await library.reserve(ana, "SLUS-21678", "Budokai Tenkaichi 3");
-  expect(r.ok && r.game).toMatchObject({ id: "slus-21678", serial: "SLUS-21678", name: "Budokai Tenkaichi 3" });
-});
-
-test("BT3's serial points at BT3", async () => {
-  const { library } = await setup();
-  expect(await library.reserve(ana, "SLUS-21678", "x")).toEqual({ ok: false, exists: "bt3" });
-  expect(await library.list()).toEqual([]);
-});
-
-test("another copy, when asked: BT3's disc beside its port, and the same game again (a mod keeps its serial)", async () => {
+test("another copy, when asked: the same game again (a mod keeps its serial)", async () => {
   const { dir, library } = await setup();
-  const bt3 = await library.reserve(ana, "SLUS-21678", "BT3 (PS2)", { copy: true });
-  expect(bt3.ok && bt3.game.id).toBe("slus-21678");
+  const bt3 = await library.reserve(ana, "SLUS-21678", "Budokai Tenkaichi 3");
+  expect(bt3.ok && bt3.game).toMatchObject({ id: "slus-21678", serial: "SLUS-21678", name: "Budokai Tenkaichi 3" });
   const mod = await library.reserve(bia, "SLUS-21678", "BT4 mod", { copy: true });
   expect(mod.ok && mod.game).toMatchObject({ id: "slus-21678-2", serial: "SLUS-21678", name: "BT4 mod" });
   // without asking, the game that's there
-  expect(await library.reserve(ana, "SLUS-21678", "x")).toEqual({ ok: false, exists: "bt3" });
+  expect(await library.reserve(ana, "SLUS-21678", "x")).toEqual({ ok: false, exists: "ps2/slus-21678" });
   expect((await library.reserve(ana, "SLES-12345", "A")).ok).toBe(true);
   expect(await library.reserve(ana, "SLES-12345", "B")).toEqual({ ok: false, exists: "ps2/sles-12345" });
   const two = await Promise.all([library.reserve(ana, "SLES-12345", "C", { copy: true }), library.reserve(bia, "SLES-12345", "D", { copy: true })]);

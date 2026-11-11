@@ -8,8 +8,6 @@
  *                                                  without `build`, there was nothing to build
  *   fail   { worker, key, token, status, final }
  *   disc   { key, token }                          → the game's disc, when it's on this disk rather than in R2
- *
- * Only the PS2 games' "versão rápida": BT3's builder only builds here (its disc never goes to R2).
  */
 import { timingSafeEqual } from "node:crypto";
 import type { S3Client } from "bun";

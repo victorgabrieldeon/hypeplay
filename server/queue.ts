@@ -1,9 +1,9 @@
 /**
  * The builds' queue: which game builds next and which worker has it, in its own SQLite file (<DATA_DIR>/queue.db, WAL).
  * The app enqueues (library.ts: "Compilar versão rápida", "Tentar de novo", code the players met), the workers claim
- * (ps2-builder/, builder/): those on this machine open the file, those elsewhere ask the app (workers.ts), which asks it.
+ * (ps2-builder/): those on this machine open the file, those elsewhere ask the app (workers.ts), which asks it.
  *
- * One row per game (its key: "ps2/<id>", "bt3"), so asking twice never builds twice:
+ * One row per game (its key, "ps2/<id>"; its kind says which workers build it), so asking twice never builds twice:
  *
  *   queued   waiting, best priority first, then oldest; `run_after` holds a retry back a little
  *   running  one worker's, by its `token`, for as long as it keeps renewing its lease (beat); a lease gone quiet

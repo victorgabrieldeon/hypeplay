@@ -1,6 +1,0 @@
-# The builder image is built from the repository's root (docker-compose.yml); it only needs these.
-*
-!builder/builder.ts
-!builder/patch.ts
-!builder/steps.py
-!server/queue.ts

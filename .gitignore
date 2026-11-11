@@ -6,7 +6,3 @@ data
 # TabStationToo (PCSX2 in WebAssembly), downloaded by emulator/ps2-fetch.ts.
 emulator/ps2
 emulator/ps2.tmp
-# Impeccable's engine binary: its launcher downloads it (checksum-verified) when missing.
-.claude/skills/impeccable/scripts/bin/
-# Impeccable's font index, which the `data` rule above would hide.
-!.claude/skills/impeccable/scripts/data

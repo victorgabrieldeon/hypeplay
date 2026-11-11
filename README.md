@@ -1,40 +1,13 @@
 # HypePlay (atividade do Discord)
 
-Uma central de jogos como atividade do Discord (o 🚀 do canal de voz): quem abre escolhe o jogo na biblioteca,
-envia a ISO uma vez e o servidor compila o jogo para o navegador. Depois disso o jogo fica na biblioteca para todo
-mundo, sem enviar nem compilar de novo. Há dois tipos de jogo:
+Uma central de jogos de PS2 como atividade do Discord (o 🚀 do canal de voz): quem tiver a ISO adiciona o jogo na
+biblioteca, com capa se quiser. Ela fica guardada no servidor e roda direto no
+[TabStationToo](https://github.com/TabStationToo/TabStationToo), o PCSX2 compilado para WebAssembly, sem compilar
+nada (ver [Jogos de PS2](#jogos-de-ps2)). Depois disso o jogo fica na biblioteca para todo mundo.
 
-- **Ports testados**, cada um com o próprio compilador (por enquanto, só o BT3, abaixo).
-- **Qualquer jogo de PS2** (em teste): quem tiver a ISO adiciona o jogo, com capa se quiser. Ela fica guardada no
-  servidor e roda direto no [TabStationToo](https://github.com/TabStationToo/TabStationToo), o PCSX2 compilado para
-  WebAssembly, sem compilar nada (ver [Jogos de PS2](#jogos-de-ps2)).
-
-O port testado de hoje:
-
-- **Dragon Ball Z: Budokai Tenkaichi 3**, o port web do
-[Tenkaichi3Decomp](https://github.com/stufno102/Tenkaichi3Decomp) (fork do stufno102, commit `81507cde`),
-compilado no próprio servidor a partir da ISO do dono. Desenho original (da época em que era plugin do
-HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-design.md).
-
-> **Só para servidor privado.** O jogo é compilado a partir do jogo de verdade: use só com amigos que têm,
-> cada um, a própria cópia do jogo. Qualquer pessoa que abrir a atividade no Discord joga: o que segura o
-> acesso é o app não ser divulgado (deixe o *Public Bot* desligado e adicione o app só aos seus servidores).
-
-## Como usar
-
-- **Home:** o catálogo, com o estado de cada jogo (pronto, precisa da ISO, enviando, compilando). "Jogar
-  agora" abre o jogo pronto. O painel do lado mostra o envio com porcentagem, velocidade e quanto falta
-  (também para quem só está olhando o envio de outra pessoa) e os passos da compilação.
-- **Primeira vez:** quem abrir a atividade escolhe o jogo e envia a ISO (só a americana, SLUS-21678; uma vez para o servidor
-  todo). O envio vai em pedaços de 32 MB e retoma se cair, até de outra vez que abrir a atividade. O serviço
-  `builder` confere a ISO, extrai os dados e compila o jogo (alguns minutos, 2 CPUs no máximo). Quem abrir a
-  atividade no meio-tempo vê o passo atual. Depois disso, abrir a atividade carrega o jogo direto, com tudo
-  desbloqueado.
-- **Jogar:** online em "Dragon Net Battle" (criar sala dá um código de 4 letras; o outro entra com ele, ou
-  Quick Match), ou local (contra a CPU, dois no mesmo PC). Clique no jogo para dar foco: as teclas vão para
-  ele (F1 abre as configurações do jogo).
-- **Isolamento:** o jogo roda sempre em origem opaca (sandbox no cabeçalho CSP), sem `localStorage`. Por isso
-  saves e configurações do jogo não ficam guardados entre sessões.
+> **Só para servidor privado.** Use só com amigos que têm, cada um, a própria cópia do jogo. Qualquer pessoa que
+> abrir a atividade no Discord joga: o que segura o acesso é o app não ser divulgado (deixe o *Public Bot*
+> desligado e adicione o app só aos seus servidores).
 
 ## Jogos de PS2
 
@@ -66,12 +39,12 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
 - **Saves:** o memory card de cada pessoa fica no servidor (por jogo e por usuário do Discord), então vale em
   qualquer computador.
 - **Controle:** sempre um controle de PS2. Se o navegador não reconhecer (adaptador USB genérico), "Controle" na
-  biblioteca mapeia os botões uma vez; o mapa fica no servidor e vale em todos os jogos, BT3 incluso.
+  biblioteca mapeia os botões uma vez; o mapa fica no servidor e vale em todos os jogos.
 - **Teclado:** sem mapa, valem as teclas de cada jogo. Em "Controle" → Teclado → Mapear, escolha uma tecla para cada botão
   e para cada direção dos dois analógicos (Pular deixa sem tecla). O mapa fica no servidor e vale no emulador e na
   versão rápida, como jogador 1 junto com o primeiro controle; as teclas mapeadas deixam de ir para o jogo, as outras
-  continuam com o que o jogo faz com elas. Esc e Tab não podem ser mapeadas. O BT3 segue com o teclado dele.
-- **Intro:** ao abrir um jogo de PS2 (o BT3 incluso) toca a intro, se o servidor tiver uma (enviada uma vez pela tela **Servidor** da home, que também troca a BIOS; fica em `/app/data/intro.mp4`); clique ou
+  continuam com o que o jogo faz com elas. Esc e Tab não podem ser mapeadas.
+- **Intro:** ao abrir um jogo de PS2 toca a intro, se o servidor tiver uma (enviada uma vez pela tela **Servidor** da home, que também troca a BIOS; fica em `/app/data/intro.mp4`); clique ou
   tecla pula. Não vai para o git: é material da Sony.
 - **Online:** dentro do jogo, "Abrir sala"; na biblioteca os amigos veem "Fulano está jogando — Entrar como
   jogador 2". O host transmite o jogo por WebRTC e o controle do convidado vira o jogador 2 (vale para jogos que
@@ -79,7 +52,7 @@ HypeMeet): [`docs/2026-10-29-plugin-bt3-design.md`](docs/2026-10-29-plugin-bt3-d
   Quando o WebRTC não conecta em 6 s (redes que não se alcançam direto, como internet de operadora com CGNAT), ou
   não existe (dentro do Discord), a imagem, o som e o controle passam **pelo próprio servidor**, pelo WebSocket do
   app, sem nada para configurar: um pouco mais de atraso (a ida e volta até o servidor) e cerca de 3 Mbps de banda
-  do servidor por sala ([spec](docs/superpowers/specs/2026-10-31-online-rele-design.md)). Com um TURN
+  do servidor por sala. Com um TURN
   ([Ligar o TURN](#ligar-o-turn)), mais conexões ficam diretas e o servidor repassa menos.
 - **Pessoas:** a seção "Pessoas" da biblioteca mostra quem mais está com o HypePlay aberto, primeiro quem está **na
   mesma call** (o canal de voz em que a atividade foi aberta; quem entrou pelo navegador aparece como online), e o que
@@ -126,12 +99,11 @@ Um app para o HypePlay (não o do HypeMeet; o nome que aparece no Discord é o d
 
 ## Deploy (Dokploy)
 
-`docker-compose.yml` sobe três serviços que dividem a pasta `/srv/bt3-data` do servidor (no disco do sistema: o segundo disco, `/mnt/disk`, é de rede e lento demais para os jogos):
+`docker-compose.yml` sobe dois serviços (mais o `turn`, opcional) que dividem a pasta `/srv/bt3-data` do servidor (no disco do sistema: o segundo disco, `/mnt/disk`, é de rede e lento demais para os jogos):
 
 | Serviço | Domínio | O que faz |
 | --- | --- | --- |
-| `app` | `bt3.exemplo.com` → 3003 | Entrada pelo Discord, página do jogo, arquivos do jogo, pedaços da ISO, envio, salas do online (WebSocket) |
-| `builder` | — (só o volume) | Confere a ISO, extrai, compila, ajusta os caminhos (`builder/patch.ts`) e publica |
+| `app` | `bt3.exemplo.com` → 3003 | Entrada pelo Discord, a biblioteca, as páginas dos jogos, o envio da ISO, o online (WebSocket) |
 | `ps2-builder` | — (só o volume) | A versão rápida dos jogos de PS2 pedidos (`ps2-builder/`): `port.sh` do ps2-web-recomp, um jogo por vez, 2 CPUs. Pega os jogos da fila de compilações (`/app/data/queue.db`). `PS2_ROUNDS` e `PS2_FRAMES` (opcionais) dizem quantas partidas de teste e de quantos quadros |
 
 | Variável | Para quê |
@@ -211,7 +183,13 @@ workers, as mesmas credenciais do **mesmo bucket**.
    repositório:
    ```sh
    docker build -t hypeplay-ps2-builder -f ps2-builder/Dockerfile .
-   docker run -d --restart unless-stopped --cpus 2 --name ps2-worker      -e QUEUE_URL=https://bt3.exemplo.com      -e WORKER_TOKEN=<token>      -e S3_BUCKET=… -e S3_ENDPOINT=… -e S3_ACCESS_KEY_ID=… -e S3_SECRET_ACCESS_KEY=…      -e WORKER_ID=casa-1      -v ps2-worker-data:/app/data      hypeplay-ps2-builder
+   docker run -d --restart unless-stopped --cpus 2 --name ps2-worker \
+     -e QUEUE_URL=https://bt3.exemplo.com \
+     -e WORKER_TOKEN=<token> \
+     -e S3_BUCKET=… -e S3_ENDPOINT=… -e S3_ACCESS_KEY_ID=… -e S3_SECRET_ACCESS_KEY=… \
+     -e WORKER_ID=casa-1 \
+     -v ps2-worker-data:/app/data \
+     hypeplay-ps2-builder
    ```
    `QUEUE_URL` é o endereço do app (o mesmo do `PUBLIC_URL`). `WORKER_ID` é opcional: o nome que aparece nos logs e
    na fila. O volume é só desta máquina: os arquivos da compilação (`ps2-work/`) e o disco enquanto compila.
@@ -236,17 +214,14 @@ Mais workers, mais jogos ao mesmo tempo: na mesma máquina (outro `--name` e out
 A atividade abre em `/`: a página de entrada pede ao Discord um código (`authorize`, escopo `identify`) e o
 troca em `POST /token`. O servidor troca o código pelo usuário do Discord e devolve um passe assinado aqui
 mesmo (HMAC, 12 h): sem passar pelo Discord, não há passe. A entrada então abre a home num iframe em
-`p/<passe>/`, e cada jogo em `p/<passe>/<id>/` (estado, envio, `game/`). Tudo mora sob esse caminho, porque o iframe não manda cabeçalhos e, no Discord, não tem
+`p/<passe>/`, e cada jogo em `p/<passe>/ps2/<id>/` (estado, envio, `game/`). Tudo mora sob esse caminho, porque o iframe não manda cabeçalhos e, no Discord, não tem
 cookie. Sem passe válido, tudo ali responde 403. A entrada e o ícone são públicos; só o Discord pode
 emoldurar as páginas.
 
 ## Arquivos
 
-Tudo fica no volume, em `/app/data/bt3/`: `disc.iso`, `work/` com o que a compilação gera, `build/` com o
-jogo e `build.log`. Nada disso vai para o git nem para imagem nenhuma (`data/` está no `.gitignore`). Só a
-lista fixa de arquivos do jogo e os pedaços da ISO são servidos.
-
-Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, e `fast/` com a versão
+Tudo fica no volume, `/app/data/`, e nada disso vai para o git nem para imagem nenhuma (`data/` está no
+`.gitignore`). Os jogos de PS2 ficam em `/app/data/ps2/<serial>/` (`game.json`, `cover.webp`, `disc.iso`, e `fast/` com a versão
 rápida: o pedido, `build.log`, `misses.txt` e `build/`; feita em outra máquina, ela fica no R2, em
 `ps2/<serial>/fast/<versão>/`) e a BIOS em `/app/data/bios/`. A fila de compilações é `/app/data/queue.db` (SQLite):
 cada jogo pedido, quem está compilando, e como foi. Na primeira subida com ela, os pedidos que já estavam no volume
@@ -254,25 +229,18 @@ entram sozinhos (uma versão pronta continua pronta, sem compilar de novo). O qu
 compilação da versão rápida gera fica em `/app/data/ps2-work/<serial>/` (uns 300 MB por jogo). O que é de cada pessoa: `saves/<serial>/<id do Discord>.ps2` (memory cards), `pads/<id>.json` (mapas de
 controle) e `users/<id>.json` (último jogo). A intro opcional é `/app/data/intro.mp4` (enviada pela tela Servidor).
 
-**Refazer do zero:** pare o `builder` e apague `/app/data/bt3/` no volume. Um jogo de PS2: "Remover" na biblioteca;
-só a versão rápida: "Apagar a versão rápida" na gaveta do jogo.
+**Refazer do zero:** um jogo: "Remover" na biblioteca; só a versão rápida: "Apagar a versão rápida" na gaveta do jogo.
 
 ## Local
 
 ```sh
 bun install
 bun test
-DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… bun run start   # porta 3003; guarda tudo em data/bt3/
+DISCORD_CLIENT_ID=… DISCORD_CLIENT_SECRET=… bun run start   # porta 3003; guarda tudo em data/
 ```
 
 O Discord só abre a atividade por HTTPS: exponha a porta 3003 num túnel (ex. `cloudflared tunnel --url
-http://localhost:3003`) e ponha o domínio do túnel no URL mapping `/` de um app de teste. Para compilar,
-suba o builder apontando para a mesma pasta:
-
-```sh
-docker build -t bt3-builder -f builder/Dockerfile .
-docker run --rm -v "$PWD/data:/app/data" bt3-builder
-```
+http://localhost:3003`) e ponha o domínio do túnel no URL mapping `/` de um app de teste.
 
 Para abrir a biblioteca sem o Discord, gere um passe com o mesmo segredo e abra `http://localhost:3003/p/<passe>/`:
 
@@ -282,9 +250,8 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 
 ## Por dentro
 
-- `server/`: o catálogo (`games.ts`), entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
-  (`upload.ts`), salas do online em memória (`rooms.ts`, port do `room.js` do fork). Para os jogos de PS2: a
-  biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
+- `server/`: entrada pelo Discord (`discord.ts`), passe (`pass.ts`), rotas (`routes.ts`), envio da ISO
+  (`upload.ts`), a biblioteca (`library.ts`), o serial pelo `SYSTEM.CNF` (`iso9660.ts`), capas (`cover.ts`), saves (`saves.ts`),
   mapas de controle e último jogo (`people.ts`), salas e ICE do online (`ps2rooms.ts`, `ice.ts`) e as respostas com
   Range e isolamento (`http.ts`). A fila de compilações (`queue.ts`, SQLite: cada job vai para um worker só, com
   prioridade, prazo e novas tentativas), o lado do volume dos jobs da versão rápida (`fastjobs.ts`) e a fila para os
@@ -292,23 +259,10 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
 - `page/`: a entrada (`entry.html` e `entry.ts`, empacotado com o SDK do Discord quando o servidor sobe), a
   home (`index.html` e `home/`: biblioteca, envio, progresso, controle, servidor, intro) e os scripts empacotados ao subir: `pad.js` (o controle mapeado dentro dos jogos, de
   `pad.ts` e `padmap.ts`) e `iso.js` (o serial no navegador).
-- `builder/`: a imagem e o laço do compilador do BT3. O `patch.ts` troca os caminhos absolutos do jogo por
-  relativos e falha alto se o fork mudar. Compila só com o job `bt3` da fila, e só nesta máquina.
-- `ps2-builder/`: a imagem e o worker da versão rápida (`builder.ts`), e de onde vêm os jobs (`jobs.ts`: a fila e o
-  volume daqui, ou o `/worker/` do app e o R2).
+- `ps2-builder/`: a imagem e o worker da versão rápida (ps2-web-recomp, `builder.ts`), e de onde vêm os jobs
+  (`jobs.ts`: a fila e o volume daqui, ou o `/worker/` do app e o R2). O `patch.ts` ajusta a página dele e falha alto
+  se o recompilador mudar.
 - `emulator/ps2-fetch.ts` e `ps2-files.json`: baixam o TabStationToo (GPL-3.0) e conferem cada arquivo por SHA-256;
   `--update` pega a versão publicada agora e regrava os hashes (depois revise `server/ps2page.ts`).
 - `server/ps2page.ts` e `page/ps2play.ts`: a página do TabStationToo no nosso design (BIOS e disco do servidor,
   memory card do servidor no slot 1, o console dele escondido, a nossa barra e o rodapé da licença).
-
-## Adicionar um port testado
-
-Jogos de PS2 entram pela própria biblioteca (ver [Jogos de PS2](#jogos-de-ps2)). Um port com compilador próprio,
-como o do BT3, entra assim:
-
-1. Uma entrada em `server/games.ts`: o `id` vira a pasta no volume (`/app/data/<id>/`) e o caminho
-   (`p/<passe>/<id>/`). Também vão a ISO aceita, os tamanhos, os passos e a lista fixa de arquivos servidos.
-2. Um compilador próprio, no molde de `builder/`: lê `/app/data/<id>/disc.iso`, escreve `status.json`
-   (com o heartbeat), compila só com o job dele na fila (`server/queue.ts`) e publica em `build/`. Vira mais um serviço no `docker-compose.yml`, no mesmo volume.
-3. O port precisa usar só caminhos relativos (como o `patch.ts` faz no BT3). As salas do online
-   (`rooms.ts`) seguem o protocolo do port do BT3: um jogo com outro protocolo precisa do próprio.

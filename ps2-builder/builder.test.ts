@@ -3,10 +3,9 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { S3Client } from "bun";
-import type { Runner } from "../builder/builder";
 import { FAST_STEPS } from "../server/games";
 import { createQueue, PRIORITY, type EnqueueOptions } from "../server/queue";
-import { createPs2Builder, parseMisses, type FastStatus } from "./builder";
+import { createPs2Builder, parseMisses, type FastStatus, type Runner } from "./builder";
 import { localJobs } from "./jobs";
 import { MARK } from "./patch";
 

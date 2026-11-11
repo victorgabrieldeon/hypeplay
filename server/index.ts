@@ -45,8 +45,7 @@ const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 const r2 = r2FromEnv();
 // The builds' queue (queue.ts): its own file next to the data, shared with the builders on this machine.
 const queue = createQueue(join(dir, "queue.db"));
-// BT3's port is off the catalog (games: []): its disc goes in the library like any PS2 game. Its code stays.
-const library = createLibrary(dir, { r2, port: false, queue });
+const library = createLibrary(dir, { r2, queue });
 // (the "versão rápida" asked before the queue: in it, once)
 const adopted = await library.importFast();
 if (adopted) console.log(`queue: ${adopted} fast builds from the volume`);
@@ -55,8 +54,7 @@ if (adopted) console.log(`queue: ${adopted} fast builds from the volume`);
 if (process.env.WORKER_TOKEN && !r2) throw new Error("WORKER_TOKEN without S3_BUCKET: workers elsewhere publish their builds in R2");
 const workers = process.env.WORKER_TOKEN ? createWorkerApi({ dir, queue, r2, token: process.env.WORKER_TOKEN }) : null;
 const app = createApp({
-  games: [],
-  // Each game's folder is <dir>/<id>/: BT3's builder works in /app/data/bt3/, the PS2 games live in /app/data/ps2/.
+  // (the PS2 games live in /app/data/ps2/)
   dir,
   pageDir,
   entryJs: await bundle("entry.ts", {

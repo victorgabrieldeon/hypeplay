@@ -333,7 +333,7 @@ export function parseHome(html: string): { top: ListedGame[]; rated: ListedGame[
 const THUMBS = "libretro-thumbnails/Sony_-_PlayStation_2";
 export const ART_KINDS = { box: "Named_Boxarts", snap: "Named_Snaps" } as const;
 export type ArtKind = keyof typeof ART_KINDS;
-export const artKey = (name: string) => name.toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+const artKey = (name: string) => name.toLowerCase().replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 const REGION_TAG: Record<string, string> = { USA: "(USA", Europe: "(Europe", Japan: "(Japan", Korea: "(Korea" };
 
 /** The set's files, by kind, then by artKey: their names (without .png). */

@@ -115,8 +115,13 @@ export function createBlockCache(opts: BlockCacheOptions) {
    */
   let under: { n: number; count: number; fill: boolean; stop: AbortController; over: Promise<Map<number, Uint8Array> | null> } | null = null;
   let pumping = false;
+  /**
+   * Blocks one of the game's reads is bringing from the network: another read wanting one waits for it instead of
+   * asking again (the "versão rápida" reads 256 KB pieces, many at once: four of them in a block would be four blocks).
+   */
+  const bringing = new Map<number, Promise<Map<number, Uint8Array>>>();
   const gameIdle = () => reading === 0 && performance.now() - lastNetwork >= idle;
-  const wanted = (n: number) => !mem.has(n) && !onDisk[n];
+  const wanted = (n: number) => !mem.has(n) && !onDisk[n] && !bringing.has(n);
   /** A background request's blocks for the game, or null when it takes past `wait` (then it stops). */
   function waitOn(u: NonNullable<typeof under>): Promise<Map<number, Uint8Array> | null> {
     return new Promise((ok) => {
@@ -145,10 +150,14 @@ export function createBlockCache(opts: BlockCacheOptions) {
     return { n, count };
   }
 
-  /** Read ahead from block n: it and the ones after it still wanted, in one request. */
-  function nextAhead(n: number): { n: number; count: number } {
+  /**
+   * Read ahead from block n: it and the ones after it still wanted, in one request; null when n was on the browser's
+   * disk (now in memory). What's on disk isn't asked again, found there now if the filling hasn't counted it yet.
+   */
+  async function nextAhead(n: number): Promise<{ n: number; count: number } | null> {
+    if (await local(n)) return null;
     let count = 1;
-    while (count < ahead && n + count < blocks && wanted(n + count)) count++;
+    while (count < ahead && n + count < blocks && wanted(n + count) && !(await local(n + count))) count++;
     return { n, count };
   }
 
@@ -178,7 +187,12 @@ export function createBlockCache(opts: BlockCacheOptions) {
           continue;
         }
         const fromQueue = queue.length > 0;
-        const job = fromQueue ? nextAhead(queue[0]!) : nextFill();
+        const head = queue[0]!;
+        const job = fromQueue ? await nextAhead(head) : nextFill();
+        if (fromQueue && !job) {
+          drop(head);
+          continue;
+        }
         if (!job) return;
         // (the read-ahead goes at once; the filling waits for the game to be off the network)
         if (!fromQueue && !gameIdle()) {
@@ -290,14 +304,30 @@ export function createBlockCache(opts: BlockCacheOptions) {
           return ns(first, last).filter((n) => !parts.has(n));
         };
         /** From the network, the game's own way: one request from the first block to the last. */
-        const bring = async (want: number[]) => {
+        const bring = async (asked: number[]) => {
+          // (what another read is bringing: its; what it couldn't, or nobody is bringing: this read's own request)
+          // (no wait when there's none: the reads at once must see each other's requests)
+          const theirs = asked.filter((n) => bringing.has(n));
+          if (theirs.length)
+            await Promise.all(theirs.map((n) => bringing.get(n)!.then((got) => void (parts.has(n) || parts.set(n, got.get(n)!)), () => {})));
+          const want = asked.filter((n) => !parts.has(n));
           if (!want.length) return;
           const from = want[0]!;
           const to = want.at(-1)!;
           const start = from * block;
-          const bytes = await (direct ?? fetchBlock)(start, Math.min((to - from + 1) * block, size - start));
-          for (let n = from; n <= to; n++) {
-            const piece = from === to ? bytes : bytes.slice((n - from) * block, (n - from + 1) * block);
+          const job = (direct ?? fetchBlock)(start, Math.min((to - from + 1) * block, size - start)).then(
+            (bytes) => new Map(ns(from, to).map((n) => [n, from === to ? bytes : bytes.slice((n - from) * block, (n - from + 1) * block)])),
+          );
+          job.catch(() => {});
+          const mine = ns(from, to).filter((n) => !parts.has(n) && !bringing.has(n));
+          for (const n of mine) bringing.set(n, job);
+          let got: Map<number, Uint8Array>;
+          try {
+            got = await job;
+          } finally {
+            for (const n of mine) if (bringing.get(n) === job) bringing.delete(n);
+          }
+          for (const [n, piece] of got) {
             if (!parts.has(n)) parts.set(n, piece);
             remember(n, piece);
             if (store) void store.put(n, piece).then(() => mark(n), () => {});

@@ -1,8 +1,8 @@
 # The PS2 games' "versão rápida" builder (ps2-builder/builder.ts): compiles the PS2 games someone asks for with
 # ps2-web-recomp's scripts/port.sh. The image holds the toolchain and the recompiler's source only, never anything from
 # a disc: that lives in the data volume (/app/data/ps2/, /app/data/ps2-work/), and so does everything made from it.
-# Built from the repository's root (docker-compose.yml): it uses builder/builder.ts and server/ (games.ts, discs.ts, and
-# the builds' queue: queue.ts, fastjobs.ts) too. The same image runs on another machine (README "Workers em outra máquina").
+# Built from the repository's root (docker-compose.yml): it uses server/ too (games.ts, discs.ts, and the builds' queue:
+# queue.ts, fastjobs.ts). The same image runs on another machine (README "Workers em outra máquina").
 FROM oven/bun:1.4 AS bun
 
 FROM debian:trixie-slim
@@ -25,7 +25,6 @@ RUN git init -q /opt/recomp \
 RUN EMSDK=/opt/recomp/tools/emsdk /opt/recomp/scripts/setup.sh
 
 WORKDIR /opt/hypeplay
-COPY builder/builder.ts builder/patch.ts builder/
 COPY server/games.ts server/discs.ts server/queue.ts server/fastjobs.ts server/
 COPY ps2-builder/builder.ts ps2-builder/jobs.ts ps2-builder/patch.ts ps2-builder/
 # (RECOMP_COMMIT: a ready build made with another one is brought up to date)

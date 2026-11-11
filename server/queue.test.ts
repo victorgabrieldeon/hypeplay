@@ -59,7 +59,7 @@ test("best priority first, then oldest; only the kinds a worker builds", () => {
   tick();
   queue.enqueue("ps2/b", "ps2");
   tick();
-  queue.enqueue("bt3", "bt3");
+  queue.enqueue("other", "other");
   tick();
   queue.enqueue("ps2/c", "ps2");
   tick();
@@ -67,7 +67,7 @@ test("best priority first, then oldest; only the kinds a worker builds", () => {
   const order: string[] = [];
   for (let c; (c = queue.claim("w", { kinds: ["ps2"] })); ) order.push(c.key);
   expect(order).toEqual(["ps2/d", "ps2/b", "ps2/c", "ps2/a"]);
-  expect(queue.claim("w", { kinds: ["bt3"] })!.key).toBe("bt3");
+  expect(queue.claim("w", { kinds: ["other"] })!.key).toBe("other");
 });
 
 test("asking twice is one job; asked while it builds, it runs once more after", () => {
@@ -168,7 +168,7 @@ test("a worker seen lately is online, for the kinds it builds", () => {
   expect(queue.online("ps2")).toBe(false);
   queue.claim("w", { kinds: ["ps2"] });
   expect(queue.online("ps2")).toBe(true);
-  expect(queue.online("bt3")).toBe(false);
+  expect(queue.online("other")).toBe(false);
   tick(3 * 60_000);
   expect(queue.online("ps2")).toBe(false);
 });

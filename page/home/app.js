@@ -1,5 +1,5 @@
 // The home's state and wiring: reads `games` every 2 s, draws the spotlight, the library and the open drawer, and
-// handles every button (play, send a disc or the BIOS, retry, remove, rename, cover). The add-a-game wizard, the
+// handles every button (play, send a disc or the BIOS, remove, rename, cover). The add-a-game wizard, the
 // controller screen and the intro live in their own modules.
 import { ask } from './ask.js';
 import { drawer } from './drawer.js';
@@ -45,10 +45,7 @@ function spotlight() {
 
 const greeting = (h) => (h >= 5 && h < 12 ? 'Bom dia' : h >= 12 && h < 18 ? 'Boa tarde' : 'Boa noite');
 
-/**
- * One person around: what they have open, and their PS2 room (to join as player 2 while the place is free, or watch).
- * BT3's rooms aren't anyone's to join from here: those only say the game.
- */
+/** One person around: what they have open, and their PS2 room (to join as player 2 while the place is free, or watch). */
 export function person(p, extra = '', name = esc(p.name)) {
   const room = p.room && gameOf(p.room.key) ? p.room : null;
   const title = p.game?.title ?? (room && gameOf(room.key).name);
@@ -139,7 +136,7 @@ export async function poll() {
   render();
 }
 
-/** Sends a disc image for a game already in the library (BT3, or a PS2 game whose upload stopped). */
+/** Sends a disc image for a game already in the library (a PS2 game whose upload stopped). */
 export async function send(key, file) {
   const g = gameOf(key);
   state.uploadError = { key, text: '' };
@@ -163,14 +160,13 @@ export async function send(key, file) {
 
 /**
  * Where a game opens: a PS2 game's player 2 watches the host's stream (watch/); `join` is a friend's room (`watch`:
- * only to watch it), `online` opens one (for BT3's port, both point the way to its own Dragon Net Battle); else the
- * game itself.
+ * only to watch it), `online` opens one; else the game itself.
  */
 export function gameUrl(g, join, online, fast, watch) {
-  if (join && g.kind === 'recomp') return `${g.key}/watch/?room=${encodeURIComponent(join)}${watch ? '&watch=1' : ''}`;
+  if (join) return `${g.key}/watch/?room=${encodeURIComponent(join)}${watch ? '&watch=1' : ''}`;
   // (a PS2 game's "versão rápida": the same rooms as the emulator's, opened from its panel)
   if (fast) return `${g.key}/fast/${online ? '?online=host' : ''}`;
-  return `${g.key}/game/${join ? `?join=${encodeURIComponent(join)}` : online ? '?online=host' : ''}`;
+  return `${g.key}/game/${online ? '?online=host' : ''}`;
 }
 
 /** A PS2 game's "versão rápida" plays (or the one before, while a new one builds): the library's buttons open it. */
@@ -262,7 +258,7 @@ $('file').addEventListener('change', async (e) => {
 });
 
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-retry],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
+  const el = e.target.closest('[data-open],[data-play],[data-pick],[data-bios],[data-fast-build],[data-fast-remove],[data-remove],[data-cover],[data-cover-remove],[data-close],[data-add],[data-controller],[data-settings],[data-nav]');
   if (!el) {
     if (e.target === $('scrim')) closeDrawer();
     return;
@@ -283,7 +279,6 @@ document.addEventListener('click', async (e) => {
   if (d.cover) return pickFile(d.cover, 'cover');
   if ('bios' in d) return pickFile(state.open, 'bios');
   el.disabled = true;
-  if (d.retry) await api(`${d.retry}/retry`, { method: 'POST' });
   if (d.fastBuild) await api(`${d.fastBuild}/fast-build`, { method: 'POST' });
   if (d.fastRemove && await ask({ title: 'Apagar a versão rápida?', text: 'Some para todo mundo. O jogo continua no emulador, e os saves ficam.', ok: 'Apagar', danger: true }))
     await api(`${d.fastRemove}/fast-build`, { method: 'DELETE' });

@@ -89,10 +89,11 @@ export function hero(g, sending, label, fav = false) {
   const play = g.status.state === 'ready'
     ? `<button class="btn" data-play="${esc(g.key)}">${icon('play')}Jogar agora</button>`
     : needsDisc(g, sending) ? `<button class="btn" data-pick="${esc(g.key)}">${icon('upload')}Enviar a ISO</button>` : '';
-  return `<h2>${esc(g.name)}</h2>
-    <div class="why"><span>${esc(label)}</span>·${seal(g)}${g.status.state === 'ready' ? '' : stateBadge(g, sending)}</div>
+  return `<div class="chips"><span class="chip">${esc(g.platform || 'PlayStation 2')}</span>${seal(g)}</div>
+    <h2>${esc(g.name)}</h2>
+    <div class="why"><span>${esc(label)}</span>${g.status.state === 'ready' ? '' : `·${stateBadge(g, sending)}`}</div>
     ${sub ? `<p>${esc(sub)}</p>` : ''}
-    <div class="actions">${play}${online(g, room)}${favButton(g, fav, 'quiet')}</div>
+    <div class="actions">${play}<button class="btn second" data-open="${esc(g.key)}">${icon('info')}Detalhes</button>${online(g, room)}${favButton(g, fav, 'quiet')}</div>
     ${room ? `<span class="live">${esc(room.host)} está jogando</span>` : ''}`;
 }
 

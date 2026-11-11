@@ -5,7 +5,7 @@
 import { ask } from './ask.js';
 import { drawer } from './drawer.js';
 import { follow, merge } from './feed.js';
-import { addCard, arrange, card, esc, hero, icon, initials, installCard, installing, meter, needsDisc, paintInstall, sendBios, upload } from './library.js';
+import { addCard, arrange, card, esc, icon, initials, installCard, installing, meter, needsDisc, paintInstall, sendBios, upload } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,12 +91,6 @@ export function render() {
   set($('sub'), `${n} ${n === 1 ? 'jogo' : 'jogos'} no servidor, prontos para a call${rooms ? ` <span class="state ok live">${rooms} ${rooms === 1 ? 'sala aberta' : 'salas abertas'} agora</span>` : ''}`);
   set($('n-games'), String(n));
   const top = spotlight();
-  $('hero').hidden = !top;
-  if (top) {
-    set($('hero'), hero(top, state.sending, top.key === state.last ? 'Continuar jogando' : 'Em destaque', isFavorite(top.key)));
-    $('hero').classList.remove('loading');
-    $('hero').removeAttribute('aria-busy');
-  }
   // (a short window shows two rows: one big cover there, or the bigs would be all of it)
   const wall = arrange(state.games, top, state.sending, matchMedia('(max-height: 620px)').matches ? 1 : 3, new Set(state.favorites));
   const cards = wall.map(({ g, big }, i) => card(g, state.sending, state.open, i, big, isFavorite(g.key)));
@@ -105,6 +99,8 @@ export function render() {
   set($('grid'), cards.join('') + addCard(n));
   paintInstall(state.vimm);
   hooks.people();
+  // (the banner, the filters and the side column: shell.js)
+  hooks.shell(top);
   const g = state.open && gameOf(state.open);
   if (state.open && !g) closeDrawer(); // removed meanwhile
   else if (g) {
@@ -212,6 +208,8 @@ export const hooks = {
   settings: () => {},
   /** "Pessoas" in the words' column; friends.js draws its "Amigos" there once loaded */
   people: () => renderPeople(),
+  /** the frame around the library (shell.js): the banner turning through the spotlight and a few more, the filters */
+  shell: () => {},
 };
 
 /** The wall's columns: as many whole covers as fit beside the words; what's left of the width goes to the words. */
@@ -402,4 +400,4 @@ poll();
 setInterval(() => { if (!state.expired) feed.live ? render() : poll(); }, 2000);
 watchVimm();
 // The add-a-game wizard, the controller screen and the intro set their hooks once loaded.
-for (const m of ['./wizard.js', './controller.js', './settings.js', './store.js', './intro.js', './gamepadnav.js', './friends.js']) import(m).catch((e) => console.warn('home:', m, e));
+for (const m of ['./shell.js', './wizard.js', './controller.js', './settings.js', './store.js', './intro.js', './gamepadnav.js', './friends.js']) import(m).catch((e) => console.warn('home:', m, e));

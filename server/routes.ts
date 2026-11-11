@@ -84,7 +84,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** The home's own scripts (page/home/), plain ES modules. */
-const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js", "store.js", "friends.js", "feed.js"]);
+const HOME_FILES = new Set(["app.js", "ask.js", "library.js", "drawer.js", "wizard.js", "controller.js", "pads.js", "settings.js", "intro.js", "gamepadnav.js", "store.js", "friends.js", "feed.js", "shell.js"]);
 /** TabStationToo's files (emulator/ps2/, pinned by emulator/ps2-files.json): nothing else of that folder is served. */
 const ENGINE_FILES = new Set(
   (JSON.parse(readFileSync(join(import.meta.dir, "..", "emulator", "ps2-files.json"), "utf8")) as { files: { path: string }[] }).files

@@ -217,6 +217,50 @@ test("a block the background is already bringing: the game waits for it instead 
   expect(background.filter((at) => at === 10)).toEqual([10]);
 });
 
+test("the game's reads at once in one block: one request brings it for all of them", async () => {
+  const { cache, blocks } = setup();
+  const asked: [number, number][] = [];
+  let release!: () => void;
+  const gate = new Promise<void>((ok) => (release = ok));
+  const slow = async (start: number, length: number) => (asked.push([start, length]), await gate, disc.slice(start, start + length));
+  const reads = [0, 3, 6, 8].map((o) => cache.read(o, 2, slow));
+  await settle();
+  release();
+  expect((await Promise.all(reads)).map((b) => [...b])).toEqual([[0, 1], [3, 4], [6, 7], [8, 9]]);
+  expect(asked).toEqual([[0, 10]]);
+  expect(blocks).toEqual([]);
+});
+
+test("a read waiting on another's request that fails asks for its own", async () => {
+  const { cache } = setup();
+  let first = true;
+  const flaky = async (start: number, length: number) => {
+    if (first) {
+      first = false;
+      await settle();
+      throw new Error("rede");
+    }
+    return disc.slice(start, start + length);
+  };
+  const a = cache.read(0, 2, flaky);
+  const b = cache.read(4, 2, flaky);
+  await expect(a).rejects.toThrow("rede");
+  expect([...(await b)]).toEqual([4, 5]);
+});
+
+test("the read-ahead takes what's on the browser's disk from there, even before any filling counted it", async () => {
+  const store = memStore(new Map([[1, disc.slice(10, 20)], [3, disc.slice(30, 40)]]));
+  const { cache, blocks } = setup({ ahead: 3, store });
+  const game = gameReader();
+  await cache.read(0, 1, game.read);
+  await until(() => blocks.length === 1);
+  await settle();
+  // (block 1 from disk; 2 from the network, stopping before 3, which is on disk too)
+  expect(blocks).toEqual([20]);
+  expect([...(await cache.read(18, 15, game.read))]).toEqual(Array.from({ length: 15 }, (_, i) => 18 + i));
+  expect(game.asked).toEqual([[0, 10]]);
+});
+
 test("the whole disc to the browser's disk in the background, a few blocks per request, skipping what's there", async () => {
   const store = memStore(new Map([[1, disc.slice(10, 20)]]));
   const ranges: [number, number][] = [];

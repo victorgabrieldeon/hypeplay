@@ -572,7 +572,8 @@ export function createApp({
       new Response(body, { status, headers: { ...ISOLATED, "Content-Type": "text/plain; charset=utf-8", ...h } });
     if (rest === "" || rest === "index.html") {
       const name = ((await library!.get(id))?.name ?? id).replace(/[&<>"]/g, "");
-      // (its online: fastplay.js, before the pad.js and overlay.js page() adds; it waits for the page, by then both ran)
+      // (its online and its disc kept in the browser: fastplay.js, before the pad.js and overlay.js page() adds and before
+      // the page's own scripts, whose fetch it wraps; the online waits for the page, by then both ran)
       return page(req, join(build, "ps2web.html"), "../../../pad.js", ISOLATED, (html) =>
         html.replace("<title>ps2-web-recomp</title>", `<title>${name} · HypePlay</title>`).replace(/<\/head>/i, '<script src="../../../fastplay.js"></script>$&'),
       );

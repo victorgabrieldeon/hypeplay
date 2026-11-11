@@ -121,7 +121,7 @@ const app = createApp({
 });
 
 // /health, the limits per person and the metrics around the routes; drain() on SIGTERM (ops.ts).
-const ops = createOps({ app, passes, telemetry, ps2Rooms });
+const ops = createOps({ app, passes, telemetry, ps2Rooms, dataDir: dir });
 
 const server = Bun.serve<NetData>({
   port: PORT,

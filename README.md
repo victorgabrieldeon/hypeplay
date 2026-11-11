@@ -172,6 +172,38 @@ nada sai e nada muda.
 | `hypeplay.http.requests` | Pedidos por classe de status (`2xx`, `4xx`, `5xx`, `101` para WebSocket) |
 | `hypeplay.ratelimit.rejected` | Pedidos recusados pelo limite por pessoa (`action`) |
 | `hypeplay.build.duration` | Duração das compilações em segundos, por `mode` (`full`, `learn`, `recomp`, `page`) e `result` (`ready`, `failed`, `gone`) |
+| `hypeplay.disk.free_bytes` | Bytes livres no disco de `/app/data` (o que um processo sem root ainda pode gravar), lidos a cada envio. Só o `app`: o `ps2-builder` divide o mesmo volume |
+| `hypeplay.disk.total_bytes` | Tamanho desse disco, em bytes |
+| `hypeplay.memory.rss` | Memória do processo do `app` (RSS), em bytes |
+
+#### Alertas
+
+**Monitor de fora.** Um monitor externo grátis (UptimeRobot, healthchecks.io, Better Stack…) pedindo
+`https://<domínio>/health` a cada 1 a 5 min, avisando por e-mail ou por um webhook do Discord. É o único alerta que
+pega a VPS, o Traefik, o DNS e o certificado: o `restart: unless-stopped` só reinicia um container que saiu, não um
+que ficou *unhealthy* (o Traefik para de mandar tráfego e ele fica parado assim, em silêncio), e um SigNoz na mesma
+VPS cai junto com ela. Peça 2 falhas seguidas antes de avisar: num deploy o `/health` responde 503 por alguns
+segundos.
+
+**No SigNoz**, com as métricas acima (filtre por `service.name = hypeplay`):
+
+| Alerta | Condição |
+| --- | --- |
+| Disco quase cheio | `hypeplay.disk.free_bytes / hypeplay.disk.total_bytes < 0.15` |
+| Erros no servidor | aumento (`increase` ou `rate`) de `hypeplay.http.requests` com `status = 5xx` acima de 0 em 5 min. A métrica é cumulativa desde que o processo subiu: o valor cru acima de 0 avisaria para sempre |
+| Backup atrasado | quando o backup automático estiver no ar: mais de 26 h desde o último sucesso (`hypeplay.backup.last_success`), ou a métrica sem chegar |
+
+**Limpeza semanal da VPS.** Cada deploy deixa imagens velhas e cache de build no disco do sistema, o mesmo dos dados.
+Um Schedule do Dokploy (no servidor, uma vez por semana) com:
+
+```
+docker image prune -f
+docker builder prune -f --filter until=336h
+```
+
+Não use `docker system prune -a`: ele apaga também o cache e as imagens do `ps2-builder`, e o deploy seguinte refaz a
+imagem dele do zero (o toolchain, o SDK do Emscripten e os recompiladores). Os logs dos containers já giram sozinhos (`x-logging` no
+`docker-compose.yml`: 3 arquivos de 10 MB por serviço).
 
 ### Ligar o TURN
 

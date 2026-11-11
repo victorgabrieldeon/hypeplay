@@ -49,14 +49,14 @@ esquerdo do banner (que escurece a arte para o texto). Nada de degradê em texto
 ## A biblioteca
 
 - **Banner** (`shell.js`): o destaque (o último jogo da pessoa, senão o primeiro pronto), depois jogos com sala aberta,
-  favoritos e outros prontos, 5 no máximo. A capa entra pela direita, esmaecida para a esquerda; o texto fica em cima do
-  escuro: plataforma e selo, nome, por que está ali, **Jogar agora** + Detalhes (abre a gaveta) + online + favoritar.
+  favoritos e outros prontos, 5 no máximo. Um formato só para todo jogo, 320 px de altura: a capa inteira como pôster
+  2:3 à direita, sobre as cores dela mesma desfocadas (nunca a arte cortada em faixa); o texto à esquerda: plataforma e selo, nome, por que está ali, **Jogar agora** + Detalhes (abre a gaveta) + online + favoritar.
   Setas e pontos; gira a cada 8 s só se ninguém estiver com o ponteiro ou o foco nele, e nunca com movimento reduzido.
 - **Cabeçalho:** "Minha biblioteca", os filtros em pílula (Todos, Prontos, Favoritos, Com sala aberta, Precisam de
   você; um filtro vazio não aparece) com a contagem, e a chave grade/lista (lembrada neste navegador). A lupa da barra
   abre a busca por nome (sem acento), que filtra os cards na hora.
-- **Cards:** grade `auto-fill` de no mínimo 178 px, 22 px entre eles, 3:4, raio 14, contorno de 1 px; selo "PS2" no
-  canto; o nome (até 2 linhas) e o estado no pé, sobre um degradê que fica opaco onde o texto está (a capa gerada
+- **Cards:** grade `auto-fill` de no mínimo 178 px, 22 px entre eles, 3:4, raio 14, contorno de 1 px (sem selo "PS2":
+  as capas já dizem); o nome (até 2 linhas) e o estado no pé, sobre um degradê que fica opaco onde o texto está (a capa gerada
   desenha o título ali: nunca texto sobre texto). Hover e foco: sobe 3 px e a arte cresce 4%. A ordem continua a de
   `library.js` `arrange` (testada em `page/wall.test.js`), mas todos os cards têm o mesmo tamanho. "Adicionar jogo" por
   último, tracejado. Na lista: uma linha de 76 px por jogo, capa pequena no início.
@@ -79,14 +79,13 @@ esquerdo do banner (que escurece a arte para o texto). Nada de degradê em texto
 
 ## Componentes
 
-- **Coluna lateral** (272 px, fixa ao rolar): marca; o cartão da saudação ("Boa noite, Ana" e o resumo); as seções
-  (Biblioteca com o total, Downloads com o que está chegando do vimm.net, Servidor, Amigos, Controle, Adicionar jogo),
-  a ativa em `--tint` com contorno `--tint-line`; quem está por perto (friends.js); o status do servidor (`/health`,
+- **Coluna lateral** (272 px, fixa ao rolar): marca; o cartão da saudação ("Boa noite, Ana" e o resumo); as seções,
+  cada uma só aqui (Início, Biblioteca com o total, Loja, Amigos; uma linha; Adicionar jogo, Controle, Servidor), a
+  ativa em `--tint` com contorno `--tint-line`; quem está por perto (friends.js); o status do servidor (`/health`,
   medido a cada 15 s, com o tempo de resposta); e **Jogar agora** no pé, que abre o destaque.
-- **Barra do topo** (72 px): as abas Início, Biblioteca, Explorar (a loja) e Amigos (ícone + nome; a ativa em `--tint`
-  com um traço coral embaixo) e, à direita, a busca, o sino (só com amigos; ponto coral quando há convite ou pedido),
-  o Servidor e você.
-- Abaixo de 860 px a coluna lateral vem antes, sem fixar, com as seções em uma linha que rola; as abas ficam só ícone.
+- **Barra do topo** (72 px): só a busca da biblioteca (some na Loja e nos Amigos) e, à direita, o sino (só com amigos;
+  ponto coral quando há convite ou pedido) e você. Nenhum botão repete uma seção da coluna.
+- Abaixo de 860 px a coluna lateral vem antes, sem fixar, com as seções em uma linha que rola.
 - **Botão primário:** 42 px, coral, texto preto 700, `--r-sm`; hover `--primary-hi`. **Secundário:** sem fundo,
   contorno `--line-hi`. **Discreto:** só texto `--soft`. **Perigo:** como o secundário, texto `--danger`.
 - **Gaveta:** à direita (420 px), `--side`; no topo o pôster da capa (clique troca a capa), embaixo nome, dados,

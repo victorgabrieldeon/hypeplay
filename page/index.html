@@ -576,14 +576,21 @@
     background: radial-gradient(90% 120% at 100% 0%, rgb(250 92 134 / 0.22), transparent 60%), linear-gradient(135deg, #1a0f1b, #2b1526); }
   .greet h1 { font: 650 23px/1.15 var(--display); letter-spacing: -0.02em; text-wrap: balance; }
   .greet .sub { color: var(--soft); font: var(--t-sm); margin-top: var(--s2); display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); }
-  .rail-nav { display: flex; flex-direction: column; gap: 6px; padding-bottom: var(--s5); border-bottom: 1px solid var(--line-hi); }
-  .rail-nav button { display: flex; align-items: center; gap: 14px; height: 50px; padding: 0 var(--s4); border: 0; border-radius: 12px; background: none;
+  .rail-nav { display: flex; flex-direction: column; align-items: stretch; height: auto; gap: 6px; padding-bottom: var(--s5); border-bottom: 1px solid var(--line-hi); }
+  .rail-nav .gap { width: auto; height: 1px; margin: var(--s2) var(--s2); background: var(--line); }
+  .rail-nav button { position: static; display: flex; white-space: nowrap; align-items: center; gap: 14px; height: 50px; padding: 0 var(--s4); border: 0; border-radius: 12px; background: none;
     color: #d9d4dc; font: 600 16px/1 var(--body); cursor: pointer; text-align: left; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
   .rail-nav button svg.i { width: 22px; height: 22px; color: var(--soft); }
   .rail-nav button:hover { background: var(--surface-hi); color: var(--ink); }
   .rail-nav button.on { background: var(--tint); box-shadow: inset 0 0 0 1px var(--tint-line); color: var(--ink); }
   .rail-nav button.on svg.i { color: var(--accent); }
-  .rail-nav .t { flex: 1; }
+  .rail-nav button.on::after { content: none; }
+  /* the Loja and Amigos screens: their own section lit, Início off */
+  body.in-store .rail-nav [data-nav].on, body.in-friends .rail-nav [data-nav].on { background: none; box-shadow: none; color: #d9d4dc; }
+  body.in-store .rail-nav [data-nav].on svg.i, body.in-friends .rail-nav [data-nav].on svg.i { color: var(--soft); }
+  body.in-friends .rail-nav [data-nav="people"] { background: var(--tint); box-shadow: inset 0 0 0 1px var(--tint-line); color: var(--ink); }
+  body.in-friends .rail-nav [data-nav="people"] svg.i { color: var(--accent); }
+  .rail .rail-nav button .t { position: static; width: auto; height: auto; overflow: visible; clip-path: none; flex: 1; }
   .rail-nav .count { font: 600 12px/1 var(--mono); padding: 5px 7px; border-radius: 7px; background: rgb(255 255 255 / 0.08); color: var(--soft); }
   .rail-nav .count:empty { display: none; }
   .rail #people .section-head { margin-bottom: var(--s1); }
@@ -612,10 +619,10 @@
     cursor: pointer; transition: background var(--fast) var(--ease); }
   .round:hover { background: var(--surface-hi); }
   .round svg.i { width: 22px; height: 22px; }
-  .search { display: flex; align-items: center; border-radius: 99px; box-shadow: inset 0 0 0 1px var(--line-hi); transition: background var(--base) var(--ease); }
-  .search input { width: 0; padding: 0; border: 0; background: none; outline: none; transition: width var(--base) var(--ease), padding var(--base) var(--ease); }
-  .search.open { background: var(--surface); }
-  .search.open input { width: 220px; padding: 0 0 0 var(--s4); }
+  .search { display: flex; align-items: center; gap: var(--s3); flex: 1; max-width: 440px; height: 46px; padding: 0 var(--s4); border-radius: 99px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-hi); color: var(--soft); cursor: text; }
+  .search:focus-within { box-shadow: inset 0 0 0 1px var(--accent); }
+  body.in-store .search, body.in-friends .search { visibility: hidden; }
+  .search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; outline: none; color: var(--ink); }
   .search input::placeholder { color: var(--soft); }
   .search input::-webkit-search-cancel-button { display: none; }
   .bell.dot::after { content: ""; position: absolute; top: 9px; right: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 2px var(--bg); }
@@ -626,13 +633,17 @@
   main#library { grid-column: 2; width: auto; padding: var(--s6) var(--s6) var(--s7); display: flex; flex-direction: column; gap: var(--s6); min-width: 0; }
   .store, .friends-page { grid-column: 2; }
 
-  .banner { position: relative; isolation: isolate; overflow: hidden; min-height: 300px; display: flex; align-items: center; padding: var(--s6) 64px;
+  .banner { position: relative; isolation: isolate; overflow: hidden; height: 320px; display: flex; align-items: center; padding: var(--s6) 64px;
     border-radius: 20px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-hi); }
-  .banner .bg { position: absolute; inset: 0 0 0 28%; z-index: -2; width: 72%; height: 100%; object-fit: cover; object-position: 50% 28%;
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 45%); mask-image: linear-gradient(90deg, transparent, #000 45%); animation: fade var(--slow) var(--ease); }
+  .banner .bg { position: absolute; inset: -40px; z-index: -2; width: calc(100% + 80px); height: calc(100% + 80px); object-fit: cover;
+    filter: blur(36px) saturate(1.3) brightness(0.55); animation: fade var(--slow) var(--ease); }
+  .banner .art { position: absolute; right: 72px; top: 24px; bottom: 24px; height: calc(100% - 48px); aspect-ratio: 2 / 3; width: auto; object-fit: cover;
+    border-radius: 12px; box-shadow: 0 24px 50px -12px rgb(0 0 0 / 0.8), 0 0 0 1px var(--line-hi); animation: fade var(--slow) var(--ease); }
   .banner::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-    background: linear-gradient(90deg, rgb(14 10 16 / 0.96) 25%, rgb(14 10 16 / 0.55) 55%, rgb(14 10 16 / 0.1)), radial-gradient(60% 90% at 0% 100%, rgb(250 92 134 / 0.16), transparent 70%); }
-  .banner .hero { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); padding: 0; border: 0; max-width: 780px; }
+    background: linear-gradient(90deg, rgb(14 10 16 / 0.92) 30%, rgb(14 10 16 / 0.45) 70%, rgb(14 10 16 / 0.2)), radial-gradient(60% 90% at 0% 100%, rgb(250 92 134 / 0.16), transparent 70%); }
+  .banner .hero { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s3); padding: 0; border: 0; max-width: min(720px, calc(100% - 260px)); }
+  .banner .hero h2 { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .banner .hero p { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
   .banner .hero .chips { gap: var(--s2); }
   .banner .hero .chip, .banner .hero .seal { font: 600 13px/1 var(--body); text-transform: none; letter-spacing: 0; padding: 7px 11px; border-radius: 8px; background: rgb(255 255 255 / 0.1); color: var(--ink); }
   .banner .hero .seal { color: #d9d4dc; background: rgb(255 255 255 / 0.06); }
@@ -673,7 +684,7 @@
   .grid .cover img { object-position: 50% 0; filter: brightness(0.92); }
   .grid .cover:hover img, .grid .cover:focus-visible img, .grid .card.on .cover img { filter: none; transform: scale(1.04); }
   .grid .cover:focus-visible::after { border-radius: 14px; }
-  .grid .cover::before { content: "PS2"; position: absolute; top: 10px; left: 10px; z-index: 1; padding: 5px 9px; border-radius: 8px; background: rgb(0 0 0 / 0.7);
+  .grid .cover::before { display: none; content: "PS2"; position: absolute; top: 10px; left: 10px; z-index: 1; padding: 5px 9px; border-radius: 8px; background: rgb(0 0 0 / 0.7);
     color: var(--ink); font: 700 12px/1 var(--body); letter-spacing: 0.02em; box-shadow: inset 0 0 0 1px var(--line-hi); }
   .grid .cap, .grid .big .cap { min-height: 0; padding: 48px 14px 12px; gap: 6px;
     background: linear-gradient(rgb(13 11 17 / 0), rgb(13 11 17 / 0.92) 40%, rgb(13 11 17) 75%); }
@@ -710,19 +721,18 @@
     .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
     .rail { grid-column: 1; grid-row: auto; position: static; height: auto; overflow: visible; border-right: 0; gap: var(--s4); padding: var(--s4) var(--gutter); }
     .rail-nav { flex-direction: row; overflow-x: auto; scrollbar-width: none; padding-bottom: var(--s4); }
+    .rail-nav .gap { width: 1px; height: auto; margin: var(--s2) 0; }
     .rail-nav button { flex: none; height: 42px; font-size: 14px; gap: 10px; }
     .rail #people, .play-now { display: none !important; }
     .server h2 { display: none; }
     .side, main#library, .store, .friends-page { grid-column: 1; }
     .side { grid-row: auto; padding: 0 var(--gutter); }
-    .side nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; gap: 2px; }
-    .side nav button { padding: 0 12px; }
+    .search { height: 40px; }
     .banner .hero .btn { height: 44px; padding: 0 18px; font-size: 15px; }
-    .side nav button .t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    .search.open input { width: min(160px, 36vw); }
     main#library { padding: var(--s4) var(--gutter) var(--s7); gap: var(--s5); }
-    .banner { min-height: 0; padding: var(--s5); padding-bottom: 44px; }
-    .banner .bg { inset: 0; width: 100%; -webkit-mask-image: none; mask-image: none; opacity: 0.45; }
+    .banner { height: auto; min-height: 0; padding: var(--s5); padding-bottom: 44px; }
+    .banner .art { display: none; }
+    .banner .hero { max-width: 100%; }
     .banner .arrow { display: none; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: var(--s3); }
     .tools { gap: var(--s1); }
@@ -770,14 +780,18 @@
       <h1 id="hello">Olá</h1>
       <p class="sub" id="sub"><span class="sk l3"></span></p>
     </div>
-    <div class="rail-nav" role="group" aria-label="Seções">
-      <button type="button" class="on" data-proxy="library"><svg class="i"><use href="#i-pad"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>
-      <button type="button" data-proxy="store"><svg class="i"><use href="#i-download"/></svg><span class="t">Downloads</span><span class="count num" id="n-down">0</span></button>
-      <button type="button" data-settings><svg class="i"><use href="#i-server"/></svg><span class="t">Servidor</span></button>
-      <button type="button" data-proxy="people" hidden><svg class="i"><use href="#i-users"/></svg><span class="t">Amigos</span><span class="count num" id="n-people"></span></button>
-      <button type="button" data-controller><svg class="i"><use href="#i-joystick"/></svg><span class="t">Controle</span></button>
+    <nav class="rail-nav" aria-label="Seções">
+      <button type="button" class="on" data-nav="library"><svg class="i"><use href="#i-home"/></svg><span class="t">Início</span></button>
+      <button type="button" data-nav="lib-head"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span><span class="count num" id="n-games"></span></button>
+      <button type="button" data-store><svg class="i"><use href="#i-download"/></svg><span class="t">Loja</span></button>
+      <button type="button" data-nav="people" hidden><svg class="i"><use href="#i-users"/></svg><span class="t">Amigos</span><span class="count num" id="n-people"></span></button>
+      <span class="gap" aria-hidden="true"></span>
       <button type="button" data-add><svg class="i"><use href="#i-plus"/></svg><span class="t">Adicionar jogo</span></button>
-    </div>
+      <button type="button" data-controller><svg class="i"><use href="#i-joystick"/></svg><span class="t">Controle</span></button>
+      <button type="button" data-settings><svg class="i"><use href="#i-server"/></svg><span class="t">Servidor</span></button>
+      <!-- inside Discord only (intro.js): the library in the browser, with its link to copy -->
+      <button type="button" data-browser hidden><svg class="i"><use href="#i-external"/></svg><span class="t">Abrir no navegador</span></button>
+    </nav>
     <section id="people" aria-labelledby="people-title" hidden>
       <div class="section-head"><h2 id="people-title">Pessoas</h2><span id="people-sub"></span></div>
       <div class="people-list" id="people-list"></div>
@@ -790,19 +804,9 @@
   </aside>
 
   <header class="side">
-    <nav aria-label="Seções">
-      <button type="button" class="on" data-nav="library" title="Início"><svg class="i"><use href="#i-home"/></svg><span class="t">Início</span></button>
-      <button type="button" data-nav="lib-head" title="Biblioteca"><svg class="i"><use href="#i-library"/></svg><span class="t">Biblioteca</span></button>
-      <button type="button" data-store title="Explorar"><svg class="i"><use href="#i-compass"/></svg><span class="t">Explorar</span></button>
-      <button type="button" data-nav="people" title="Amigos" hidden><svg class="i"><use href="#i-users"/></svg><span class="t">Amigos</span></button>
-      <!-- inside Discord only (intro.js): the library in the browser, with its link to copy -->
-      <button type="button" data-browser title="Abrir no navegador" hidden><svg class="i"><use href="#i-external"/></svg><span class="t">Abrir no navegador</span></button>
-    </nav>
+    <label class="search" id="search"><svg class="i"><use href="#i-search"/></svg><span class="sr">Buscar na biblioteca</span><input type="search" placeholder="Buscar na biblioteca" autocomplete="off"></label>
     <div class="tools">
-      <label class="search" id="search"><span class="sr">Buscar na biblioteca</span><input type="search" placeholder="Buscar na biblioteca" autocomplete="off">
-        <button type="button" class="round" data-search aria-label="Buscar na biblioteca"><svg class="i"><use href="#i-search"/></svg></button></label>
       <button type="button" class="round bell" data-bell aria-label="Avisos" hidden><svg class="i"><use href="#i-bell"/></svg></button>
-      <button type="button" class="round" data-settings aria-label="Servidor"><svg class="i"><use href="#i-gear"/></svg></button>
       <button type="button" class="me" id="me" data-me title="Ver meu perfil"></button>
     </div>
   </header>

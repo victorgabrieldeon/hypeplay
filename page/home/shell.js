@@ -1,8 +1,7 @@
 // The frame around the library (DESIGN.md "Barra lateral" and "Destaque"): the banner that turns through a few games,
-// the library's filters, search and grid/list switch, the side column (its sections mirror the top bar's, the
-// downloads count, the server's state and "Jogar agora") and the bell. app.js calls hooks.shell(top) after each render.
+// the library's filters, search and grid/list switch, the side column's server state and "Jogar agora", and the bell. app.js calls hooks.shell(top) after each render.
 import { hooks, isFavorite, render, set, state } from './app.js';
-import { esc, hero, installing, stateOf } from './library.js';
+import { esc, hero, stateOf } from './library.js';
 
 const $ = (id) => document.getElementById(id);
 const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -29,7 +28,7 @@ function banner() {
   const g = slides[slide];
   const label = g.key === state.last ? 'Continuar jogando' : g.open.length ? 'Sala aberta agora' : 'Em destaque';
   const many = slides.length > 1;
-  set(el, `<img class="bg" src="${esc(g.cover)}" alt="">
+  set(el, `<img class="bg" src="${esc(g.cover)}" alt=""><img class="art" src="${esc(g.cover)}" alt="">
     <div class="hero">${hero(g, state.sending, label, isFavorite(g.key))}</div>
     ${many ? `<button type="button" class="arrow prev" data-slide="-1" aria-label="Destaque anterior"><svg class="i"><use href="#i-left"/></svg></button>
       <button type="button" class="arrow next" data-slide="1" aria-label="Próximo destaque"><svg class="i"><use href="#i-right"/></svg></button>
@@ -102,7 +101,7 @@ function library() {
 }
 
 document.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-filter],[data-view],[data-search],[data-proxy],[data-bell]');
+  const el = e.target.closest('[data-filter],[data-view],[data-bell]');
   if (!el) return;
   const d = el.dataset;
   if (d.filter) { filter = d.filter; return library(); }
@@ -111,16 +110,7 @@ document.addEventListener('click', (e) => {
     try { localStorage.setItem('hp-view', view); } catch (err) { /* no storage here */ }
     return library();
   }
-  if ('search' in d) {
-    const box = $('search');
-    box.classList.add('open');
-    return box.querySelector('input').focus();
-  }
   if ('bell' in d) { location.hash = 'amigos'; return; }
-  // the side column's sections: the same as the top bar's buttons
-  if (d.proxy === 'store') return document.querySelector('.side [data-store]')?.click();
-  document.querySelector(`.side [data-nav="${d.proxy}"]`)?.click();
-  sync();
 });
 const input = $('search').querySelector('input');
 input.addEventListener('input', () => {
@@ -129,18 +119,10 @@ input.addEventListener('input', () => {
   if (query) document.getElementById('lib-head').scrollIntoView({ block: 'nearest' });
 });
 input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { input.value = ''; query = ''; library(); input.blur(); } });
-input.addEventListener('blur', () => { if (!input.value) $('search').classList.remove('open'); });
 
 // ---- the side column and the bell ----
 
 function sync() {
-  for (const el of document.querySelectorAll('.rail [data-proxy]')) {
-    const twin = el.dataset.proxy === 'store' ? document.querySelector('.side [data-store]') : document.querySelector(`.side [data-nav="${el.dataset.proxy}"]`);
-    const friends = document.body.classList.contains('in-friends'), store = document.body.classList.contains('in-store');
-    el.classList.toggle('on', el.dataset.proxy === 'people' ? friends : el.dataset.proxy === 'store' ? store : !friends && !store && !!twin?.classList.contains('on'));
-    if (el.dataset.proxy === 'people') el.hidden = !!twin?.hidden;
-  }
-  set($('n-down'), installing(state.vimm) ? '1' : '0');
   const s = state.social;
   const bell = document.querySelector('[data-bell]');
   bell.hidden = !s;
@@ -152,7 +134,6 @@ function sync() {
   play.hidden = !g;
   if (g) { play.dataset.play = g.key; play.title = `Jogar ${g.name}`; }
 }
-addEventListener('hashchange', () => setTimeout(sync));
 
 // ---- the server: up and how far, a small public answer (/health) timed every 15 s ----
 

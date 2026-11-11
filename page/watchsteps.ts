@@ -19,7 +19,7 @@ export const whereAmI = (framed: boolean, host: string): Where =>
 
 /**
  * The TURN ../ice gave, for this browser: none offered, offered but no relay candidate came (this network blocks it,
- * or the server's coturn is down), or answered (a relay candidate in this side's description).
+ * or Cloudflare's is down), or answered (a relay candidate in this side's description).
  */
 export type Turn = "none" | "silent" | "answered";
 export function turnState(ice: { urls: string | string[] }[], sdp: string): Turn {
@@ -52,7 +52,7 @@ export function stuckAt(step: Step, error?: string, where: Where = "discord", tu
       if (turn === "silent")
         return {
           title: "O TURN não respondeu",
-          text: `Tem um TURN, mas este navegador não conseguiu passar por ele${why}. Uma rede que só deixa passar web (empresa, escola) faz isso: tente outra rede. Se for o coturn do servidor, quem cuida dele confere se está rodando e se as portas 3478 (UDP e TCP) e 49160 a 49200 (UDP) estão abertas.`,
+          text: `Tem um TURN, mas este navegador não conseguiu passar por ele${why}. Uma rede que só deixa passar web (empresa, escola) faz isso: tente outra rede.`,
           browser: false,
         };
       if (turn === "answered")
@@ -63,7 +63,7 @@ export function stuckAt(step: Step, error?: string, where: Where = "discord", tu
         };
       return {
         title: "Sem conexão com o host",
-        text: `As redes de vocês não se alcançaram${why}. Quem cuida do servidor precisa ligar um TURN, o retransmissor do online (TURN_URL e TURN_SECRET).${where === "discord" ? " No navegador às vezes passa." : ""}`,
+        text: `As redes de vocês não se alcançaram${why}. Quem cuida do servidor precisa ligar um TURN, o retransmissor do online (TURN_CF_KEY_ID e TURN_CF_TOKEN).${where === "discord" ? " No navegador às vezes passa." : ""}`,
         browser: where === "discord",
       };
   }

@@ -440,19 +440,14 @@ test("rooms: create, post, wait, listed in games; ice with and without TURN", as
   expect((await catalog()).games.find((g) => g.id === id)!.open).toEqual([]);
 
   expect(await (await ana(`ps2/${id}/ice`)).json()).toEqual([{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }]);
-  const turned = createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, turn: { url: "turn:t.exemplo.com:3478", secret: "s" } });
-  const ice = (await ((await turned.handle(new Request(`http://localhost/p/${ANA}/ps2/${id}/ice`))) as Response).json()) as { username?: string }[];
-  expect(ice[1]!.username).toEndWith(":42");
 
-  // Cloudflare's TURN, when it answers, is the one given (never two TURNs at once); when it doesn't, the coturn is
+  // Cloudflare's TURN, when it answers, goes after the STUN; when it doesn't, STUN only
   const cfTurn = { urls: ["turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:5349?transport=tcp"], username: "cfu", credential: "cfc" };
   const cloud = (server: typeof cfTurn | null) =>
-    createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, turn: { url: "turn:t.exemplo.com:3478", secret: "s" }, cloudflare: { ice: async () => server } });
+    createApp({ dir: root, pageDir: PAGE_DIR, entryJs: "", passes, discord, library, cloudflare: { ice: async () => server } });
   const iceOf = async (app: ReturnType<typeof createApp>) => (await ((await app.handle(new Request(`http://localhost/p/${ANA}/ps2/${id}/ice`))) as Response).json()) as { urls: string | string[]; username?: string }[];
   expect(await iceOf(cloud(cfTurn))).toEqual([{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }, cfTurn]);
-  const fallen = await iceOf(cloud(null));
-  expect(fallen).toHaveLength(2);
-  expect(fallen[1]!.username).toEndWith(":42");
+  expect(await iceOf(cloud(null))).toEqual([{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }]);
 });
 
 test("the relay: only the room's host and a guest that joined; the rest is refused before the upgrade", async () => {

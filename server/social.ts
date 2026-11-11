@@ -382,14 +382,44 @@ export async function createSocial(sql: SQL, dir: string, now: () => number = ()
       const friends = p.friends.filter((id) => users[id]).map((id) => {
         const f = users[id]!;
         const on = visible(f) && online(id);
-        return { ...who(id), status: on ? f.status : "offline", note: f.note, seen: visible(f) ? f.seen : null, since: f.since };
+        // (their games, the last played first: the Amigos screen shows a few covers; invisible, nothing recent)
+        const played = Object.entries(f.games).filter(([, g]) => visible(f) || now() - g.last > QUIET_MS).sort((a, b) => b[1].last - a[1].last);
+        return {
+          ...who(id), status: on ? f.status : "offline", note: f.note, seen: visible(f) ? f.seen : null, since: f.since,
+          games: played.slice(0, 3).map(([key, g]) => ({ key, title: g.title })), more: Math.max(0, played.length - 3),
+          ms: played.reduce((s, [, g]) => s + g.ms, 0),
+        };
       });
       const feed = p.friends
         .filter((id) => users[id] && visible(users[id]!))
         .flatMap((id) => users[id]!.recent.slice(0, 5).map((s) => ({ ...who(id), ...s })))
         .sort((x, y) => y.end - x.end)
         .slice(0, 12);
-      return { id: me, status: p.status, note: p.note, friends, incoming: p.incoming.map(who), outgoing: p.outgoing.map(who), invites: liveInvites(me), feed };
+      const mates = p.friends.filter((id) => users[id]);
+      // games I played that friends played too: by how many of them, then my hours
+      const common = Object.entries(p.games)
+        .map(([key, g]) => ({ key, title: g.title, friends: mates.filter((id) => users[id]!.games[key]).length, ms: g.ms }))
+        .filter((g) => g.friends)
+        .sort((a, b) => b.friends - a.friends || b.ms - a.ms);
+      // the friends' badges, each once, with who has it
+      const crew = new Map<string, { id: string; name: string; text: string; who: string[] }>();
+      for (const id of mates) for (const b of badges(users[id]!)) {
+        const c = crew.get(b.id) ?? { ...b, who: [] };
+        c.who.push(users[id]!.name);
+        crew.set(b.id, c);
+      }
+      // people to add: friends of friends and who played with me, not already in a list either way
+      const taken = new Set([me, ...p.friends, ...p.incoming, ...p.outgoing]);
+      const ways = new Map<string, number>();
+      for (const id of mates) for (const o of users[id]!.friends) if (!taken.has(o) && users[o]) ways.set(o, (ways.get(o) ?? 0) + 1);
+      for (const o of Object.keys(p.with)) if (!taken.has(o) && users[o]) ways.set(o, ways.get(o) ?? 0);
+      const suggest = [...ways]
+        .map(([id, mutual]) => ({ ...who(id), mutual, common: Object.keys(users[id]!.games).filter((k) => p.games[k]).length, together: id in p.with }))
+        .sort((a, b) => b.mutual - a.mutual || b.common - a.common)
+        .slice(0, 4);
+      const mine = { games: Object.keys(p.games).length, ms: Object.values(p.games).reduce((s, g) => s + g.ms, 0) };
+      return { id: me, status: p.status, note: p.note, friends, incoming: p.incoming.map(who), outgoing: p.outgoing.map(who), invites: liveInvites(me), feed,
+        mine, common, badges: [...crew.values()], suggest };
     },
 
     /** Find someone to add, by name (offline too). */

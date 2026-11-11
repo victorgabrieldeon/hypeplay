@@ -1,7 +1,6 @@
 // How the PS2 games' online links host and guest (stream.ts, watch.ts): direct between the two homes (some 20-50 ms)
 // when their routers allow it, else by the TURN ../ice gives (Cloudflare's, anycast, near the players: 40-80 ms). Never
-// by the server's relay: it's in Canada (~300 ms between two players in Brazil), and so is the coturn there, which
-// ../ice only gives when Cloudflare's doesn't answer. A link that doesn't come says so (watchsteps.ts).
+// by the server's relay: it's in Canada (~300 ms between two players in Brazil). A link that doesn't come says so (watchsteps.ts).
 // NO_RELAY = false brings the server's relay back.
 // And the link's numbers for the guest's bar: ping, fps, picture size and which way it goes, from getStats().
 

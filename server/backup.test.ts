@@ -52,6 +52,9 @@ async function volume(dir: string) {
   await put(dir, "ps2/slus-20002/game.json", JSON.stringify({ ...game, id: "slus-20002", serial: "SLUS-20002" }));
   await put(dir, "ps2/slus-20002/disc.iso", "a disc");
   await put(dir, "ps2/slus-20002/upload/part", "uploading");
+  // (its disc left R2 after the backup: "Remover")
+  await put(dir, "ps2/slus-20006/game.json", JSON.stringify({ ...game, id: "slus-20006", serial: "SLUS-20006" }));
+  await put(dir, "ps2/slus-20006/disc.iso.r2", "123456789");
   await put(dir, "bios/bios.bin", "bios");
   await put(dir, "bios/bios.json", "{}");
   await put(dir, "saves/slus-20001/42.ps2", "card");
@@ -78,10 +81,14 @@ async function rows(sql: SQL) {
   await sql`INSERT INTO imported (source, at) VALUES ('social.json', 1)`;
 }
 
-/** The jobs: a build made here (lost with the machine), one made elsewhere (in R2), one waiting. */
+/** The jobs: a build made here (lost with the machine), two made elsewhere (one still in R2, one replaced since), one waiting. */
 function jobs(dir: string) {
   const q = createQueue(join(dir, "queue.db"));
-  const made: [string, R2Build | null][] = [["ps2/slus-20001", null], ["ps2/slus-20003", { prefix: "ps2/slus-20003/fast/v1", files: ["ps2web.html"] }]];
+  const made: [string, R2Build | null][] = [
+    ["ps2/slus-20001", null],
+    ["ps2/slus-20003", { prefix: "ps2/slus-20003/fast/v1", files: ["ps2web.html"] }],
+    ["ps2/slus-20005", { prefix: "ps2/slus-20005/fast/v1", files: ["ps2web.html"] }],
+  ];
   for (const [key, build] of made) {
     q.enqueue(key, "ps2");
     const c = q.claim("w", { kinds: ["ps2"] })!;
@@ -106,6 +113,10 @@ test("backup, then restore into an empty volume and database: the same rows, que
   expect(m.tables.profiles).toBe(2);
   expect(m.skipped).toEqual(["big.bin"]);
   expect([...objects.keys()].sort()).toEqual(["data.tar.gz", "manifest.json", "postgres.json", "queue.db"].map((f) => `backup/2026-11-11T1430/${f}`));
+  expect(m.games).toBe(3);
+  // what R2 holds by then: slus-20003's build and slus-20001's disc; slus-20005's build and slus-20006's disc are gone
+  objects.set("ps2/slus-20003/fast/v1/ps2web.html", new Uint8Array(1));
+  objects.set("ps2/slus-20001/disc.iso", new Uint8Array(1));
 
   const r = await restore({ dir: to, sql: sql2, r2: client });
   expect(r.name).toBe(m.name);
@@ -118,12 +129,21 @@ test("backup, then restore into an empty volume and database: the same rows, que
   expect(Number(n)).toBeGreaterThan(Number(max));
 
   const back = createQueue(join(to, "queue.db"));
-  const states = Object.fromEntries(back.list().map((j) => [j.key, j.state]));
+  const states = Object.fromEntries(back.list().map((j) => [j.key, [j.state, j.build?.prefix ?? null]]));
   back.close();
-  // the build made here went with the disk: back in line; the one in R2 is still there
-  expect(states).toEqual({ "ps2/slus-20001": "queued", "ps2/slus-20003": "done", "ps2/slus-20004": "queued" });
-  expect(r.requeued).toEqual(["ps2/slus-20001"]);
-  expect(r.discless).toEqual(["slus-20002"]);
+  // the build made here went with the disk, the one replaced in R2 is gone: back in line; the one in R2 is still there
+  expect(states).toEqual({
+    "ps2/slus-20001": ["queued", null],
+    "ps2/slus-20003": ["done", "ps2/slus-20003/fast/v1"],
+    "ps2/slus-20004": ["queued", null],
+    "ps2/slus-20005": ["queued", null],
+  });
+  expect(r.requeued.sort()).toEqual(["ps2/slus-20001", "ps2/slus-20005"]);
+  // the disc only on the lost disk, and the one gone from R2 (its mark too, so the sweep removes it)
+  expect(r.discless.sort()).toEqual(["slus-20002", "slus-20006"]);
+  expect(await exists(join(to, "ps2/slus-20006/disc.iso.r2"))).toBe(false);
+  expect(await exists(join(to, "ps2/slus-20001/disc.iso.r2"))).toBe(true);
+  expect(r.passed).toEqual([]);
 });
 
 test("restore refuses a database or a volume in use, unless forced: then it's the backup's", async () => {
@@ -166,6 +186,8 @@ test("a backup that fails halfway is never the latest; the next good one's pruni
 
 test("the timer's run: a failure is logged and counted, never thrown; while shutting down, none starts", async () => {
   const [dir, sql, r] = [await folder(), await db(), r2()];
+  await volume(dir);
+  await rows(sql);
   const sent: any[] = [];
   const telemetry = createTelemetry({ endpoint: "http://otel", service: "t", timers: false, fetch: async (url, init) => (url.endsWith("/v1/metrics") && sent.push(JSON.parse(String(init.body))), new Response(null)) });
   let draining = false;
@@ -186,6 +208,43 @@ test("the timer's run: a failure is logged and counted, never thrown; while shut
   r.objects.clear();
   expect(await b.run()).toBeNull();
   expect(r.objects.size).toBe(0);
+});
+
+test("no backup of an app without games or without people: a new machine, a lost volume or a lost database", async () => {
+  const [dir, sql, r] = [await folder(), await db(), r2()];
+  const b = createBackups({ dir, sql, r2: r.client, telemetry: createTelemetry({ endpoint: "http://otel", service: "t", timers: false }), draining: () => false, now: () => T });
+  done.push(() => b.stop());
+  const logs = captureLog();
+  done.push(logs.restore);
+  // all empty (a startup only marks `imported`)
+  await sql`INSERT INTO imported (source, at) VALUES ('social.json', 1)`;
+  expect(await b.run()).toBeNull();
+  // people, but no games (a friend opened the new machine's app)
+  await sql`INSERT INTO profiles (id, name, since, seen, status, note) VALUES ('42', 'Ana', 1, 2, 'online', '')`;
+  expect(await b.run()).toBeNull();
+  // games, but no people (the database's volume lost)
+  await volume(dir);
+  await sql`DELETE FROM profiles`;
+  expect(await b.run()).toBeNull();
+  expect([...r.objects.keys()].filter((k) => k.startsWith("backup/"))).toEqual([]);
+  expect(logs.lines.filter((l) => l.msg === "backup: skipped, no games or no people here").length).toBe(3);
+  expect(logs.lines.some((l) => l.msg === "backup failed")).toBe(false);
+  expect(b.lastOk).toBeNull();
+});
+
+test("restore, by default, passes over a newer backup without games or people; by name it's restored", async () => {
+  const [dir, sql, r] = [await folder(), await db(), r2()];
+  await volume(dir);
+  await rows(sql);
+  await backup({ dir, sql, r2: r.client, now: T });
+  // (one made by hand, or by an older version, of an empty app)
+  const [empty, sqlEmpty] = [await folder(), await db()];
+  await backup({ dir: empty, sql: sqlEmpty, r2: r.client, now: T + EVERY_MS });
+  const got = await restore({ dir: await folder(), sql: await db(), r2: r.client });
+  expect([got.name, got.passed]).toEqual([nameOf(T), [nameOf(T + EVERY_MS)]]);
+  expect((await restore({ dir: await folder(), sql: await db(), r2: r.client, name: nameOf(T + EVERY_MS) })).name).toBe(nameOf(T + EVERY_MS));
+  r.objects.delete(`backup/${nameOf(T)}/manifest.json`);
+  await expect(restore({ dir: await folder(), sql: await db(), r2: r.client })).rejects.toThrow("pick one with --from");
 });
 
 const manifest = (name: string) => [`backup/${name}/manifest.json`, new TextEncoder().encode("{}")] as const;
@@ -228,6 +287,26 @@ plain("at startup, the latest finished backup in R2 is the last ok (so a deploy 
   await b.start();
   expect(b.lastOk).toBe(T - 60 * 60_000);
   expect(logs.lines.find((l) => l.msg === "backup: scheduled")?.in_min).toBe((EVERY_MS - 60 * 60_000) / 60_000);
+});
+
+plain("R2 not listed at startup: last_ok isn't sent (unknown, not 0); with no backup at all, it's 0", async () => {
+  const gauge = async (r: ReturnType<typeof fakeR2>) => {
+    const sent: any[] = [];
+    const telemetry = createTelemetry({ endpoint: "http://otel", service: "t", timers: false, fetch: async (url, init) => (url.endsWith("/v1/metrics") && sent.push(JSON.parse(String(init.body))), new Response(null)) });
+    const b = createBackups({ dir: "/nowhere", sql: {} as SQL, r2: r.client, telemetry, draining: () => false, now: () => T });
+    done.push(() => b.stop());
+    await b.start();
+    await telemetry.flush();
+    const metrics = sent.at(-1)?.resourceMetrics[0].scopeMetrics[0].metrics ?? [];
+    return metrics.find((m: any) => m.name === "hypeplay.backup.last_ok")?.gauge.dataPoints[0].asDouble;
+  };
+  const logs = captureLog();
+  done.push(logs.restore);
+  expect(await gauge(r2())).toBe(0);
+  const away = r2();
+  away.stop();
+  expect(await gauge(away)).toBeUndefined();
+  expect(logs.lines.some((l) => l.msg === "backup: R2 not listed at startup")).toBe(true);
 });
 
 plain("past the volume's budget the rest stays out, the memory cards first (they go last)", async () => {

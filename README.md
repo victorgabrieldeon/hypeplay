@@ -172,7 +172,7 @@ nada sai e nada muda.
 | `hypeplay.games.duration` | Tempo da lista de jogos (`games`, a cada 2 s em cada home aberta), em ms |
 | `hypeplay.http.requests` | Pedidos por classe de status (`2xx`, `4xx`, `5xx`, `101` para WebSocket) |
 | `hypeplay.ratelimit.rejected` | Pedidos recusados pelo limite por pessoa (`action`) |
-| `hypeplay.backup.last_ok` | Quando foi feito o último backup completo no R2 (Unix, em segundos; lido do R2 ao subir). Para um alerta: agora menos isso acima de 26 h |
+| `hypeplay.backup.last_ok` | Quando foi feito o último backup completo no R2 (Unix, em segundos; lido do R2 ao subir; `0` se não há nenhum, e nenhum ponto enquanto o R2 não respondeu à listagem). Para um alerta: agora menos isso acima de 26 h |
 | `hypeplay.backup.failures` | Backups que falharam desde que o app subiu |
 | `hypeplay.build.duration` | Duração das compilações em segundos, por `mode` (`full`, `learn`, `recomp`, `page`) e `result` (`ready`, `failed`, `gone`) |
 
@@ -374,6 +374,11 @@ tem mais de 24 h (ou não existe), o próximo sai 10 minutos depois; senão, qua
 Se um backup falha (o R2 fora do ar, por exemplo), o app segue normalmente, registra o erro no log e tenta de novo em
 1 h. Um backup também não começa enquanto o servidor desliga.
 
+E não sai backup de um app sem jogos (nenhum `ps2/*/game.json`) ou sem pessoas no banco (nenhuma linha fora de
+`imported`): isso é uma VPS nova, ou o volume ou o banco perdidos, e um backup assim seria o "mais recente" e
+empurraria os bons para fora dos 14. O log avisa (`backup: skipped`), não conta como falha, e o `last_ok` envelhece
+até o alerta disparar.
+
 Cada backup é uma pasta no mesmo bucket, `backup/<AAAA-MM-DDTHHMM>/` (hora UTC), com:
 
 | Arquivo | O que tem |
@@ -381,7 +386,7 @@ Cada backup é uma pasta no mesmo bucket, `backup/<AAAA-MM-DDTHHMM>/` (hora UTC)
 | `postgres.json` | Todas as tabelas do banco, linha por linha, lidas de uma vez só (as tabelas são descobertas na hora: uma tabela nova entra sozinha) |
 | `queue.db` | A fila de compilações, numa cópia consistente (`VACUUM INTO`) |
 | `data.tar.gz` | Os arquivos pequenos do volume: de cada jogo, `game.json`, `cover.webp` e a marca `disc.iso.r2` (sem ela o app não sabe que o disco está no R2); `fast/` (o pedido, `misses.txt`, `build.log`), mas não o `build/`; a BIOS (`bios/`); os memory cards que ainda estão no disco (`saves/`, de antes do R2); e os arquivos soltos da raiz (`social.json`, `hypeplay.db`) |
-| `manifest.json` | Gravado por último: o tamanho e o SHA-256 de cada arquivo e quantas linhas tem cada tabela. Uma pasta sem ele é um backup que não terminou e nunca conta como o último |
+| `manifest.json` | Gravado por último: o tamanho e o SHA-256 de cada arquivo, quantas linhas tem cada tabela e quantos jogos vieram. Uma pasta sem ele é um backup que não terminou e nunca conta como o último |
 
 Ficam os 14 backups completos mais recentes; os mais velhos, e os incompletos que sobraram de uma falha, são apagados
 depois de cada backup novo. O tar é montado na memória do app e costuma ter poucos MB. Dois tetos o protegem: cada
@@ -395,8 +400,8 @@ onde), a intro (`intro.mp4`: material da Sony, é só enviar de novo pela tela S
 `keys/`, `users/` e `prefs/` (já estão no banco) e o que passar dos tetos acima (o log avisa quais). Os memory cards
 no R2 e os discos no R2 não são copiados: o backup guarda o que diz o que eles são.
 
-**Restaurar** (VPS nova, ou volume e banco perdidos): suba a stack com o mesmo `S3_*` e um `/srv/bt3-data` vazio,
-pare o `app` e o `ps2-builder` (o `postgres` fica de pé) e rode o `scripts/restore.ts` na imagem do app. O Dokploy
+**Restaurar** (VPS nova, ou volume e banco perdidos): suba a stack com o mesmo `S3_*`, um `/srv/bt3-data` vazio e
+`BACKUP=0` no Dokploy (tire depois da restauração, e faça o deploy de novo), pare o `app` e o `ps2-builder` (o `postgres` fica de pé) e rode o `scripts/restore.ts` na imagem do app. O Dokploy
 sobe o compose com um nome de projeto próprio: use o que aparece em `docker compose ls` (a coluna `CONFIG FILES` diz
 a pasta do compose; rode os comandos nela). Sem o `-p` certo, o `run` cai numa rede sem o `postgres`.
 
@@ -409,11 +414,20 @@ docker compose -p $P run --rm --no-deps app bun scripts/restore.ts --from 2026-1
 docker compose -p $P start app ps2-builder
 ```
 
-Ele baixa o backup e confere cada arquivo pelo manifesto. Depois cria as tabelas (o `migrate` do `server/db.ts`),
+Sem `--from`, ele pega o backup completo mais recente que tenha jogos e pessoas no banco; um mais novo sem eles é
+deixado de lado (ele diz quais) e só volta com `--from`. Um nome sem `--from`, ou qualquer outro argumento, é
+recusado. Ele baixa o backup e confere cada arquivo pelo manifesto. Depois cria as tabelas (o `migrate` do `server/db.ts`),
 regrava as linhas numa transação só, extrai o tar no `/app/data` e troca o `queue.db`. Ele recusa se o banco ou o
 volume já tiverem dados. Não contam as marcas `imported` nem o `queue.db` vazio, que o app grava quando sobe pela
-primeira vez. Com `--force`, as tabelas são esvaziadas antes e os arquivos, sobrescritos. No fim ele lista os jogos
-sem disco: o disco estava só na VPS, e a limpeza do app remove esses jogos.
+primeira vez. Com `--force`, as tabelas são esvaziadas antes e os arquivos, sobrescritos.
+
+Ele também confere no R2 o que o backup diz que está lá. Uma versão rápida feita em outra máquina cujo build saiu do R2
+depois do backup (trocado por um mais novo) volta para a fila. Um jogo cujo disco saiu do R2 ("Remover") perde a
+marca `disc.iso.r2`. No fim ele lista os jogos sem disco, os que estavam só na VPS e esses, e a limpeza do app os
+remove.
+
+A restauração não é atômica: o banco é gravado antes do tar e do `queue.db`. Se ela parar no meio (o disco cheio, por
+exemplo), o banco já está cheio e um novo `restore.ts` recusa; repita com o mesmo `--from` e `--force`.
 
 Sempre com o app parado, e com uma versão do app cuja limpeza (o `sweep` do `server/library.ts`) não apague do R2 as
 pastas sem `game.json`: uma pasta com a marca e sem o `game.json` faz a limpeza apagar o disco do R2 (o branch

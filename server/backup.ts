@@ -12,7 +12,9 @@
  *   backup/<…>/manifest.json                 written last: without it the backup is unfinished, never "the latest"
  *
  * index.ts runs it (createBackups): 10 min after starting when the latest is a day old (or there's none), then every
- * day; the 14 newest stay. `restore` (scripts/restore.ts) brings one back into an empty volume and database.
+ * day; the 14 newest stay. Never of an app without games or without people (a new machine, a volume or a database
+ * lost): such a one would push the good ones out. `restore` (scripts/restore.ts) brings one back into an empty volume
+ * and database.
  */
 import { Database } from "bun:sqlite";
 import type { S3Client, SQL } from "bun";
@@ -23,7 +25,8 @@ import { join } from "node:path";
 import { migrate } from "./db";
 import { log } from "./log";
 import type { Telemetry } from "./otlp";
-import { createQueue, PRIORITY } from "./queue";
+import { r2Keys } from "./fastjobs";
+import { createQueue, PRIORITY, type R2Build } from "./queue";
 
 export const PREFIX = "backup/";
 /** Finished backups kept. */
@@ -53,6 +56,8 @@ export interface Manifest {
   files: Partial<Record<(typeof FILES)[number], { size: number; sha256: string }>>;
   /** Volume files in the tar. */
   volume: number;
+  /** Games (ps2/<id>/game.json) among them. */
+  games: number;
   /** Left out for their size. */
   skipped: string[];
 }
@@ -153,7 +158,8 @@ export async function backup({ dir, sql, r2, now = Date.now(), budget }: { dir: 
       if (b) entries[f] = b;
     }
     parts["data.tar.gz"] = await new Bun.Archive(entries, { compress: "gzip" }).bytes();
-    const manifest: Manifest = { name, at: now, tables: {}, files: {}, volume: Object.keys(entries).length, skipped };
+    const kept = Object.keys(entries);
+    const manifest: Manifest = { name, at: now, tables: {}, files: {}, volume: kept.length, games: kept.filter((f) => /^ps2\/[^/]+\/game\.json$/.test(f)).length, skipped };
     for (const [t, rows] of Object.entries(db)) manifest.tables[t] = rows.length;
     for (const f of FILES) {
       const b = parts[f];
@@ -228,23 +234,36 @@ export interface BackupsOptions {
  */
 export function createBackups({ dir, sql, r2, telemetry, draining, now = () => Date.now() }: BackupsOptions) {
   let lastOk: number | null = null;
+  // (R2 not listed at startup: when the latest was is unknown, and last_ok says nothing rather than 0)
+  let unknown = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   const failures = telemetry.counter("hypeplay.backup.failures", { description: "Backups para o R2 que falharam" });
-  telemetry.gauge("hypeplay.backup.last_ok", { description: "Quando foi feito o último backup completo no R2", unit: "s" }, () => Math.floor((lastOk ?? 0) / 1000));
+  telemetry.gauge("hypeplay.backup.last_ok", { description: "Quando foi feito o último backup completo no R2", unit: "s" }, () => {
+    if (unknown) throw new Error("unknown");
+    return Math.floor((lastOk ?? 0) / 1000);
+  });
 
   const schedule = (ms: number) => {
     clearTimeout(timer);
     if (!stopped) timer = setTimeout(() => void run(), ms);
   };
 
-  /** One backup now (unless shutting down), then the next one on the timer. */
+  /** One backup now (unless shutting down, or there's nothing to keep), then the next one on the timer. */
   async function run(): Promise<Manifest | null> {
     if (stopped || draining()) return null;
     const started = performance.now();
     try {
+      const [n, people] = [await games(dir), await dbInUse(sql)];
+      if (!n || !people) {
+        // (neither a failure nor a backup: last_ok ages, and its alert says so)
+        log.warn("backup: skipped, no games or no people here", { games: n, db: people });
+        schedule(EVERY_MS);
+        return null;
+      }
       const m = await backup({ dir, sql, r2, now: now() });
       lastOk = m.at;
+      unknown = false;
       const dropped = await prune(r2).catch((err) => (log.warn("backup: the old ones stay", { err }), []));
       const bytes = Object.values(m.files).reduce((n, f) => n + f.size, 0);
       log.info("backup: done", { name: m.name, ms: Math.round(performance.now() - started), bytes, rows: Object.values(m.tables).reduce((a, b) => a + b, 0), volume: m.volume, dropped: dropped.length });
@@ -267,6 +286,7 @@ export function createBackups({ dir, sql, r2, telemetry, draining, now = () => D
         const name = await latest(r2);
         lastOk = name ? timeOf(name) : null;
       } catch (err) {
+        unknown = true;
         log.warn("backup: R2 not listed at startup", { err });
       }
       const ms = nextIn(lastOk, now());
@@ -291,6 +311,14 @@ async function dbInUse(sql: SQL) {
   for (const t of await tables(sql)) if (t !== "imported" && (await sql`SELECT 1 FROM ${sql(t)} LIMIT 1`).length) return t;
   return null;
 }
+
+/** The volume's games: ps2/<id>/game.json. */
+async function games(dir: string) {
+  return (await readdir(join(dir, "ps2")).catch(() => [] as string[])).filter((id) => existsSync(join(dir, "ps2", id, "game.json"))).length;
+}
+
+/** A backup worth restoring by default: with games, and people in the database. */
+const hasData = (m: Manifest) => m.games > 0 && Object.entries(m.tables).some(([t, n]) => t !== "imported" && n > 0);
 
 /** What's already in the volume: a game, or a job in the queue; null when empty. */
 async function volumeInUse(dir: string) {
@@ -325,32 +353,51 @@ async function insertAll(tx: SQL, db: Record<string, Record<string, unknown>[]>)
     await tx.unsafe(`SELECT setval(pg_get_serial_sequence($1, $2), COALESCE((SELECT MAX(${quote(c)}) FROM ${quote(t)}), 0) + 1, false)`, [quote(t), c]);
 }
 
+/** Whether every key is in R2 (one that can't be asked about counts as there: nothing is undone on a doubt). */
+const inR2 = async (r2: S3Client, keys: string[]) => (await Promise.all(keys.map((k) => r2.file(k).exists().catch(() => true)))).every(Boolean);
+
 export interface Restored {
   name: string;
   tables: Record<string, number>;
   volume: number;
   /** "Versão rápida" builds made here, lost with the machine: back in line. */
   requeued: string[];
-  /** Games whose disc was only on the lost disk (neither disc.iso nor its R2 mark): to send again. */
+  /** Games whose disc is neither here nor in R2 (only on the lost disk, or gone from R2 since): to send again. */
   discless: string[];
+  /** Newer backups passed over (no games, or no people): restored only by name. */
+  passed: string[];
 }
 
 /**
- * A backup (`name`, or the latest finished one) back into the volume and the database, with the app stopped. Refused
- * when either already holds something, unless `force`: then the database's tables are emptied first, and the volume's
- * files written over.
+ * A backup (`name`, or the latest finished one with games and people) back into the volume and the database, with the
+ * app stopped. Refused when either already holds something, unless `force`: then the database's tables are emptied
+ * first, and the volume's files written over. What it says is in R2 is checked: a build gone from there goes back in
+ * line, a game whose disc is gone loses its mark (the app's sweep then removes it).
  */
 export async function restore({ dir, sql, r2, name, force = false }: { dir: string; sql: SQL; r2: S3Client; name?: string; force?: boolean }): Promise<Restored> {
   const all = (await listBackups(r2)).filter((b) => b.done);
-  const chosen = name ?? all.at(-1)?.name;
-  if (!chosen) throw new Error("no finished backup in R2");
-  if (!all.some((b) => b.name === chosen)) throw new Error(`no finished backup ${chosen} in R2 (finished: ${all.map((b) => b.name).join(", ") || "none"})`);
+  const manifestOf = async (n: string) => (await r2.file(`${PREFIX}${n}/manifest.json`).json()) as Manifest;
+  const passed: string[] = [];
+  let chosen = name;
+  let manifest: Manifest | undefined;
+  if (chosen) {
+    if (!all.some((b) => b.name === chosen)) throw new Error(`no finished backup ${chosen} in R2 (finished: ${all.map((b) => b.name).join(", ") || "none"})`);
+    manifest = await manifestOf(chosen);
+  } else {
+    if (!all.length) throw new Error("no finished backup in R2");
+    for (const b of [...all].reverse()) {
+      const m = await manifestOf(b.name);
+      if (hasData(m)) [chosen, manifest] = [b.name, m];
+      else passed.push(b.name);
+      if (chosen) break;
+    }
+    if (!chosen || !manifest) throw new Error(`no backup with games and people in R2: pick one with --from (finished: ${all.map((b) => b.name).join(", ")})`);
+  }
   const at = `${PREFIX}${chosen}/`;
-  const manifest = (await r2.file(`${at}manifest.json`).json()) as Manifest;
   await migrate(sql);
   if (!force) {
     const used = (await dbInUse(sql)) ?? (await volumeInUse(dir));
-    if (used) throw new Error(`not empty (${used}): restore with --force to write over it`);
+    if (used) throw new Error(`not empty (${used}): restore with --force to write over it (as after a restore that stopped halfway)`);
   }
   const parts: Partial<Record<(typeof FILES)[number], Uint8Array>> = {};
   for (const f of FILES) {
@@ -378,6 +425,15 @@ export async function restore({ dir, sql, r2, name, force = false }: { dir: stri
     for (const end of ["", "-wal", "-shm", "-journal"]) await rm(q + end, { force: true });
     await Bun.write(`${q}.restore`, parts["queue.db"]);
     await rename(`${q}.restore`, q);
+    // (a build in R2 removed since the backup, replaced or its game gone: none, so it's built again)
+    const raw = new Database(q);
+    try {
+      for (const { key, build } of raw.query("SELECT key, build FROM jobs WHERE build IS NOT NULL").all() as { key: string; build: string }[]) {
+        if (!(await inR2(r2, r2Keys(JSON.parse(build) as R2Build)))) raw.query("UPDATE jobs SET build = NULL WHERE key = ?").run(key);
+      }
+    } finally {
+      raw.close();
+    }
     const queue = createQueue(q);
     try {
       for (const j of queue.list()) {
@@ -394,7 +450,10 @@ export async function restore({ dir, sql, r2, name, force = false }: { dir: stri
   const discless: string[] = [];
   for (const id of await readdir(join(dir, "ps2")).catch(() => [] as string[])) {
     const p = join(dir, "ps2", id);
-    if (existsSync(join(p, "game.json")) && !existsSync(join(p, "disc.iso")) && !existsSync(join(p, "disc.iso.r2"))) discless.push(id);
+    if (!existsSync(join(p, "game.json")) || existsSync(join(p, "disc.iso"))) continue;
+    // (a mark whose disc left R2 since, "Remover": the mark goes too, or the sweep would keep a game that never opens)
+    if (existsSync(join(p, "disc.iso.r2")) && !(await inR2(r2, [`ps2/${id}/disc.iso`]))) await rm(join(p, "disc.iso.r2"), { force: true });
+    if (!existsSync(join(p, "disc.iso.r2"))) discless.push(id);
   }
-  return { name: chosen, tables: manifest.tables, volume, requeued, discless };
+  return { name: chosen, tables: manifest.tables, volume, requeued, discless, passed };
 }

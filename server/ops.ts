@@ -5,12 +5,14 @@
  *                        healthcheck). Nothing about anyone.
  *   rate limits          limits.ts, per person, before the route: 429 with the message the home shows
  *   metrics              rooms, people online, open WebSockets, disc bytes served per game, the catalog's (games)
- *                        latency, requests by status (server/otlp.ts: out only with OTEL_EXPORTER_OTLP_ENDPOINT)
+ *                        latency, requests by status, the data disk's free and total bytes, the process' memory
+ *                        (server/otlp.ts: out only with OTEL_EXPORTER_OTLP_ENDPOINT)
  *   drain()              SIGTERM (index.ts): no new connections, every WebSocket closed with RESTART (1012) so the
  *                        page connects again, the requests going on finish (up to a grace), then index.ts writes
  *                        what's pending and exits
  */
 import type { Server, ServerWebSocket, WebSocketHandler } from "bun";
+import { statfsSync } from "node:fs";
 import type { Telemetry } from "./otlp";
 import { RESTART } from "../page/relaywire";
 import { actionOf, limitMessage, RateLimiter } from "./limits";
@@ -41,9 +43,11 @@ export interface OpsOptions {
   /** The PS2 games' online rooms (ps2rooms.ts), counted for the metrics. */
   ps2Rooms?: { size: number };
   limiter?: RateLimiter;
+  /** DATA_DIR: its disk's free and total bytes go in the metrics (the builders and uploads write GBs there). */
+  dataDir?: string;
 }
 
-export function createOps({ app, passes, telemetry, ps2Rooms, limiter = new RateLimiter() }: OpsOptions) {
+export function createOps({ app, passes, telemetry, ps2Rooms, limiter = new RateLimiter(), dataDir }: OpsOptions) {
   let draining = false;
   const sockets = new Set<ServerWebSocket<NetData>>();
 
@@ -58,6 +62,18 @@ export function createOps({ app, passes, telemetry, ps2Rooms, limiter = new Rate
     for (const ws of sockets) by.set(ws.data.kind, (by.get(ws.data.kind) ?? 0) + 1);
     return [...by].map(([kind, n]): [number, { kind: string }] => [n, { kind }]);
   });
+  telemetry.gauge("hypeplay.memory.rss", { description: "Memória do processo (RSS)", unit: "By" }, () => process.memoryUsage().rss);
+  if (dataDir) {
+    // (statfs only at each export; one that throws skips the point, otlp.ts)
+    telemetry.gauge("hypeplay.disk.free_bytes", { description: "Bytes livres no disco dos dados", unit: "By" }, () => {
+      const s = statfsSync(dataDir);
+      return s.bavail * s.bsize;
+    });
+    telemetry.gauge("hypeplay.disk.total_bytes", { description: "Tamanho do disco dos dados", unit: "By" }, () => {
+      const s = statfsSync(dataDir);
+      return s.blocks * s.bsize;
+    });
+  }
 
   const plain = (body: string, status: number, headers: Record<string, string> = {}) =>
     new Response(body, { status, headers: { ...HEADERS, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", ...headers } });

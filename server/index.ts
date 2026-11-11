@@ -122,7 +122,7 @@ const app = createApp({
 });
 
 // /health, the limits per person and the metrics around the routes; drain() on SIGTERM (ops.ts).
-const ops = createOps({ app, passes, telemetry, ps2Rooms });
+const ops = createOps({ app, passes, telemetry, ps2Rooms, dataDir: dir });
 
 // With R2, once a day, what's only here goes there: the database, the queue, the games' small files (backup.ts).
 // BACKUP=0: none. A backup that fails never stops the app.

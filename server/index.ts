@@ -1,10 +1,11 @@
 import { SQL } from "bun";
 import { join } from "node:path";
 import { telemetryFromEnv } from "./otlp";
+import { createBackups } from "./backup";
 import { createBios } from "./bios";
 import { createChunkCache, discCacheBytes } from "./chunkcache";
 import { importOld, migrate } from "./db";
-import { createDiscs, r2FromEnv } from "./discs";
+import { createDiscs, hasRoom, r2FromEnv } from "./discs";
 import { createDiscord } from "./discord";
 import { edgeFromEnv } from "./edgetoken";
 import { createLibrary } from "./library";
@@ -33,9 +34,7 @@ const DISCORD_CLIENT_ID = env("DISCORD_CLIENT_ID");
 const DISCORD_CLIENT_SECRET = env("DISCORD_CLIENT_SECRET");
 // Optional: the app's public address, for "Abrir no navegador" (inside Discord the page is behind its proxy).
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
-// Optional: a TURN relay for the PS2 games' online (coturn with --use-auth-secret).
-const TURN = process.env.TURN_URL && process.env.TURN_SECRET ? { url: process.env.TURN_URL, secret: process.env.TURN_SECRET } : undefined;
-// Optional, preferred: Cloudflare's TURN (Realtime → TURN in its dashboard), near the players wherever they are.
+// Optional: Cloudflare's TURN (Realtime → TURN in its dashboard), near the players wherever they are.
 const CLOUDFLARE = process.env.TURN_CF_KEY_ID && process.env.TURN_CF_TOKEN ? cloudflareTurn({ keyId: process.env.TURN_CF_KEY_ID, token: process.env.TURN_CF_TOKEN }) : undefined;
 
 const pageDir = join(import.meta.dir, "..", "page");
@@ -52,14 +51,16 @@ const telemetry = telemetryFromEnv("hypeplay");
 useTelemetry(telemetry);
 
 const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
-// R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
+// R2 when S3_BUCKET is set: the games' discs (discs.ts; one left on this disk is sent by the sweep) and the memory
+// cards (saves.ts).
 const r2 = r2FromEnv();
 // The R2 discs' pieces kept in memory (chunkcache.ts), DISC_CACHE_MB megabytes (256; 0: none): two people in the same
 // game, or a menu read again, don't wait on R2 again.
 const discCache = r2 && discCacheBytes() > 0 ? createChunkCache({ maxBytes: discCacheBytes() }) : null;
 // The builds' queue (queue.ts): its own file next to the data, shared with the builders on this machine.
 const queue = createQueue(join(dir, "queue.db"));
-const library = createLibrary(dir, { r2, queue });
+// (a disc that would leave the disk without its margin, max(2 GB, 5%), is refused before it comes: discs.ts)
+const library = createLibrary(dir, { r2, queue, room: (bytes) => hasRoom(dir, bytes) });
 // (the "versão rápida" asked before the queue: in it, once)
 const adopted = await library.importFast();
 if (adopted) log.info("queue: fast builds from the volume", { adopted });
@@ -78,7 +79,8 @@ const social = await createSocial(sql, dir);
 const ps2Rooms = new Ps2Rooms();
 // The client secret signs the passes too: resetting it in the portal also ends every open session.
 const passes = createPasses(DISCORD_CLIENT_SECRET);
-// Reservations never sent and folders left without their game.json go now and then (library.ts), not on the list's way.
+// What was left on this disk (reservations never sent, uploads stopped, folders without game.json, discs not in R2) is
+// cleared now and then (library.ts), never R2, and not on the list's way.
 const sweep = () => void library.sweep().catch((err) => console.error("library sweep:", err));
 sweep();
 setInterval(sweep, 10 * 60_000);
@@ -104,7 +106,6 @@ const app = createApp({
   ps2Rooms,
   bios: createBios(dir),
   publicUrl: PUBLIC_URL,
-  turn: TURN,
   cloudflare: CLOUDFLARE,
   scripts: {
     "iso.js": await bundle("iso.ts"),
@@ -123,6 +124,11 @@ const app = createApp({
 // /health, the limits per person and the metrics around the routes; drain() on SIGTERM (ops.ts).
 const ops = createOps({ app, passes, telemetry, ps2Rooms, dataDir: dir });
 
+// With R2, once a day, what's only here goes there: the database, the queue, the games' small files (backup.ts).
+// BACKUP=0: none. A backup that fails never stops the app.
+const backups = r2 && process.env.BACKUP !== "0" ? createBackups({ dir, sql, r2, telemetry, draining: () => ops.draining }) : null;
+void backups?.start();
+
 const server = Bun.serve<NetData>({
   port: PORT,
   // (above the online rooms' long-poll, ps2rooms.ts WAIT_MS; Bun's default 10 s would cut it)
@@ -139,6 +145,7 @@ log.info("cordplay listening", { port: PORT, otlp: telemetry.enabled });
  */
 async function shutdown(signal: string) {
   log.info("shutdown", { signal });
+  backups?.stop();
   try {
     await ops.drain(server);
     await social.settle();

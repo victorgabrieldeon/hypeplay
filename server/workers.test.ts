@@ -102,6 +102,7 @@ test("a worker elsewhere: the job through /worker/, the disc from R2, the build 
   expect(await exists(join(dir, "ps2", "slus-20001", "fast", "build"))).toBe(false);
   expect(await readFile(join(dir, "ps2", "slus-20001", "fast", "build.log"), "utf8")).toContain("$ bash scripts/port.sh slus-20001");
   expect(await exists(join(far, "ps2", "slus-20001", "disc.iso"))).toBe(false);
+  expect(await exists(join(far, "ps2-work", "slus-20001", "disc.iso"))).toBe(false);
   // (seen: the page no longer says offline for the next one)
   expect(queue().online("ps2")).toBe(true);
 

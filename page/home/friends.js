@@ -231,37 +231,156 @@ async function pickGame(id) {
 const page = $('amigos');
 const atPage = () => location.hash === '#amigos';
 
-/** The fields are drawn once on entering (typing isn't redrawn under the cursor); the lists follow every poll. */
+let tab = 'all';
+let sort = 'seen';
+let feedAll = false;
+
+/** The fields (search, status, note) are drawn once on entering, so typing isn't redrawn under the cursor; the rest follows every poll. */
 function pageShell(s) {
   const opt = (v) => `<option value="${v}"${s.status === v ? ' selected' : ''}>${STATUS[v]}</option>`;
-  return `<header class="fp-head"><h1 id="fp-title">Amigos</h1><span class="sub" id="fp-sub"></span></header>
-    <div class="fp-col"><div class="fp-box"><div class="people-list" id="fp-list"></div></div></div>
-    <div class="fp-col">
-      <div class="fp-box"><h2>Você</h2>
-        <div class="person">${avBtn(s.id, state.me)}<div class="who"><b>${profileBtn(s.id, state.me)}</b><span class="state">Ver meu perfil</span></div></div>
-        <label class="fm-label"><span>Status</span><select class="field" id="fm-status">${['online', 'away', 'busy', 'invisible'].map(opt).join('')}</select></label>
-        <p class="fp-hint">Ausente e Não perturbe aparecem para os amigos; em Não perturbe ninguém te convida. Invisível: offline para todo mundo.</p>
-        <label class="fm-label"><span>Recado (aparece embaixo do seu nome)</span><input class="field" id="fm-note" maxlength="80" placeholder="Procurando alguém pra jogar…" value="${esc(s.note)}"></label></div>
-      <div class="fp-box"><h2>Adicionar alguém</h2>
-        <input class="field" id="fm-q" type="search" placeholder="Nome de quem já abriu o HypePlay" autocomplete="off" aria-label="Adicionar alguém pelo nome">
-        <div class="people-list" id="fm-results"></div></div>
-      <div class="fp-box" id="fp-sent"></div>
-      <div class="fp-box"><h2>Atividade dos amigos</h2><div id="fp-feed"></div></div>
+  return `<header class="fp-head">
+      <div><h1 id="fp-title">Amigos</h1><p class="sub">Conecte-se, jogue junto e acompanhe a atividade da galera.</p></div>
+      <label class="fp-search">${icon('search')}<span class="sr">Buscar amigos</span><input id="fp-q" type="search" placeholder="Buscar amigos…" autocomplete="off"><kbd>Ctrl K</kbd></label>
+      <button type="button" class="btn" data-fp-add>${icon('users')}Adicionar amigo</button>
+    </header>
+    <div class="fp-main">
+      <div class="fp-stats" id="fp-stats"></div>
+      <section class="fp-box fp-friends" aria-label="Seus amigos">
+        <div class="fp-bar"><div class="pills" id="fp-tabs" role="group" aria-label="Mostrar"></div>
+          <label class="fp-sort"><span>Ordenar</span><select class="field" id="fp-sort"><option value="seen">Última atividade</option><option value="name">Nome</option></select></label></div>
+        <div id="fp-invites"></div>
+        <div class="fp-rows" id="fp-list"></div>
+      </section>
+      <section class="fp-box" id="fp-common" aria-labelledby="fp-common-title"></section>
+    </div>
+    <aside class="fp-side">
+      <section class="fp-box fp-me" aria-label="Você">
+        <div class="fp-me-head">${avBtn(s.id, state.me)}<div class="who"><b>${profileBtn(s.id, state.me)}</b><button type="button" class="link" data-f-me>Ver meu perfil</button></div>
+          <label class="fp-status"><span class="sr">Seu status</span><select class="field" id="fm-status">${['online', 'away', 'busy', 'invisible'].map(opt).join('')}</select></label></div>
+        <div class="fp-me-stats" id="fp-me-stats"></div>
+        <label class="fm-label"><span>Recado (aparece embaixo do seu nome)</span><input class="field" id="fm-note" maxlength="80" placeholder="Procurando alguém pra jogar…" value="${esc(s.note)}"></label>
+      </section>
+      <section class="fp-box" id="fp-feed" aria-labelledby="fp-feed-title"></section>
+      <section class="fp-box" id="fp-badges" aria-labelledby="fp-badges-title"></section>
+      <section class="fp-box" id="fp-suggest" aria-labelledby="fp-suggest-title"></section>
       <p class="fp-hint">Dentro de um jogo, <b>Shift+Tab</b> abre seus amigos por cima da tela.</p>
-    </div>`;
+    </aside>`;
+}
+
+const plain = (t) => String(t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const coverOf = (key, title) => { const g = gameOf(key); return g ? `<img src="${esc(g.cover)}" alt="${esc(g.name)}" title="${esc(g.name)}" loading="lazy">` : `<span class="nocover" title="${esc(title)}"></span>`; };
+const BADGE_ICON = { first: 'trophy', veteran: 'crown', loyal: 'star', collector: 'joystick', marathon: 'bolt', crew: 'users' };
+
+/** One row of the screen's list: who, what they're doing, their last games, and what you can do with them. */
+function fpRow(f) {
+  const p = around(f.id);
+  const room = p?.room && gameOf(p.room.key) ? p.room : null;
+  const title = p?.game?.title ?? (room && gameOf(room.key).name);
+  const on = f.status !== 'offline';
+  const doing = !on ? (f.seen ? `Visto ${ago(f.seen)}` : 'Offline') : p?.game?.watch ? `Assistindo ${title}` : title ? `Jogando ${title}` : STATUS[f.status];
+  const cls = title && on ? 'ok live' : SHAPE[f.status];
+  const games = f.games ?? [];
+  const more = (f.more ?? 0);
+  const join = room ? `${room.busy ? '' : `<button class="btn small" data-play="${esc(room.key)}" data-join="${esc(room.code)}">${icon('users')}Entrar</button>`}<button class="btn second small" data-play="${esc(room.key)}" data-join="${esc(room.code)}" data-watch>${icon('play')}Assistir</button>` : '';
+  const canInvite = on && f.status !== 'busy';
+  return `<div class="fp-row${on ? '' : ' off'}">
+    <span class="fp-av s-${on ? f.status : 'offline'}">${avBtn(f.id, f.name)}</span>
+    <div class="who"><b>${profileBtn(f.id, f.name)}${p?.call ? '<span class="tag">NA CALL</span>' : ''}</b><span class="state ${cls}">${esc(doing)}</span></div>
+    <div class="fp-games">${games.map((g) => coverOf(g.key, g.title)).join('')}${more ? `<span class="fp-more">+${more}</span>` : ''}</div>
+    <div class="acts">${join}
+      <button type="button" class="round" data-f-invite="${esc(f.id)}"${canInvite ? '' : ' disabled'} aria-label="Convidar ${esc(f.name)} para jogar" title="${canInvite ? 'Convidar para jogar' : on ? 'Não perturbe' : 'Offline'}">${icon('chat')}</button>
+      <button type="button" class="round" data-f-profile="${esc(f.id)}" aria-label="Ver o perfil de ${esc(f.name)}">${icon('more')}</button></div>
+  </div>`;
+}
+
+function requestRow(r, sent) {
+  return `<div class="fp-row"><span class="fp-av">${avBtn(r.id, r.name)}</span>
+    <div class="who"><b>${profileBtn(r.id, r.name)}</b><span class="state${sent ? ' busy' : ''}">${sent ? 'Pedido enviado' : 'Pediu amizade'}</span></div><div class="fp-games"></div>
+    <div class="acts">${sent ? `<button class="btn quiet small" data-f-remove="${esc(r.id)}">Cancelar</button>`
+      : `<button class="btn small" data-f-add="${esc(r.id)}">Aceitar</button><button class="btn quiet small" data-f-remove="${esc(r.id)}" aria-label="Recusar o pedido de ${esc(r.name)}">${icon('close')}</button>`}</div></div>`;
 }
 
 function renderPage() {
   const s = state.social;
   if (!s || page.hidden) return;
-  if (!$('fp-list')) page.innerHTML = pageShell(s);
+  if (!$('fp-list')) { page.innerHTML = pageShell(s); $('fp-sort').value = sort; }
   const live = liveCount(s);
-  set($('fp-sub'), s.friends.length ? `${live} de ${s.friends.length} online` : 'Ninguém ainda');
-  set($('fp-list'), listHtml(s, true));
-  $('fp-sent').hidden = !s.outgoing.length;
-  set($('fp-sent'), s.outgoing.length ? `<h2>Pedidos enviados</h2>${s.outgoing.map((o) => `<div class="person">${avBtn(o.id, o.name)}<div class="who"><b>${profileBtn(o.id, o.name)}</b><span class="state busy">Esperando</span></div><div class="acts"><button class="btn quiet small" data-f-remove="${esc(o.id)}">Cancelar</button></div></div>`).join('')}` : '');
-  set($('fp-feed'), s.feed.length ? `<ul class="recent feed">${s.feed.map((e) => { const g = gameOf(e.key); return `<li>${g ? `<img src="${esc(g.cover)}" alt="">` : '<span class="nocover"></span>'}<span><b>${profileBtn(e.id, e.name)} jogou ${esc(e.title)}</b><small>${when(e)}</small></span></li>`; }).join('')}</ul>` : '<p class="f-empty">Quando seus amigos jogarem, aparece aqui.</p>');
+  const ms = s.friends.reduce((t, f) => t + (f.ms ?? 0), 0);
+  const common = s.common ?? [];
+  const stat = (tone, ic, n, label) => `<div class="fp-stat ${tone}"><span class="ic">${icon(ic)}</span><div><b class="num">${n}</b><span>${label}</span></div></div>`;
+  set($('fp-stats'), stat('pink', 'users', s.friends.length, s.friends.length === 1 ? 'Amigo adicionado' : 'Amigos adicionados')
+    + stat('green', 'joystick', `${live}${live ? '<i class="dot" aria-hidden="true"></i>' : ''}`, 'Online agora')
+    + stat('violet', 'chart', esc(hours(ms)), 'Horas da galera')
+    + stat('gold', 'trophy', common.length, common.length === 1 ? 'Jogo em comum' : 'Jogos em comum'));
+  // the list: the tab, the search, the order
+  const counts = { all: s.friends.length, online: live, offline: s.friends.length - live, requests: s.incoming.length + s.outgoing.length };
+  const names = { all: 'Todos', online: 'Online', offline: 'Offline', requests: 'Solicitações' };
+  set($('fp-tabs'), Object.keys(names).map((k) => `<button type="button" class="pill${k === tab ? ' on' : ''}" data-fp-tab="${k}" aria-pressed="${k === tab}">${names[k]} <span class="num">(${counts[k]})</span></button>`).join(''));
+  const q = plain($('fp-q')?.value.trim() ?? '');
+  const match = (x) => !q || plain(x.name).includes(q);
+  let rows;
+  if (tab === 'requests') rows = [...s.incoming.filter(match).map((r) => requestRow(r, false)), ...s.outgoing.filter(match).map((r) => requestRow(r, true))];
+  else {
+    const playingFirst = (f) => (f.status === 'offline' ? 2 : around(f.id)?.game || around(f.id)?.room ? 0 : 1);
+    const list = s.friends.filter((f) => match(f) && (tab === 'all' || (tab === 'online') === (f.status !== 'offline')))
+      .sort(sort === 'name' ? (a, b) => a.name.localeCompare(b.name, 'pt-BR')
+        : (a, b) => playingFirst(a) - playingFirst(b) || (b.seen ?? 0) - (a.seen ?? 0) || a.name.localeCompare(b.name, 'pt-BR'));
+    rows = list.map(fpRow);
+  }
+  const empty = q ? 'Ninguém com esse nome na sua lista.' : tab === 'requests' ? 'Nenhum pedido de amizade agora.' : tab === 'online' ? 'Nenhum amigo online agora.'
+    : !s.friends.length ? 'Adicione quem joga com você para ver o que estão jogando e chamar para uma partida.' : 'Ninguém aqui.';
+  set($('fp-list'), rows.join('') || `<p class="f-empty">${empty}</p>`);
+  set($('fp-invites'), s.invites.map(invite).join(''));
+  // games in common (the ones in the library), the rest as "+N outros"
+  const shown = common.filter((c) => gameOf(c.key));
+  const tiles = shown.slice(0, 5).map((c) => { const g = gameOf(c.key); return `<button type="button" class="fp-game" data-open="${esc(c.key)}"><img src="${esc(g.cover)}" alt="" loading="lazy"><b>${esc(g.name)}</b><small>${c.friends} ${c.friends === 1 ? 'amigo jogou' : 'amigos jogaram'}</small></button>`; });
+  const rest = common.length - tiles.length;
+  $('fp-common').hidden = !common.length;
+  set($('fp-common'), common.length ? `<div class="fp-title"><h2 id="fp-common-title">Jogos em comum</h2><span class="sub">${common.length} ${common.length === 1 ? 'jogo' : 'jogos'}</span></div>
+    <div class="fp-games-grid">${tiles.join('')}${rest > 0 ? `<div class="fp-game rest"><b class="num">+${rest}</b><small>${rest === 1 ? 'outro' : 'outros'}</small></div>` : ''}</div>` : '');
+  // you
+  set($('fp-me-stats'), `<div>${icon('joystick')}<b class="num">${s.mine?.games ?? 0}</b><span>Jogos</span></div><div>${icon('users')}<b class="num">${s.friends.length}</b><span>Amigos</span></div><div>${icon('clock')}<b class="num">${esc(hours(s.mine?.ms ?? 0))}</b><span>Tempo jogado</span></div>`);
+  // the friends' activity
+  const feed = feedAll ? s.feed : s.feed.slice(0, 4);
+  set($('fp-feed'), `<div class="fp-title"><h2 id="fp-feed-title">Atividade dos amigos</h2>${s.feed.length > 4 ? `<button type="button" class="link" data-fp-feed>${feedAll ? 'Ver menos' : 'Ver tudo'} ${icon('right')}</button>` : ''}</div>
+    ${feed.length ? `<ul class="fp-feed">${feed.map((e) => { const g = gameOf(e.key); return `<li>${coverOf(e.key, e.title)}<span><b>${profileBtn(e.id, e.name)} jogou ${esc(e.title)}</b><small>${when(e)}</small></span>${g?.status.state === 'ready' ? `<button type="button" class="round" data-play="${esc(g.key)}" aria-label="Jogar ${esc(g.name)}">${icon('play')}</button>` : ''}</li>`; }).join('')}</ul>` : '<p class="f-empty">Quando seus amigos jogarem, aparece aqui.</p>'}`);
+  // the friends' badges
+  const badges = s.badges ?? [];
+  $('fp-badges').hidden = !badges.length;
+  set($('fp-badges'), badges.length ? `<div class="fp-title"><h2 id="fp-badges-title">Conquistas da galera</h2></div>
+    <div class="fp-badges">${badges.map((b) => `<span class="fp-badge b-${esc(b.id)}" title="${esc(`${b.name}: ${b.text} — ${b.who.join(', ')}`)}">${icon(BADGE_ICON[b.id] ?? 'star')}<span class="sr">${esc(b.name)}: ${esc(b.who.join(', '))}</span></span>`).join('')}</div>
+    <p class="fp-hint">${badges.length} ${badges.length === 1 ? 'conquista' : 'conquistas'} entre seus amigos</p>` : '');
+  // people to add
+  const suggest = s.suggest ?? [];
+  $('fp-suggest').hidden = !suggest.length;
+  set($('fp-suggest'), suggest.length ? `<div class="fp-title"><h2 id="fp-suggest-title">Sugestões de amizade</h2></div>
+    ${suggest.map((u) => `<div class="fp-sug">${avBtn(u.id, u.name)}<div class="who"><b>${profileBtn(u.id, u.name)}</b><small>${esc([u.mutual && `${u.mutual} ${u.mutual === 1 ? 'amigo' : 'amigos'} em comum`, u.common && `${u.common} ${u.common === 1 ? 'jogo' : 'jogos'} em comum`, !u.mutual && u.together && 'Jogou com você'].filter(Boolean).join(' · '))}</small></div>
+      <button type="button" class="round" data-f-add="${esc(u.id)}" aria-label="Adicionar ${esc(u.name)}">${icon('plus')}</button></div>`).join('')}` : '');
 }
+
+/** "Adicionar amigo": search by name, over the screen. */
+function addDialog() {
+  if (!layer.firstChild) returnFocus = document.activeElement;
+  layer.innerHTML = `<div class="modal" data-f="scrim"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fa-title">
+    <header><h2 id="fa-title">Adicionar amigo</h2><button class="btn quiet" data-f="close" aria-label="Fechar">${icon('close')}</button></header>
+    <input class="field" id="fm-q" type="search" placeholder="Nome de quem já abriu o HypePlay" autocomplete="off" aria-label="Buscar pelo nome">
+    <div class="people-list" id="fm-results"></div></div></div>`;
+  layer.querySelector('#fm-q').focus();
+}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-fp-tab],[data-fp-feed],[data-fp-add]');
+  if (!el) return;
+  if (el.dataset.fpTab) tab = el.dataset.fpTab;
+  if ('fpFeed' in el.dataset) feedAll = !feedAll;
+  if ('fpAdd' in el.dataset) return addDialog();
+  renderPage();
+});
+document.addEventListener('input', (e) => { if (e.target.id === 'fp-q') renderPage(); });
+document.addEventListener('change', (e) => { if (e.target.id === 'fp-sort') { sort = e.target.value; renderPage(); } });
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && $('fp-q') && !page.hidden) { e.preventDefault(); $('fp-q').focus(); }
+});
 
 /** In or out of the screen, by the address (store.js does the same for #loja; the bar's mark is the CSS's, body.in-friends). */
 function route() {

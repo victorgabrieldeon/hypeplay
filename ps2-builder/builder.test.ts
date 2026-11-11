@@ -1,11 +1,12 @@
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, lstat, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { S3Client } from "bun";
+import { NO_ROOM } from "../server/discs";
 import { FAST_STEPS } from "../server/games";
 import { createQueue, PRIORITY, type EnqueueOptions } from "../server/queue";
-import { createPs2Builder, parseMisses, type FastStatus, type Ps2BuilderOptions, type Runner } from "./builder";
+import { clearDiscs, createPs2Builder, parseMisses, type FastStatus, type Ps2BuilderOptions, type Runner } from "./builder";
 import { localJobs } from "./jobs";
 import { MARK } from "./patch";
 
@@ -265,23 +266,65 @@ test("Tentar de novo over a build redoes its code too (what failed may have been
   expect(tools.seen[1]).toContain("--no-explore");
 });
 
-test("a game whose disc is in R2: brought here for port.sh, gone again after", async () => {
+test("a game whose disc is in R2: brought to ps2-work/ for port.sh (never where the app reads discs), gone again after", async () => {
   const asked: string[] = [];
   // (R2 faked: a Blob for any key, as Bun.write takes an S3 file)
   const r2 = { file: (key: string) => (asked.push(key), new Blob(["iso from r2"])) } as unknown as import("bun").S3Client;
   let during = "";
-  const tools = fakeTools({ during: async (id) => void (during = await readFile(join(root, "ps2", id, "disc.iso"), "utf8")) });
+  let stale = true;
+  const tools = fakeTools({
+    during: async (id) => {
+      during = await readFile(join(root, "ps2-work", id, "disc.iso"), "utf8");
+      stale = await lstat(join(root, "ps2-work", id, "game", "disc.iso")).then(() => true, () => false);
+    },
+  });
   const { data, builder, game } = await setup(tools, { r2 });
   const root = data;
   await game("slus-20001");
   const iso = join(data, "ps2", "slus-20001", "disc.iso");
-  await rm(iso);
+  // (a copy left here besides the mark: R2's is the disc)
+  await writeFile(iso, "leftover");
   await writeFile(`${iso}.r2`, "10");
+  // (port.sh's link to where the disc was last time: it would keep it)
+  await mkdir(join(data, "ps2-work", "slus-20001", "game"), { recursive: true });
+  await symlink(join(data, "nowhere.iso"), join(data, "ps2-work", "slus-20001", "game", "disc.iso"));
   await builder.tick();
   expect(asked).toEqual(["ps2/slus-20001/disc.iso"]);
   expect(during).toBe("iso from r2");
-  expect(await exists(iso)).toBe(false);
+  expect(tools.seen[0]![3]).toBe(join(data, "ps2-work", "slus-20001", "disc.iso"));
+  expect(stale).toBe(false);
+  expect(await exists(join(data, "ps2-work", "slus-20001", "disc.iso"))).toBe(false);
+  expect(await readFile(iso, "utf8")).toBe("leftover");
   expect(await exists(`${iso}.r2`)).toBe(true);
+});
+
+test("a disc a stopped build left in ps2-work/ is cleared at the next start, its build's files stay", async () => {
+  const work = await mkdtemp(join(tmpdir(), "hypeplay-ps2b-work-"));
+  dirs.push(work);
+  await mkdir(join(work, "slus-20001", "game"), { recursive: true });
+  for (const f of ["disc.iso", "disc.iso.part", "game/entries.txt"]) await writeFile(join(work, "slus-20001", f), f);
+  await clearDiscs(work);
+  expect(await readdir(join(work, "slus-20001"))).toEqual(["game"]);
+  expect(await exists(join(work, "slus-20001", "game", "entries.txt"))).toBe(true);
+  await clearDiscs(join(work, "missing"));
+});
+
+test("no room on this disk for a disc from R2: not brought, the job fails and is tried again", async () => {
+  const r2 = { file: () => new Blob(["iso from r2"]) } as unknown as S3Client;
+  const tools = fakeTools();
+  const st = await setup(tools, { r2 });
+  const asked: number[] = [];
+  const jobs = localJobs({ data: st.data, queue: st.queue, r2, worker: "test", room: async (bytes) => (asked.push(bytes), false) });
+  await st.game("slus-20001");
+  const iso = join(st.data, "ps2", "slus-20001", "disc.iso");
+  await rm(iso);
+  await writeFile(`${iso}.r2`, "10");
+  const b = createPs2Builder({ work: join(st.data, "ps2-work"), repo: st.repo, run: tools.run, announce: () => {} });
+  await b.next(jobs);
+  expect(asked).toEqual([10]);
+  expect(tools.seen).toEqual([]);
+  expect(await exists(join(st.data, "ps2-work", "slus-20001", "disc.iso"))).toBe(false);
+  expect(st.queue.get("ps2/slus-20001")).toMatchObject({ state: "queued", status: { state: "failed", message: NO_ROOM } });
 });
 
 test("an error that isn't the build's (R2 down) is tried again after a pause, then fails", async () => {

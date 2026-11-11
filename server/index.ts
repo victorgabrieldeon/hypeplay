@@ -42,6 +42,10 @@ const dir = process.env.DATA_DIR ?? join(import.meta.dir, "..", "data");
 // R2 when S3_BUCKET is set: the new games' discs (discs.ts; the ones on this disk stay) and the memory cards (saves.ts).
 const r2 = r2FromEnv();
 const library = createLibrary(dir, { r2 });
+// Reservations never sent and folders left without their game.json go now and then (library.ts), not on the list's way.
+const sweep = () => void library.sweep().catch((err) => console.error("library sweep:", err));
+sweep();
+setInterval(sweep, 10 * 60_000);
 const app = createApp({
   // (the PS2 games live in /app/data/ps2/)
   dir,

@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileRead, readDiscId, type Read } from "./iso9660";
+import { fileRead, incomplete, readDiscId, type Read } from "./iso9660";
 import { makeIso } from "./testing/iso";
 
 const memory =
@@ -43,4 +43,20 @@ test("fileRead reads slices of a file", async () => {
   const path = join(tmp, "disc.iso");
   await writeFile(path, makeIso({ "SYSTEM.CNF": BT3_CNF }, { pad: 1024 * 1024 }));
   expect((await readDiscId(fileRead(path)))?.serial).toBe("SLUS-21678");
+});
+
+test("incomplete: an image shorter than its volume, a single or a dual-layer one", async () => {
+  const whole = makeIso({ "SYSTEM.CNF": BT3_CNF }, { pad: 100 * 2048 });
+  expect(await incomplete(memory(whole), whole.length)).toBeNull();
+  // (a few sectors past the volume: padding, still whole)
+  expect(await incomplete(memory(whole), whole.length + 4096)).toBeNull();
+  expect(await incomplete(memory(whole), 60 * 2048)).toStartWith("Essa ISO está incompleta: tem 0,00 GB dos 0,00 GB");
+  // layer 1's own descriptor at layer 0's end (its sector 16), holding its own size: the disc is both layers
+  const dual = new Uint8Array(180 * 2048);
+  dual.set(whole);
+  dual.set(whole.subarray(16 * 2048, 17 * 2048), 100 * 2048);
+  new DataView(dual.buffer).setUint32(100 * 2048 + 80, 96, true);
+  expect(await incomplete(memory(dual), (100 - 16 + 96) * 2048)).toBeNull();
+  expect(await incomplete(memory(dual), 170 * 2048)).toStartWith("Essa ISO está incompleta");
+  expect(await incomplete(memory(new Uint8Array(64 * 1024)), 64 * 1024)).toBeNull();
 });

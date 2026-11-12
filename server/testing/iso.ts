@@ -50,6 +50,9 @@ export function makeIso(files: Record<string, string | Uint8Array>, { pad = 0 }:
   out[pvd] = 1;
   out.set(enc.encode("CD001"), pvd + 1);
   out[pvd + 6] = 1;
+  // the volume's size in sectors, both-endian (a truncated copy is shorter than this)
+  new DataView(out.buffer).setUint32(pvd + 80, Math.floor(out.length / SECTOR), true);
+  new DataView(out.buffer).setUint32(pvd + 84, Math.floor(out.length / SECTOR), false);
   out.set(record(new Uint8Array([0]), ROOT, dirSectors * SECTOR, true), pvd + 156);
   out[17 * SECTOR] = 255;
   out.set(enc.encode("CD001"), 17 * SECTOR + 1);

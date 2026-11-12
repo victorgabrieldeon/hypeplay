@@ -11,7 +11,7 @@ import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normalizeCover } from "./cover";
 import { NO_ROOM } from "./discs";
-import { fileRead, readDiscId } from "./iso9660";
+import { fileRead, incomplete, readDiscId } from "./iso9660";
 import { PS2_MAX, PS2_MIN, type Library } from "./library";
 import { log } from "./log";
 import type { Pass } from "./pass";
@@ -192,6 +192,8 @@ export function createVimm(dir: string, library: Library, { fetch: get = fetch, 
 
     const disc = await readDiscId(fileRead(iso));
     if (!disc) throw new Refused("Isso não parece um disco de PS2 (não achei o SYSTEM.CNF com o jogo).");
+    const cut = await incomplete(fileRead(iso), Bun.file(iso).size);
+    if (cut) throw new Refused(cut);
     const r = await library.reserve(pass, disc.serial, name);
     if (!r.ok) return { state: "done", by, name, key: r.exists, existed: true } as const;
     try {

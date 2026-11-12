@@ -144,7 +144,7 @@ async function chooseDisc(file) {
   Object.assign(w, { error: '', exists: null, busy: true, copy: false });
   render();
   const id = await globalThis.CordISO.fromFile(file).catch(() => null);
-  const cut = id && (await globalThis.CordISO.incomplete(file).catch(() => null));
+  const cut = id && (await globalThis.CordISO.incomplete?.(file).catch(() => null));
   w.busy = false;
   if (!id || cut) {
     w.error = cut || 'Isso não parece um disco de PS2 (não achei o SYSTEM.CNF com o jogo).';

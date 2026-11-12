@@ -35,11 +35,13 @@ const GRAPHICS: Group[] = [
   {
     name: "gfx-scale",
     title: "Resolução",
-    // (the emulator's core takes only 1 or 2: pcsx2web_set_upscale drops anything else)
-    hint: "2× desenha o dobro de linhas: mais nítido, mas pesa na placa de vídeo. Se o jogo ficar lento, volte para Nativa.",
+    // (our core takes 1 to 4: pcsx2web_set_upscale drops anything else, and the GS caps it at the GPU's largest texture)
+    hint: "Mais alta é mais nítida e pesa mais na placa de vídeo: 2× é perto de 720p, 3× de 1080p, 4× de 1440p. Se o jogo ficar lento, desça um nível.",
     choices: [
       { value: "1", label: "Nativa" },
       { value: "2", label: "2×" },
+      { value: "3", label: "3×" },
+      { value: "4", label: "4×" },
     ],
   },
   {
@@ -246,7 +248,7 @@ export function perfAdvice(speed: number | null, threads: number[] | null, upsca
   const [ee = 0, gs = 0, vu = 0] = threads ?? [];
   if (Math.max(ee, gs, vu) < 1) return `${slow}tente a Resolução Nativa e o underclock Leve ou Médio.`;
   if (gs >= ee && gs >= vu)
-    return upscaled ? `${slow}o que pesa é o desenho. Volte a Resolução para Nativa.` : `${slow}o que pesa é o desenho, e já está na Nativa: a placa de vídeo é o limite.`;
+    return upscaled ? `${slow}o que pesa é o desenho. Desça a Resolução (até a Nativa).` : `${slow}o que pesa é o desenho, e já está na Nativa: a placa de vídeo é o limite.`;
   if (ee >= vu) return `${slow}o que pesa é o processador do PS2. Tente o underclock Leve ou Médio.`;
   return `${slow}o que pesa são as contas 3D do PS2. O underclock ajuda pouco aqui; a Resolução Nativa pode aliviar.`;
 }
@@ -406,7 +408,7 @@ export function perfSections(reopen: () => void): [HTMLElement, Tab][] {
     const M = (window as unknown as { Module?: { _pcsx2web_thread_usage?: (i: number) => number } }).Module;
     const threads = M?._pcsx2web_thread_usage ? [0, 1, 2].map((i) => M._pcsx2web_thread_usage!(i)) : null;
     const advice = speed.querySelector<HTMLElement>(".cp-advice")!;
-    advice.textContent = perfAdvice(line.text ? parseInt(line.text, 10) : null, threads, !!radio("gfx-scale", "2")?.checked);
+    advice.textContent = perfAdvice(line.text ? parseInt(line.text, 10) : null, threads, Number(document.querySelector<HTMLInputElement>('input[name="gfx-scale"]:checked')?.value ?? 1) > 1);
     advice.hidden = !advice.textContent;
     advice.classList.toggle("cp-slow", line.slow);
   };

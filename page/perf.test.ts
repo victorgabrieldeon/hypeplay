@@ -21,7 +21,7 @@ test("the whole disc in the browser: how far, in the person's words", () => {
 test("the speed advice: what weighs, from the PS2's threads (EE, GS, VU)", () => {
   expect(perfAdvice(null, null, false)).toBe("");
   expect(perfAdvice(100, [40, 30, 20], true)).toContain("não precisa mexer");
-  expect(perfAdvice(70, [60, 99, 40], true)).toContain("Volte a Resolução para Nativa");
+  expect(perfAdvice(70, [60, 99, 40], true)).toContain("Desça a Resolução");
   expect(perfAdvice(70, [60, 99, 40], false)).toContain("a placa de vídeo é o limite");
   expect(perfAdvice(70, [99, 50, 40], false)).toContain("underclock Leve ou Médio");
   expect(perfAdvice(70, [50, 40, 99], false)).toContain("contas 3D");

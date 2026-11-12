@@ -11,7 +11,7 @@ interface Swap {
 }
 
 const xml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
-const LICENSE = `<p id="cp-license">Emulador: <a href="https://github.com/TabStationToo/TabStationToo" target="_blank" rel="noopener">TabStationToo</a> (PCSX2, GPL-3.0), <a href="https://github.com/victorgabrieldeon/TabStationToo/releases/tag/hypeplay-ilwfix-1" target="_blank" rel="noopener">modificado</a> · <a href="COPYING.GPLv3" target="_blank">licença</a></p>`;
+const LICENSE = `<p id="cp-license">Emulador: <a href="https://github.com/TabStationToo/TabStationToo" target="_blank" rel="noopener">TabStationToo</a> (PCSX2, GPL-3.0), <a href="https://github.com/victorgabrieldeon/TabStationToo/releases/tag/hypeplay-hd-1" target="_blank" rel="noopener">modificado</a> · <a href="COPYING.GPLv3" target="_blank">licença</a></p>`;
 
 export const SWAPS: Swap[] = [
   { from: "<title>TabStationToo</title>", to: "<title>{name} · HypePlay</title>" },

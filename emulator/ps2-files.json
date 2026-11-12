@@ -83,11 +83,13 @@
     },
     {
       "path": "pcsx2-wasm.js",
-      "sha256": "4ccb50af5119f7ba1b34d7f4c98a41b54217e41c04c3e995b84d17f0ccb3c5db"
+      "sha256": "ae47ebc6225e6c39f68e00fd79571e11c7328fc7383087bb83cb912822eef434",
+      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-ilwfix-1/pcsx2-wasm.js"
     },
     {
       "path": "pcsx2-wasm.wasm",
-      "sha256": "9d704873d183d09d86d5e626bc4253ecb2a08dd85fccbd95edb0222f3d30ccd3"
+      "sha256": "c51e8387dbdc113a56635a5011142b134a77c4d4e085aa61c47a42a8f311c59e",
+      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-ilwfix-1/pcsx2-wasm.wasm"
     },
     {
       "path": "pcsx2-wasm.data",

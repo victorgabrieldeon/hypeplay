@@ -514,5 +514,11 @@ bun scripts/pass.ts "$DISCORD_CLIENT_SECRET" 42 Ana
   se o recompilador mudar.
 - `emulator/ps2-fetch.ts` e `ps2-files.json`: baixam o TabStationToo (GPL-3.0) e conferem cada arquivo por SHA-256;
   `--update` pega a versão publicada agora e regrava os hashes (depois revise `server/ps2page.ts`).
+  O `pcsx2-wasm.js` e o `pcsx2-wasm.wasm` (o núcleo) não vêm do site deles: vêm da release
+  [`hypeplay-ilwfix-1`](https://github.com/victorgabrieldeon/TabStationToo/releases/tag/hypeplay-ilwfix-1) do nosso fork,
+  o commit `5a9a7b4` deles mais uma correção do interpretador de VU (o `ILW` sem stall fora dos branches deixava o 3D do
+  Ben 10 - Alien Force em triângulos explodidos; [PR #4](https://github.com/TabStationToo/TabStationToo/pull/4)). Build
+  modificado (GPL-3.0): o código e o patch estão na release. Quando o TabStationToo publicar a correção, tire os dois
+  `url` do `ps2-files.json` e rode `--update`; antes disso, um `--update` traria o resto do site novo com o núcleo velho.
 - `server/ps2page.ts` e `page/ps2play.ts`: a página do TabStationToo no nosso design (BIOS e disco do servidor,
   memory card do servidor no slot 1, o console dele escondido, a nossa barra e o rodapé da licença).

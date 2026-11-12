@@ -3,11 +3,13 @@
   "files": [
     {
       "path": "index.html",
-      "sha256": "f75cfbd6ff257d6d866e0b586ada20ee6d4204d9e5c58554a567caed2858de8e"
+      "sha256": "2fe6a79175ac3dda17e0d4ca32e13f4c9aa8388d490e17054f642343a90604eb",
+      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-hd-1/index.html"
     },
     {
       "path": "app.js",
-      "sha256": "5c160f49b7309c6cc557bf8bcada24c478e8bc6cc84b7986494c17241716da94"
+      "sha256": "63a5d099a5e73ee6fc178089fe71cf56ffb8b16a0d99b6fb231c59e97e1c00cc",
+      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-hd-1/app.js"
     },
     {
       "path": "isolation.js",
@@ -83,13 +85,13 @@
     },
     {
       "path": "pcsx2-wasm.js",
-      "sha256": "ae47ebc6225e6c39f68e00fd79571e11c7328fc7383087bb83cb912822eef434",
-      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-ilwfix-1/pcsx2-wasm.js"
+      "sha256": "8df8c53c274a63179022f3236b71ca4043b89724afe1325bd1053634d26028b5",
+      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-hd-1/pcsx2-wasm.js"
     },
     {
       "path": "pcsx2-wasm.wasm",
-      "sha256": "c51e8387dbdc113a56635a5011142b134a77c4d4e085aa61c47a42a8f311c59e",
-      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-ilwfix-1/pcsx2-wasm.wasm"
+      "sha256": "dae7cbb15c104328a382621d56af26d8c339c6dbb1cb52908a656ffb2d6de780",
+      "url": "https://github.com/victorgabrieldeon/TabStationToo/releases/download/hypeplay-hd-1/pcsx2-wasm.wasm"
     },
     {
       "path": "pcsx2-wasm.data",

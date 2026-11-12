@@ -8,9 +8,12 @@
 // The game's own reads come first: a block it needs and isn't kept comes whole (one wait serves the many small reads a
 // game makes in a row) by the worker's own reader, with its deadline (past 10 s the emulator gives the disc up). The
 // next blocks are read ahead at once, in one request, beside the game's own (a game streaming a video or music reads
-// on and on: waiting for it to stop would leave every read to the network). The filling gives way: it goes on only
-// while the game isn't on the network, and what it has under way stops for the game, unless it's that very block,
-// which the game then takes from it.
+// on and on: waiting for it to stop would leave every read to the network). A few read-aheads go at once, and a game
+// read elsewhere doesn't stop them: an open-world game streams from several places of the disc in turn (Midnight Club
+// 3: its city from several at a time), and far from the server each request is mostly waiting, so one at a time, each
+// stopped by the next read elsewhere, never got ahead. The filling gives way: it goes on only while the game isn't on
+// the network, and what it has under way stops for the game, unless it's that very block, which the game then takes
+// from it.
 
 /** Blocks kept on disk, by number. Failing is only slower: the network still answers. */
 export interface BlockStore {
@@ -36,8 +39,10 @@ export interface BlockCacheOptions {
   block?: number;
   /** Blocks kept in memory (128: 128 MB). */
   keep?: number;
-  /** Blocks read ahead of each read, in one request (4). */
+  /** Blocks read ahead of each read, in one request (2: more is mostly bytes the game never reads, in the way of its own). */
   ahead?: number;
+  /** Read-ahead requests under way at once (2). */
+  parallel?: number;
   store?: BlockStore;
   /** Blocks per request while filling (4: a 4 MB request costs not much more than a 1 MB one, far from the server). */
   batch?: number;
@@ -56,7 +61,7 @@ const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 const QUEUE_MAX = 64;
 
 export function createBlockCache(opts: BlockCacheOptions) {
-  const { size, fetchBlock, block = 1 << 20, keep = 128, ahead = 4, store, batch = 4, idle = 150, wait = 3000, onProgress } = opts;
+  const { size, fetchBlock, block = 1 << 20, keep = 128, ahead = 2, parallel = 2, store, batch = 4, idle = 150, wait = 3000, onProgress } = opts;
   const blocks = Math.ceil(size / block);
   const lengthOf = (n: number) => Math.min(block, size - n * block);
 
@@ -110,20 +115,25 @@ export function createBlockCache(opts: BlockCacheOptions) {
   /** Where the game last read: the filling goes on from there. */
   let cursor = 0;
   /**
-   * The background's request under way: which blocks, whether it's the filling (which gives way to the game), how to
-   * stop it, and when it's over, with its blocks (null: it failed or was stopped).
+   * The background's requests under way: which blocks, whether it's the filling (which gives way to the game), how to
+   * stop it, and when it's over, with its blocks (null: it failed or was stopped). Read-aheads, up to `parallel`; the
+   * filling, one, and only with no read-ahead under way.
    */
-  let under: { n: number; count: number; fill: boolean; stop: AbortController; over: Promise<Map<number, Uint8Array> | null> } | null = null;
+  type Job = { n: number; count: number; fill: boolean; stop: AbortController; over: Promise<Map<number, Uint8Array> | null> };
+  const jobs = new Set<Job>();
+  const covering = (n: number) => [...jobs].find((j) => !j.stop.signal.aborted && n >= j.n && n < j.n + j.count);
   let pumping = false;
+  /** (the filling, after the network failed it: not before then) */
+  let fillPausedUntil = 0;
   /**
    * Blocks one of the game's reads is bringing from the network: another read wanting one waits for it instead of
    * asking again (the "versão rápida" reads 256 KB pieces, many at once: four of them in a block would be four blocks).
    */
   const bringing = new Map<number, Promise<Map<number, Uint8Array>>>();
   const gameIdle = () => reading === 0 && performance.now() - lastNetwork >= idle;
-  const wanted = (n: number) => !mem.has(n) && !onDisk[n] && !bringing.has(n);
+  const wanted = (n: number) => !mem.has(n) && !onDisk[n] && !bringing.has(n) && !covering(n);
   /** A background request's blocks for the game, or null when it takes past `wait` (then it stops). */
-  function waitOn(u: NonNullable<typeof under>): Promise<Map<number, Uint8Array> | null> {
+  function waitOn(u: Job): Promise<Map<number, Uint8Array> | null> {
     return new Promise((ok) => {
       const late = setTimeout(() => {
         u.stop.abort();
@@ -176,67 +186,79 @@ export function createBlockCache(opts: BlockCacheOptions) {
     say("filling");
   }
 
+  /** A background request: its blocks to memory (read ahead) and to the browser's disk; then the next ones. */
+  function start(n: number, count: number, fill: boolean) {
+    const from = n * block;
+    const stop = new AbortController();
+    let done: (got: Map<number, Uint8Array> | null) => void = () => {};
+    const job: Job = { n, count, fill, stop, over: new Promise((ok) => (done = ok)) };
+    jobs.add(job);
+    for (let i = 0; i < count; i++) drop(n + i);
+    void fetchBlock(from, Math.min(count * block, size - from), stop.signal)
+      .then(
+        async (bytes) => {
+          // (read ahead: in memory, it's what the game reads next; the filling's only on disk, and to a game waiting on it)
+          const pieces = Array.from({ length: count }, (_, i) => (count === 1 ? bytes : bytes.slice(i * block, (i + 1) * block)));
+          if (!fill) pieces.forEach((piece, i) => remember(n + i, piece));
+          // (to a game waiting on it at once; but it stays under way until it's on disk: not asked again meanwhile)
+          done(new Map(pieces.map((piece, i) => [n + i, piece])));
+          if (store)
+            for (let i = 0; i < count; i++) {
+              try {
+                await store.put(n + i, pieces[i]!);
+                mark(n + i);
+              } catch {
+                if (fill && wantFill) {
+                  wantFill = false;
+                  say("full");
+                }
+                break;
+              }
+            }
+          jobs.delete(job);
+          if (fill) cursor = (n + count) % blocks;
+        },
+        () => {
+          jobs.delete(job);
+          done(null);
+          // (stopped for the game: the same again later; the network failing the filling: a while)
+          if (fill && !stop.signal.aborted) fillPausedUntil = performance.now() + 5000;
+        },
+      )
+      .finally(() => void pump());
+  }
+
   async function pump() {
     if (pumping) return;
     pumping = true;
     try {
       for (;;) {
         while (queue.length && !wanted(queue[0]!)) queue.shift();
-        if (!queue.length && wantFill && state === "filling" && have >= blocks) {
+        const reading = [...jobs].filter((j) => !j.fill).length;
+        if (queue.length) {
+          if (reading >= parallel) return; // (one ending calls this again)
+          const head = queue[0]!;
+          const job = await nextAhead(head);
+          if (!job) drop(head);
+          else if (wanted(job.n)) start(job.n, job.count, false);
+          else drop(head);
+          continue;
+        }
+        // (the filling: only with nothing else under way)
+        if (jobs.size) return;
+        if (wantFill && state === "filling" && have >= blocks) {
           await recount();
           continue;
         }
-        const fromQueue = queue.length > 0;
-        const head = queue[0]!;
-        const job = fromQueue ? await nextAhead(head) : nextFill();
-        if (fromQueue && !job) {
-          drop(head);
-          continue;
-        }
+        const job = nextFill();
         if (!job) return;
-        // (the read-ahead goes at once; the filling waits for the game to be off the network)
-        if (!fromQueue && !gameIdle()) {
-          await sleep(Math.max(idle, 5));
+        const paused = fillPausedUntil - performance.now();
+        if (paused > 0 || !gameIdle()) {
+          await sleep(Math.max(paused, idle, 5));
           continue;
         }
-        const { n, count } = job;
-        const start = n * block;
-        const stop = new AbortController();
-        const fetching = fetchBlock(start, Math.min(count * block, size - start), stop.signal);
-        let done: (got: Map<number, Uint8Array> | null) => void = () => {};
-        under = { n, count, fill: !fromQueue, stop, over: new Promise((ok) => (done = ok)) };
-        let bytes: Uint8Array;
-        try {
-          bytes = await fetching;
-        } catch {
-          under = null;
-          done(null);
-          // (stopped for the game: the same again later; the network failing: the next one, or a while)
-          if (stop.signal.aborted) continue;
-          if (fromQueue) drop(n);
-          else await sleep(5000);
-          continue;
-        }
-        for (let i = 0; i < count; i++) drop(n + i);
-        // (read ahead: in memory, it's what the game reads next; the filling's only on disk, and to a game waiting on it)
-        const pieces = Array.from({ length: count }, (_, i) => (count === 1 ? bytes : bytes.slice(i * block, (i + 1) * block)));
-        if (fromQueue) pieces.forEach((piece, i) => remember(n + i, piece));
-        under = null;
-        done(new Map(pieces.map((piece, i) => [n + i, piece])));
-        if (store)
-          for (let i = 0; i < count; i++) {
-            try {
-              await store.put(n + i, pieces[i]!);
-              mark(n + i);
-            } catch {
-              if (!fromQueue && wantFill) {
-                wantFill = false;
-                say("full");
-              }
-              break;
-            }
-          }
-        if (!fromQueue) cursor = (n + count) % blocks;
+        start(job.n, job.count, true);
+        return;
       }
     } finally {
       pumping = false;
@@ -336,24 +358,21 @@ export function createBlockCache(opts: BlockCacheOptions) {
         const missing = await look();
         if (missing.length) {
           network = true;
-          const u = under;
-          const inU = (n: number) => !!u && n >= u.n && n < u.n + u.count;
-          const outside = missing.filter((n) => !inU(n));
-          // (what the background has under way stops for the game, unless it's bringing all the game wants, or it's
-          // the read-ahead of this very stretch, what the game reads next; the read-ahead of a stretch the game left,
-          // or the filling, stops)
-          const following = !!u && !u.fill && u.n + u.count > first && u.n <= last + ahead;
-          const giveWay = !following && outside.length > 0;
-          if (giveWay) u?.stop.abort();
+          // (the filling stops for the game, unless it's bringing all the game wants; the read-aheads go on: they're
+          // what the game reads next, here or where it streams from too)
+          if (missing.some((n) => !covering(n))) for (const j of jobs) if (j.fill) j.stop.abort();
+          const theirs = [...new Set(missing.map(covering).filter((j): j is Job => !!j))];
+          const outside = missing.filter((n) => !covering(n));
           // (and the blocks after these, at once, beside the game's own request)
           enqueue(ns(last + 1, Math.min(blocks - 1, last + ahead)), true);
           void pump();
-          const [got] = await Promise.all([u && !giveWay && missing.some(inU) ? waitOn(u) : null, bring(giveWay ? missing : outside)]);
-          for (const [n, piece] of got ?? [])
-            if (n >= first && n <= last && !parts.has(n)) {
-              parts.set(n, piece);
-              remember(n, piece);
-            }
+          const [got] = await Promise.all([Promise.all(theirs.map(waitOn)), bring(outside)]);
+          for (const m of got)
+            for (const [n, piece] of m ?? [])
+              if (n >= first && n <= last && !parts.has(n)) {
+                parts.set(n, piece);
+                remember(n, piece);
+              }
           // (what the background was to bring and didn't: from the network after all)
           await bring(await look());
         }

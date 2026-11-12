@@ -134,28 +134,59 @@ test("a read-ahead that hangs: the game waits on it only so long, then it stops 
   expect(game.asked).toEqual([[0, 10], [10, 10]]);
 });
 
-test("a game that goes elsewhere: the read-ahead of the stretch it left stops for it, and comes again later", async () => {
+test("a game that goes elsewhere: the read-ahead of the stretch it left goes on beside it, and serves it when it comes back", async () => {
   const background: number[] = [];
-  let hang = true;
+  let stops = 0;
   const cache = createBlockCache({
     size: SIZE, block: 10, ahead: 1, idle: 0,
     fetchBlock: async (start, length, signal) => {
       background.push(start);
-      if (hang && signal) {
-        hang = false;
-        await new Promise((_, fail) => signal.addEventListener("abort", () => fail(new Error("aborted"))));
-      }
+      // (block 1 is slow, as a request far from the server is)
+      if (start === 10)
+        await new Promise<void>((ok, fail) => {
+          const t = setTimeout(ok, 60);
+          signal?.addEventListener("abort", () => (clearTimeout(t), stops++, fail(new Error("aborted"))));
+        });
       return disc.slice(start, start + length);
     },
   });
   const game = gameReader();
   await cache.read(0, 1, game.read);
-  await until(() => background.length === 1); // block 1 read ahead, and hanging
+  await until(() => background.length === 1); // block 1 read ahead, slow
   expect([...(await cache.read(25, 1, game.read))]).toEqual([25]);
-  await until(() => background.length === 3);
-  // (block 1 stopped for the game's block 2, then block 3 read ahead of it, then block 1 again)
+  await until(() => background.length === 2);
+  // (block 1 not stopped for the game's block 2; block 3, read ahead of it, at once beside it)
+  expect(background).toEqual([10, 30]);
+  expect([...(await cache.read(15, 2, game.read))]).toEqual([15, 16]);
   expect(game.asked).toEqual([[0, 10], [20, 10]]);
-  expect(background).toEqual([10, 30, 10]);
+  expect(stops).toBe(0);
+  expect(background.filter((at) => at === 10)).toEqual([10]);
+});
+
+test("read-aheads of several stretches go at once, up to `parallel`", async () => {
+  let under = 0;
+  let most = 0;
+  const release: (() => void)[] = [];
+  const cache = createBlockCache({
+    size: SIZE, block: 10, ahead: 1, parallel: 2, idle: 0,
+    fetchBlock: async (start, length) => {
+      most = Math.max(most, ++under);
+      await new Promise<void>((ok) => release.push(ok));
+      under--;
+      return disc.slice(start, start + length);
+    },
+  });
+  const game = gameReader();
+  // (three stretches: blocks 0, 2 and 3 read, so 1, 3 and 4 wanted ahead)
+  await cache.read(0, 1, game.read);
+  await cache.read(20, 1, game.read);
+  await cache.read(30, 1, game.read);
+  await until(() => under === 2);
+  await settle();
+  expect(under).toBe(2);
+  while (release.length) release.shift()!(), await settle();
+  await until(() => under === 0 && !release.length);
+  expect(most).toBe(2);
 });
 
 test("the filling gives way to a game read elsewhere; a block it's bringing goes to the game waiting on it", async () => {

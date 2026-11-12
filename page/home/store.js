@@ -7,7 +7,8 @@ const $ = (id) => document.getElementById(id);
 const page = $('store');
 const MONTH = new Date().toLocaleString('pt-BR', { month: 'long' });
 
-const st = { lists: null, error: '', q: '', results: null, searching: false, searchId: 0, starting: false, featured: 0, link: '', job: state.vimm, step: 0 };
+/** jobFor: the vault id whose page started the install here; its result shows only on that page. */
+const st = { lists: null, error: '', q: '', results: null, searching: false, searchId: 0, starting: false, featured: 0, link: '', job: state.vimm, step: 0, jobFor: null };
 /** Every game seen, by id: a game's page shows what its list said. */
 const known = new Map();
 const remember = (games) => { for (const g of games) known.set(g.id, { ...known.get(g.id), ...g }); return games; };
@@ -57,7 +58,8 @@ function front() {
 
 function jobLine() {
   const v = st.job;
-  if (!v || v.state === 'idle' || ((v.state === 'done' || v.state === 'failed') && v.by !== state.me)) return '';
+  const ended = v?.state === 'done' || v?.state === 'failed';
+  if (!v || v.state === 'idle' || (ended && (v.by !== state.me || st.jobFor !== Number(at()?.[1])))) return '';
   if (v.state === 'resolving') return `<div class="busy"><div class="spin"></div><p>Localizando o link de download…</p></div>`;
   if (v.state === 'downloading')
     return `<div class="busy"><div class="spin"></div><p>${esc(v.by)} está baixando ${esc(v.name || 'o jogo')}: ${gb(v.received)}${v.size ? ` de ${gb(v.size)} (${Math.floor(pct(v.received, v.size))}%)` : ''}</p></div>`;
@@ -145,6 +147,7 @@ addEventListener('vimm', (e) => follow(e.detail));
 async function install(link, g) {
   if (st.starting || installing(st.job)) return;
   st.starting = true;
+  st.jobFor = g?.id ?? null;
   render();
   const r = await fetch('vimm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ link, title: g?.name, box: g?.box || undefined }) }).catch(() => null);
   const res = await r?.json().catch(() => ({})) ?? {};

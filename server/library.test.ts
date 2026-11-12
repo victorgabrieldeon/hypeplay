@@ -74,6 +74,13 @@ test("verify keeps a matching disc and drops a wrong or foreign one", async () =
   await writeFile(library.paths("slpm-66666").iso, makeIso({ "README.TXT": "no" }));
   expect(await library.verify("slpm-66666")).toEqual({ ok: false, message: "Isso não parece um disco de PS2" });
   expect(await library.get("slpm-66666")).toBeNull();
+
+  // a copy cut short (God of War's stopped at 41%): it boots, then loads forever past its end
+  await library.reserve(ana, "SCUS-97399", "D");
+  await writeFile(library.paths("scus-97399").iso, makeIso({ "SYSTEM.CNF": cnf("SCUS-97399") }, { pad: 64 * 2048 }).slice(0, 40 * 2048));
+  const cut = await library.verify("scus-97399");
+  expect(cut.ok ? "" : cut.message).toStartWith("Essa ISO está incompleta");
+  expect(await library.get("scus-97399")).toBeNull();
 });
 
 test("rename, cover flag and remove (saves stay)", async () => {

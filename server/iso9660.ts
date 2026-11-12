@@ -58,6 +58,32 @@ export async function readDiscId(read: Read): Promise<DiscId | null> {
   return { serial, id: serial.toLowerCase(), boot };
 }
 
+/**
+ * Why an image of `size` bytes isn't the whole disc, or null when it is: its volume descriptor says how many sectors
+ * the disc has (and a dual-layer one in a single image, layer 1's own, right after layer 0). A copy or download that
+ * stopped midway still boots, and then loads forever at the first read past its end (God of War, cut at 41%, after
+ * its first boss).
+ * shortcut: a dual-layer disc cut exactly at the end of layer 0 looks like a whole single-layer one; the boot
+ * program's layer check would catch it, if that ever happens.
+ */
+export async function incomplete(read: Read, size: number): Promise<string | null> {
+  const pvd = await read(16 * SECTOR, SECTOR);
+  if (pvd.length < SECTOR || pvd[0] !== 1 || ascii(pvd.subarray(1, 6)) !== "CD001") return null;
+  let sectors = u32(pvd, 80);
+  if (size > sectors * SECTOR) {
+    // (ps2-web-recomp's disc.cpp looks for layer 1's descriptor in the same 64 sectors)
+    const after = await read(sectors * SECTOR, Math.min(64 * SECTOR, size - sectors * SECTOR));
+    for (let at = 0; at + SECTOR <= after.length; at += SECTOR)
+      if (after[at] === 1 && ascii(after.subarray(at + 1, at + 6)) === "CD001") {
+        sectors += at / SECTOR - 16 + u32(after, at + 80);
+        break;
+      }
+  }
+  if (size >= sectors * SECTOR) return null;
+  const gb = (n: number) => `${(n / 1024 ** 3).toFixed(2).replace(".", ",")} GB`;
+  return `Essa ISO está incompleta: tem ${gb(size)} dos ${gb(sectors * SECTOR)} do disco (a cópia ou o download parou no meio). Baixe ou copie de novo e envie a ISO inteira.`;
+}
+
 /** Slices of a file on disk. */
 export const fileRead =
   (path: string): Read =>

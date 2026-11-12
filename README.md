@@ -19,8 +19,9 @@ nada (ver [Jogos de PS2](#jogos-de-ps2)). Depois disso o jogo fica na biblioteca
   conferem que é uma BIOS de PS2 (4 MiB com a tabela ROMDIR).
 - **ISO, uma vez por jogo:** "Adicionar jogo" na biblioteca. Antes do envio vem o aviso: o TabStationToo ainda está
   em teste, a maioria dos jogos roda e alguns podem travar ou ficar lentos. A página lê o serial da ISO
-  (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. O servidor confere o serial de
-  novo com a ISO inteira e guarda a ISO. Antes do primeiro pedaço ele confere se a ISO inteira cabe no disco
+  (`SYSTEM.CNF`) antes de enviar: se o jogo já está na biblioteca, nada é enviado. Uma ISO menor que o volume que
+  ela mesma declara (uma cópia ou download que parou no meio: dá boot e trava num Loading mais adiante) é recusada
+  ali, e de novo no servidor e no vimm. O servidor confere o serial de novo com a ISO inteira e guarda a ISO. Antes do primeiro pedaço ele confere se a ISO inteira cabe no disco
   deixando livre o maior entre 2 GB e 5% do disco (o Postgres e a fila moram nele); se não cabe, o envio nem começa
   (507, e a home mostra o aviso). Um envio parado há mais de 24 horas (desde o último pedaço) é apagado com a reserva.
 - **Ou baixar do vimm.net, sem passar pelo PC:** na **Loja**, abra um jogo com **Instalação direta** e clique em

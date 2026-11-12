@@ -25,7 +25,7 @@ import { join, relative } from "node:path";
 import type { S3Client } from "bun";
 import { dropFromR2, markedSize, markOf, moveToR2 } from "./discs";
 import { dropR2Build, fastKey } from "./fastjobs";
-import { fileRead, readDiscId } from "./iso9660";
+import { fileRead, incomplete, readDiscId } from "./iso9660";
 import type { Pass } from "./pass";
 import { createQueue, PRIORITY, type Queue } from "./queue";
 import { createDiscStore, type DiscStore } from "./upload";
@@ -372,13 +372,15 @@ export function createLibrary(
     /** The whole disc arrived: is it the game reserved? If not, the game goes, and its image with it. */
     async verify(id: string): Promise<{ ok: true } | { ok: false; message: string }> {
       const g = await get(id);
-      const found = g && (await readDiscId(fileRead(paths(id).iso)));
-      if (g && found?.serial === g.serial) {
+      const read = fileRead(paths(id).iso);
+      const found = g && (await readDiscId(read));
+      const cut = g && found?.serial === g.serial ? await incomplete(read, Bun.file(paths(id).iso).size) : null;
+      if (g && found?.serial === g.serial && !cut) {
         void settle(id);
         return { ok: true };
       }
       await remove(id);
-      return { ok: false, message: found ? "A ISO não é do jogo escolhido" : "Isso não parece um disco de PS2" };
+      return { ok: false, message: cut || (found ? "A ISO não é do jogo escolhido" : "Isso não parece um disco de PS2") };
     },
 
     rename: (id: string, name: string) => update(id, (g) => ({ ...g, name: nameOr(name, g.serial) })),
